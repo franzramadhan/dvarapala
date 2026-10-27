@@ -110,8 +110,8 @@ its capacity and eviction.
 | `detection.enabled` | `true` | Turn detection off entirely |
 | `detection.mode` | `"observe"` | `observe` logs only, `enforce` changes verdicts |
 | `detection.window` | `"1s"` | Window length |
-| `detection.prefix_v4` | `24` | IPv4 prefix length for aggregation |
-| `detection.prefix_v6` | `48` | IPv6 prefix length for aggregation |
+| `detection.prefix_v4` | `32` | IPv4 prefix length for aggregation; per address by default, shorten (for example `24`) to group subnets |
+| `detection.prefix_v6` | `64` | IPv6 prefix length for aggregation; per /64 by default (one host or LAN), shorten (for example `48`) to group sites |
 | `detection.sketch_width` | `2048` | Count-min columns |
 | `detection.sketch_depth` | `4` | Count-min rows (hash functions) |
 | `detection.top_k` | `64` | Heavy hitters tracked |
@@ -163,6 +163,8 @@ All engine tests take time as an input; none sleep.
 | 16 | synthetic trace: 10 min baseline, then 200 prefixes at 50x | replay through `Detector` | `Attack` within `trigger_windows + 1` windows, top-k holds attack prefixes | integration (`engine/tests/replay.rs`) |
 | 17 | synthetic trace: baseline that doubles over 1 hour | replay | never `Attack` | integration (`replay`) |
 | 18 | synthetic trace: one /24 at 30% of traffic, rate normal | replay | entropy drop flags it, `Attack` | integration (`replay`) |
+| 29 | defaults, heavy hitter 192.0.2.10 in `Attack`, `enforce` | request from 192.0.2.11 | not dropped (own group) | integration (`l7`) |
+| 30 | `prefix_v4 = 24`, same case | request from 192.0.2.11 | dropped | integration (`l7`) |
 | 19 | `mode = "observe"`, `Attack` | heavy-hitter request | `Allow`, metrics and log still emitted | integration (`l7`) |
 | 20 | `mode = "enforce"`, `Attack` | heavy-hitter request | `Drop` | integration (`l7`) |
 | 21 | `mode = "enforce"`, `Attack` | other client over `rate * attack_rate_factor` | 429 | integration (`l7`) |
@@ -194,9 +196,15 @@ All engine tests take time as an input; none sleep.
   collide in every sketch row.
 - An attacker can try to raise the baseline slowly. `ewma_alpha` bounds
   how fast it moves, and it is frozen during `Attack`.
-- An attacker inside a shared prefix (CGNAT, campus) causes `Drop` for
-  that prefix in `enforce` mode. That is why `observe` is the default and
-  the prefix lengths are configurable.
+- An attacker inside a shared prefix causes `Drop` for that prefix in
+  `enforce` mode. The defaults keep groups small (one IPv4 address, one
+  IPv6 /64) so neighbors in the same subnet are not dropped with it.
+  Clients behind one shared address (CGNAT, a campus NAT) still share a
+  fate; `observe` mode and the per-client limiter are the guard there.
+- Small groups let a flood spread across a subnet stay under the
+  per-group threshold. Operators who see that set `prefix_v4` to `24` or
+  `prefix_v6` to `48`; entropy and the rate baseline still catch the flood
+  at the instance level.
 - The model file is input from disk: parsed once at start with limits on
   trees (`1024`), depth (`16`) and nodes (`65536`), and fuzzed.
 - Defaults: about 64 KB for two sketch windows, 4 KB for entropy, a few KB
