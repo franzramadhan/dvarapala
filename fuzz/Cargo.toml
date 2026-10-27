@@ -10,6 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 dvarapala-engine = { path = "../crates/engine", features = ["ml"] }
+dvarapala-proxy = { path = "../crates/proxy", features = ["tls"] }
 libfuzzer-sys = "0.4.13"
 
 # Its own workspace: fuzzing needs nightly and sanitizer flags that the main
@@ -27,6 +28,13 @@ bench = false
 [[bin]]
 name = "tree_model"
 path = "fuzz_targets/tree_model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pem"
+path = "fuzz_targets/pem.rs"
 test = false
 doc = false
 bench = false

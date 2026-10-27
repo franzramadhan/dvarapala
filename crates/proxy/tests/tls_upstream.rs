@@ -79,7 +79,6 @@ async fn get_through(upstream: &str, tls: &UpstreamTls) -> StatusCode {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn https_upstream_with_ca_file() {
     let ca = Ca::new();
     let up = tls_upstream(&ca, &["127.0.0.1"]).await;
@@ -94,7 +93,6 @@ async fn https_upstream_with_ca_file() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn untrusted_upstream_is_502() {
     let up = tls_upstream(&Ca::new(), &["127.0.0.1"]).await;
     let status = get_through(&format!("https://{up}"), &UpstreamTls::default()).await;
@@ -102,7 +100,6 @@ async fn untrusted_upstream_is_502() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn server_name_overrides_the_host() {
     let ca = Ca::new();
     let up = tls_upstream(&ca, &["other.test"]).await;
@@ -126,7 +123,6 @@ async fn server_name_overrides_the_host() {
 }
 
 #[test]
-#[ignore = "rfc 0003"]
 fn unreadable_ca_file_is_an_error() {
     let tls = UpstreamTls {
         ca_file: Some(tempdir().join("missing.pem")),
