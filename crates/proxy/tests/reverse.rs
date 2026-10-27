@@ -76,7 +76,6 @@ async fn send(addr: SocketAddr, req: Request<Full<Bytes>>) -> (StatusCode, Strin
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0001 case 13"]
 async fn forwards_request_and_strips_hop_headers() {
     let up = echo_upstream().await;
     let (addr, _stop) = proxy(&format!("http://{up}/base")).await;
@@ -97,7 +96,6 @@ async fn forwards_request_and_strips_hop_headers() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0001 case 14"]
 async fn upstream_down_is_502() {
     // bind then drop: nothing listens on this port
     let dead = TcpListener::bind("127.0.0.1:0")
@@ -111,7 +109,6 @@ async fn upstream_down_is_502() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0001"]
 async fn shutdown_stops_accepting() {
     let up = echo_upstream().await;
     let p = ReverseProxy::<Incoming>::new(&format!("http://{up}")).unwrap();
