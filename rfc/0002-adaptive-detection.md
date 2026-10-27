@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-27 | #N | v0.2.0 |
+| accepted | 2026-10-27 | #2 | v0.2.0 |
 
 > Detect floods from the traffic itself, without training data: heavy
 > hitters per prefix, a learned rate baseline, and source entropy drive a
