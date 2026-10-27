@@ -80,8 +80,8 @@ jobs:
             exit 1
           fi
       - run: cargo fmt --all --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --workspace --all-features
 
   # RFC 0001 case 17: the release binary idles under 10 MB RSS. Also a
   # smoke test: no upstream behind it, so a request is a 502 and shows up

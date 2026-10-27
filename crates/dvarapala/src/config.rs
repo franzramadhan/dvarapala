@@ -2,11 +2,14 @@
 //! variables (`DVARAPALA__RATE_LIMIT__RATE=5` sets `rate_limit.rate`).
 
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use dvarapala_engine::DetectConfig;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +23,10 @@ pub struct Config {
     pub rate_limit: RateLimit,
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
+    #[serde(default)]
+    pub detection: Detection,
+    #[serde(default)]
+    pub ml: Ml,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -36,6 +43,86 @@ pub struct RateLimit {
     pub rate: u32,
     pub burst: u32,
     pub max_clients: usize,
+}
+
+/// RFC 0002 keys. Defaults come from [`DetectConfig::default`].
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Detection {
+    pub enabled: bool,
+    pub mode: Mode,
+    #[serde(deserialize_with = "duration")]
+    pub window: Duration,
+    pub prefix_v4: u8,
+    pub prefix_v6: u8,
+    pub sketch_width: usize,
+    pub sketch_depth: usize,
+    pub top_k: usize,
+    pub ewma_alpha: f64,
+    pub warmup_windows: u32,
+    pub z_threshold: f64,
+    pub entropy_buckets: usize,
+    pub entropy_drop: f64,
+    pub trigger_windows: u32,
+    pub cooldown_windows: u32,
+    pub attack_rate_factor: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Observe,
+    Enforce,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Ml {
+    /// XGBoost JSON model; unset turns scoring off.
+    pub model: Option<PathBuf>,
+    pub threshold: f64,
+}
+
+impl Default for Detection {
+    fn default() -> Self {
+        let d = DetectConfig::default();
+        Self {
+            enabled: true,
+            mode: Mode::Observe,
+            window: d.window,
+            prefix_v4: d.prefix_v4,
+            prefix_v6: d.prefix_v6,
+            sketch_width: d.sketch_width,
+            sketch_depth: d.sketch_depth,
+            top_k: d.top_k,
+            ewma_alpha: d.ewma_alpha,
+            warmup_windows: d.warmup_windows,
+            z_threshold: d.z_threshold,
+            entropy_buckets: d.entropy_buckets,
+            entropy_drop: d.entropy_drop,
+            trigger_windows: d.trigger_windows,
+            cooldown_windows: d.cooldown_windows,
+            attack_rate_factor: 0.25,
+        }
+    }
+}
+
+impl Default for Ml {
+    fn default() -> Self {
+        Self {
+            model: None,
+            threshold: 0.9,
+        }
+    }
+}
+
+/// `"<n>ms"` or `"<n>s"`.
+pub fn parse_duration(_s: &str) -> Result<Duration, String> {
+    todo!("rfc 0002")
+}
+
+fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+    parse_duration(&String::deserialize(d)?).map_err(de::Error::custom)
 }
 
 fn default_listen() -> SocketAddr {
@@ -137,6 +224,75 @@ mod tests {
             assert!(e.contains("rate_limt"), "{e}");
             Ok(())
         });
+    }
+
+    #[test]
+    fn detection_defaults_match_the_rfc() {
+        Jail::expect_with(|j| {
+            j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
+            let c = load(None).map_err(|e| e.to_string())?;
+            let d = &c.detection;
+            assert!(d.enabled);
+            assert_eq!(d.mode, Mode::Observe);
+            assert_eq!(d.window, Duration::from_secs(1));
+            assert_eq!((d.prefix_v4, d.prefix_v6), (32, 64));
+            assert_eq!((d.sketch_width, d.sketch_depth, d.top_k), (2048, 4, 64));
+            assert_eq!(
+                (d.ewma_alpha, d.warmup_windows, d.z_threshold),
+                (0.05, 300, 4.0)
+            );
+            assert_eq!((d.entropy_buckets, d.entropy_drop), (1024, 0.5));
+            assert_eq!((d.trigger_windows, d.cooldown_windows), (3, 30));
+            assert_eq!(d.attack_rate_factor, 0.25);
+            assert_eq!(
+                c.ml,
+                Ml {
+                    model: None,
+                    threshold: 0.9
+                }
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[ignore = "rfc 0002"]
+    fn detection_from_file_and_env() {
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"http://127.0.0.1:8081\"\n[detection]\nmode = \"enforce\"\nwindow = \"500ms\"\n",
+            )?;
+            j.set_env("DVARAPALA__DETECTION__PREFIX_V4", "24");
+            let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            assert_eq!(c.detection.mode, Mode::Enforce);
+            assert_eq!(c.detection.window, Duration::from_millis(500));
+            assert_eq!(c.detection.prefix_v4, 24);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn bad_mode_is_an_error() {
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"http://127.0.0.1:8081\"\n[detection]\nmode = \"block\"\n",
+            )?;
+            let e = load(Some(Path::new("d.toml"))).unwrap_err().to_string();
+            assert!(e.contains("block"), "{e}");
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[ignore = "rfc 0002"]
+    fn durations() {
+        assert_eq!(parse_duration("1s"), Ok(Duration::from_secs(1)));
+        assert_eq!(parse_duration("250ms"), Ok(Duration::from_millis(250)));
+        for bad in ["", "1", "s", "1m", "-1s", "1.5s", "1 s"] {
+            assert!(parse_duration(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

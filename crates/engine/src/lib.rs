@@ -3,12 +3,18 @@
 
 mod bucket;
 mod cidr;
+mod detect;
 mod key;
+mod score;
 mod table;
 mod verdict;
 
 pub use bucket::{Bucket, Limit, LimitError};
 pub use cidr::{Cidr, CidrError, TrustedProxies};
+pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use key::{ClientKey, client_key};
+pub use score::{ClientStats, FEATURE_NAMES, FEATURES, Features, Scorer};
+#[cfg(feature = "ml")]
+pub use score::{ModelError, TreeEnsemble};
 pub use table::Table;
 pub use verdict::Verdict;

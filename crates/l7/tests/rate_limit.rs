@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use bytes::Bytes;
 use dvarapala_engine::{Cidr, Limit, TrustedProxies};
@@ -18,6 +19,9 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         limit: Limit::new(rate, burst).unwrap(),
         max_clients: NonZeroUsize::new(16).unwrap(),
         trusted: TrustedProxies::new(trusted.iter().map(|c| c.parse::<Cidr>().unwrap()).collect()),
+        detection: None,
+        scoring: None,
+        now: Instant::now,
     })
 }
 

@@ -21,6 +21,13 @@ impl From<IpAddr> for ClientKey {
     }
 }
 
+/// The address a key stands for: the IPv4 address, or the /64 network.
+impl From<ClientKey> for IpAddr {
+    fn from(_key: ClientKey) -> Self {
+        todo!("rfc 0002")
+    }
+}
+
 impl fmt::Display for ClientKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -127,5 +134,18 @@ mod tests {
         let xff = vec!["192.0.2.9"; 100].join(", ");
         let k = client_key(ip("192.0.2.1"), Some(&xff), &t);
         assert_eq!(k, ClientKey::from(ip("192.0.2.1")));
+    }
+
+    #[test]
+    #[ignore = "rfc 0002"]
+    fn key_back_to_address() {
+        assert_eq!(
+            IpAddr::from(ClientKey::from(ip("192.0.2.1"))),
+            ip("192.0.2.1")
+        );
+        assert_eq!(
+            IpAddr::from(ClientKey::from(ip("2001:db8:1:2:3::9"))),
+            ip("2001:db8:1:2::")
+        );
     }
 }

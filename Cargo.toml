@@ -25,6 +25,8 @@ metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 pin-project-lite = "0.2.17"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+criterion = { version = "0.8.2", default-features = false }
 tokio = { version = "1.54.1", default-features = false }
 tower = { version = "0.5.3", default-features = false }
 tower-layer = "0.3.3"

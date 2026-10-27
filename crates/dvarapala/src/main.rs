@@ -5,6 +5,7 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use dvarapala_engine::{Cidr, Limit, TrustedProxies};
 use dvarapala_l7::{RateLimitConfig, RateLimitLayer};
@@ -65,6 +66,9 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             max_clients: NonZeroUsize::new(cfg.rate_limit.max_clients)
                 .ok_or("rate_limit.max_clients must be at least 1")?,
             trusted: TrustedProxies::new(trusted),
+            detection: None,
+            scoring: None,
+            now: Instant::now,
         }))
     } else {
         None
