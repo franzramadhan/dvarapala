@@ -23,6 +23,7 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         scoring: None,
         now: Instant::now,
     })
+    .unwrap()
 }
 
 /// Inner service that counts calls and answers 200.

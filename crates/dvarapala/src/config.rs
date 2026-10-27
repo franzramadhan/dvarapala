@@ -117,8 +117,15 @@ impl Default for Ml {
 }
 
 /// `"<n>ms"` or `"<n>s"`.
-pub fn parse_duration(_s: &str) -> Result<Duration, String> {
-    todo!("rfc 0002")
+pub fn parse_duration(s: &str) -> Result<Duration, String> {
+    let err = || format!("invalid duration {s:?}, use for example \"500ms\" or \"1s\"");
+    let (n, unit) = match s.strip_suffix("ms") {
+        Some(n) => (n, Duration::from_millis(1)),
+        None => (s.strip_suffix('s').ok_or_else(err)?, Duration::from_secs(1)),
+    };
+    // u32 parsing rejects signs, fractions and spaces
+    let n: u32 = n.parse().map_err(|_| err())?;
+    Ok(unit * n)
 }
 
 fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
@@ -256,7 +263,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn detection_from_file_and_env() {
         Jail::expect_with(|j| {
             j.create_file(
@@ -286,7 +292,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn durations() {
         assert_eq!(parse_duration("1s"), Ok(Duration::from_secs(1)));
         assert_eq!(parse_duration("250ms"), Ok(Duration::from_millis(250)));
