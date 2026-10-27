@@ -13,13 +13,19 @@ use http::{Request, Response, StatusCode};
 use tower_layer::Layer;
 use tower_service::Service;
 
-use crate::PeerAddr;
+use crate::{Detection, PeerAddr, Scoring};
 
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
     pub limit: Limit,
     pub max_clients: NonZeroUsize,
     pub trusted: TrustedProxies,
+    /// RFC 0002 adaptive detection; `None` turns it off.
+    pub detection: Option<Detection>,
+    /// RFC 0002 scoring hook; `None` turns it off.
+    pub scoring: Option<Scoring>,
+    /// The clock. `Instant::now` outside tests.
+    pub now: fn() -> Instant,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the

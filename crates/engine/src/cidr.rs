@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 /// An address block such as `192.0.2.0/24` or `2001:db8::/32`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cidr {
     addr: IpAddr,
     prefix: u8,
@@ -41,7 +41,19 @@ impl FromStr for Cidr {
     }
 }
 
+impl fmt::Display for Cidr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.addr, self.prefix)
+    }
+}
+
 impl Cidr {
+    /// The `prefix`-bit block holding `ip`, host bits cleared. `prefix` is
+    /// capped at the family's width.
+    pub fn of(_ip: IpAddr, _prefix: u8) -> Self {
+        todo!("rfc 0002")
+    }
+
     pub fn contains(&self, ip: IpAddr) -> bool {
         match (self.addr, ip.to_canonical()) {
             (IpAddr::V4(net), IpAddr::V4(ip)) => {
@@ -106,6 +118,22 @@ mod tests {
         let c: Cidr = "0.0.0.0/0".parse().unwrap();
         assert!(c.contains(ip("203.0.113.9")));
         assert!(!c.contains(ip("::1")));
+    }
+
+    #[test]
+    #[ignore = "rfc 0002"]
+    fn of_clears_host_bits() {
+        assert_eq!(Cidr::of(ip("192.0.2.77"), 24).to_string(), "192.0.2.0/24");
+        assert_eq!(Cidr::of(ip("192.0.2.77"), 40).to_string(), "192.0.2.77/32");
+        assert_eq!(
+            Cidr::of(ip("2001:db8:1:2:3::9"), 48).to_string(),
+            "2001:db8:1::/48"
+        );
+        // v4-mapped v6 groups with plain v4
+        assert_eq!(
+            Cidr::of(ip("::ffff:192.0.2.77"), 32),
+            Cidr::of(ip("192.0.2.77"), 32)
+        );
     }
 
     #[test]
