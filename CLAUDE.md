@@ -95,13 +95,14 @@ comma, colon, parentheses or a new sentence.
 - `.github/workflows/ci.yml` runs on pull requests only: `betterleaks` on
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
   `cargo test`, the file-size check, `cargo deny check` (`deny.toml`) and
-  the fuzz targets when Rust code changed (`crates/`, `fuzz/`, `examples/`,
+  the fuzz targets, plus the `footprint` job (release build, idle RSS
+  under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`,
   Cargo files, `deny.toml`, toolchain). Release PRs also get
   `release-check`. Docs-only PRs skip the Rust jobs (skipped required
   checks count as passing).
 - `main` is protected by a ruleset: PRs only, squash merge only, signed
   commits, no force push or deletion, required checks `secrets`, `test`,
-  `deny`, `fuzz`, `release-check` and `title`. A new job that must gate
+  `deny`, `fuzz`, `footprint`, `release-check` and `title`. A new job that must gate
   merges is added to the ruleset in the same PR.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest
