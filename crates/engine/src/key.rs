@@ -23,8 +23,11 @@ impl From<IpAddr> for ClientKey {
 
 /// The address a key stands for: the IPv4 address, or the /64 network.
 impl From<ClientKey> for IpAddr {
-    fn from(_key: ClientKey) -> Self {
-        todo!("rfc 0002")
+    fn from(key: ClientKey) -> Self {
+        match key {
+            ClientKey::V4(a) => Self::V4(a),
+            ClientKey::V6(p) => Self::V6(Ipv6Addr::from(u128::from(p) << 64)),
+        }
     }
 }
 
@@ -137,7 +140,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn key_back_to_address() {
         assert_eq!(
             IpAddr::from(ClientKey::from(ip("192.0.2.1"))),

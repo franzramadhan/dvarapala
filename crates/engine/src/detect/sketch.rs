@@ -6,24 +6,43 @@ pub(crate) struct Sketch {
 }
 
 impl Sketch {
-    pub(crate) fn new(_width: usize, _depth: usize) -> Self {
-        todo!("rfc 0002")
+    pub(crate) fn new(width: usize, depth: usize) -> Self {
+        Self {
+            width,
+            rows: vec![0; width * depth],
+        }
+    }
+
+    /// Counter index per row, from one 64-bit hash (Kirsch and Mitzenmacher
+    /// double hashing). The hash is seeded per process, so an attacker
+    /// cannot aim keys at the same columns.
+    fn cells(&self, h: u64) -> impl Iterator<Item = usize> + use<> {
+        let (a, b) = (h as u32 as usize, ((h >> 32) as usize) | 1);
+        let w = self.width;
+        (0..self.rows.len() / w).map(move |r| r * w + a.wrapping_add(r.wrapping_mul(b)) % w)
     }
 
     /// Counts one occurrence of the key hashed to `h`; returns its estimate.
-    pub(crate) fn add(&mut self, _h: u64) -> u32 {
-        todo!("rfc 0002")
+    pub(crate) fn add(&mut self, h: u64) -> u32 {
+        // conservative update: raise only the counters at the minimum
+        let next = self.estimate(h).saturating_add(1);
+        for i in self.cells(h) {
+            let c = &mut self.rows[i];
+            *c = (*c).max(next);
+        }
+        next
     }
 
-    pub(crate) fn estimate(&self, _h: u64) -> u32 {
-        todo!("rfc 0002")
+    pub(crate) fn estimate(&self, h: u64) -> u32 {
+        self.cells(h).map(|i| self.rows[i]).min().unwrap_or(0)
     }
 
     /// Starts a new window: every counter back to zero, no reallocation.
     pub(crate) fn clear(&mut self) {
-        todo!("rfc 0002")
+        self.rows.fill(0);
     }
 
+    #[cfg(test)]
     pub(crate) fn counters(&self) -> usize {
         self.rows.len()
     }
@@ -35,7 +54,6 @@ mod tests {
     use std::hash::{BuildHasher, RandomState};
 
     #[test]
-    #[ignore = "rfc 0002 case 1"]
     fn never_undercounts_and_error_is_bounded() {
         let hs = RandomState::new();
         let mut s = Sketch::new(2048, 4);
@@ -59,7 +77,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 2"]
     fn clear_forgets_the_window() {
         let mut s = Sketch::new(64, 4);
         for _ in 0..10 {

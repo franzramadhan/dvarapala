@@ -43,8 +43,13 @@ pub(crate) struct Machine {
 }
 
 impl Machine {
-    pub(crate) fn new(_trigger: u32, _cooldown: u32) -> Self {
-        todo!("rfc 0002")
+    pub(crate) fn new(trigger: u32, cooldown: u32) -> Self {
+        Self {
+            state: State::Normal,
+            streak: 0,
+            trigger,
+            cooldown,
+        }
     }
 
     pub(crate) fn state(&self) -> State {
@@ -52,8 +57,23 @@ impl Machine {
     }
 
     /// Feeds one closed window; returns the new state.
-    pub(crate) fn step(&mut self, _anomalous: bool) -> State {
-        todo!("rfc 0002")
+    pub(crate) fn step(&mut self, anomalous: bool) -> State {
+        use State::*;
+        (self.state, self.streak) = match (self.state, anomalous) {
+            (Normal, true) => (Suspect, 1),
+            (Suspect, true) => (Suspect, self.streak + 1),
+            (Normal | Suspect, false) => (Normal, 0),
+            (Attack | Cooldown, true) => (Attack, 0),
+            (Attack, false) => (Cooldown, 1),
+            (Cooldown, false) => (Cooldown, self.streak + 1),
+        };
+        if self.state == Suspect && self.streak >= self.trigger {
+            (self.state, self.streak) = (Attack, 0);
+        }
+        if self.state == Cooldown && self.streak >= self.cooldown {
+            (self.state, self.streak) = (Normal, 0);
+        }
+        self.state
     }
 }
 
@@ -66,21 +86,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 11"]
     fn one_anomaly_is_suspect() {
         let mut m = Machine::new(3, 30);
         assert_eq!(m.step(true), State::Suspect);
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 12"]
     fn suspect_clears_on_normal_window() {
         let mut m = Machine::new(3, 30);
         assert_eq!(run(&mut m, &[true, false]), State::Normal);
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 13"]
     fn trigger_windows_in_a_row_is_attack() {
         let mut m = Machine::new(3, 30);
         assert_eq!(run(&mut m, &[true, true]), State::Suspect);
@@ -94,7 +111,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 14"]
     fn attack_cools_down_then_normal() {
         let mut m = Machine::new(3, 30);
         run(&mut m, &[true; 3]);
@@ -104,7 +120,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 15"]
     fn cooldown_relapse_skips_suspect() {
         let mut m = Machine::new(3, 30);
         run(&mut m, &[true, true, true, false]);
@@ -113,7 +128,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn trigger_of_one_goes_straight_to_attack() {
         let mut m = Machine::new(1, 1);
         assert_eq!(m.step(true), State::Attack);

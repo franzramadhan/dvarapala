@@ -43,13 +43,16 @@ impl Limit {
     }
 
     /// Same burst, refill rate times `factor` (in `(0, 1]`).
-    pub fn scaled(&self, _factor: f64) -> Self {
-        todo!("rfc 0002")
+    pub fn scaled(&self, factor: f64) -> Self {
+        Self {
+            rate: self.rate * factor,
+            burst: self.burst,
+        }
     }
 
     /// Most requests one client can send in `d`: the burst plus the refill.
-    pub fn allowance(&self, _d: Duration) -> f64 {
-        todo!("rfc 0002")
+    pub fn allowance(&self, d: Duration) -> f64 {
+        self.burst + self.rate * d.as_secs_f64()
     }
 }
 
@@ -145,7 +148,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn scaled_slows_refill_only() {
         let l = limit(4, 1).scaled(0.25);
         let t0 = Instant::now();
@@ -159,7 +161,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn allowance_is_burst_plus_refill() {
         assert_eq!(limit(20, 40).allowance(Duration::from_secs(1)), 60.0);
         assert_eq!(limit(20, 40).allowance(Duration::from_millis(500)), 50.0);

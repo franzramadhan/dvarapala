@@ -50,8 +50,25 @@ impl fmt::Display for Cidr {
 impl Cidr {
     /// The `prefix`-bit block holding `ip`, host bits cleared. `prefix` is
     /// capped at the family's width.
-    pub fn of(_ip: IpAddr, _prefix: u8) -> Self {
-        todo!("rfc 0002")
+    pub fn of(ip: IpAddr, prefix: u8) -> Self {
+        match ip.to_canonical() {
+            IpAddr::V4(a) => {
+                let prefix = prefix.min(32);
+                let mask = u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0);
+                Self {
+                    addr: IpAddr::V4((u32::from(a) & mask).into()),
+                    prefix,
+                }
+            }
+            IpAddr::V6(a) => {
+                let prefix = prefix.min(128);
+                let mask = u128::MAX.checked_shl(128 - u32::from(prefix)).unwrap_or(0);
+                Self {
+                    addr: IpAddr::V6((u128::from(a) & mask).into()),
+                    prefix,
+                }
+            }
+        }
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
@@ -121,7 +138,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn of_clears_host_bits() {
         assert_eq!(Cidr::of(ip("192.0.2.77"), 24).to_string(), "192.0.2.0/24");
         assert_eq!(Cidr::of(ip("192.0.2.77"), 40).to_string(), "192.0.2.77/32");

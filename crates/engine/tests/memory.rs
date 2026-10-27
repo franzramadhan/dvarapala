@@ -29,7 +29,6 @@ unsafe impl GlobalAlloc for Counting {
 static A: Counting = Counting;
 
 #[test]
-#[ignore = "rfc 0002 cases 4 and 28"]
 fn detector_memory_is_fixed_and_small() {
     let before = LIVE.load(Ordering::Relaxed);
     let mut d = Detector::new(DetectConfig::default()).unwrap();
