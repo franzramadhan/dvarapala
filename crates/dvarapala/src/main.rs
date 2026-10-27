@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use dvarapala_engine::{Cidr, Limit, TrustedProxies};
-use dvarapala_l7::{RateLimitConfig, RateLimitLayer};
+use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
+use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer};
 use dvarapala_proxy::{ReverseProxy, serve};
 use hyper::body::Incoming;
 use tokio::net::TcpListener;
@@ -66,11 +66,14 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             max_clients: NonZeroUsize::new(cfg.rate_limit.max_clients)
                 .ok_or("rate_limit.max_clients must be at least 1")?,
             trusted: TrustedProxies::new(trusted),
-            detection: None,
+            detection: detection(&cfg.detection),
             scoring: None,
             now: Instant::now,
-        }))
+        })?)
     } else {
+        if cfg.detection.enabled {
+            tracing::warn!("detection runs inside the rate limiter, which is off");
+        }
         None
     };
     if !cfg.metrics.listen.is_empty() {
@@ -86,6 +89,30 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+fn detection(d: &config::Detection) -> Option<Detection> {
+    d.enabled.then(|| Detection {
+        detect: DetectConfig {
+            window: d.window,
+            prefix_v4: d.prefix_v4,
+            prefix_v6: d.prefix_v6,
+            sketch_width: d.sketch_width,
+            sketch_depth: d.sketch_depth,
+            top_k: d.top_k,
+            ewma_alpha: d.ewma_alpha,
+            warmup_windows: d.warmup_windows,
+            z_threshold: d.z_threshold,
+            entropy_buckets: d.entropy_buckets,
+            entropy_drop: d.entropy_drop,
+            trigger_windows: d.trigger_windows,
+            cooldown_windows: d.cooldown_windows,
+            // set by the layer from the rate limit
+            heavy_min: 0,
+        },
+        enforce: d.mode == config::Mode::Enforce,
+        attack_rate_factor: d.attack_rate_factor,
+    })
 }
 
 /// Resolves on Ctrl-C or SIGTERM.

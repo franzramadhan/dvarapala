@@ -55,6 +55,7 @@ fn layer(enforce: bool, prefix_v4: u8, scoring: Option<Scoring>) -> RateLimitLay
         scoring,
         now,
     })
+    .unwrap()
 }
 
 async fn send<S>(svc: &mut S, peer: &str) -> StatusCode
@@ -87,7 +88,6 @@ where
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 19"]
 async fn observe_mode_changes_no_verdict() {
     let mut svc = layer(false, 32, None).layer(inner());
     flood(&mut svc).await;
@@ -95,7 +95,6 @@ async fn observe_mode_changes_no_verdict() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 20"]
 async fn enforce_drops_heavy_hitter() {
     let mut svc = layer(true, 32, None).layer(inner());
     flood(&mut svc).await;
@@ -103,7 +102,6 @@ async fn enforce_drops_heavy_hitter() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 21"]
 async fn enforce_slows_every_other_client() {
     for (enforce, second) in [
         (false, StatusCode::OK),
@@ -123,7 +121,6 @@ async fn enforce_slows_every_other_client() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 29"]
 async fn default_grouping_spares_the_neighbor() {
     let mut svc = layer(true, 32, None).layer(inner());
     flood(&mut svc).await;
@@ -131,7 +128,6 @@ async fn default_grouping_spares_the_neighbor() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 30"]
 async fn slash_24_grouping_drops_the_neighbor() {
     let mut svc = layer(true, 24, None).layer(inner());
     flood(&mut svc).await;

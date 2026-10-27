@@ -7,12 +7,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use dvarapala_engine::{ClientKey, Limit, Table, TrustedProxies, Verdict, client_key};
+use dvarapala_engine::{
+    ClientKey, DetectError, Detector, Limit, Table, TrustedProxies, Verdict, client_key,
+};
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode};
 use tower_layer::Layer;
 use tower_service::Service;
 
+use crate::detection::{Check, Watch};
 use crate::{Detection, PeerAddr, Scoring};
 
 #[derive(Debug, Clone)]
@@ -37,27 +40,59 @@ pub struct RateLimitLayer {
 }
 
 struct Shared {
-    // ponytail: one lock for the whole table; shard by key hash if it shows
-    // up in profiles under load
-    table: Mutex<Table<ClientKey>>,
+    // ponytail: one lock for the table and the detector; shard by key hash
+    // if it shows up in profiles under load
+    state: Mutex<Inner>,
     limit: Limit,
+    /// `limit` with the refill scaled by `attack_rate_factor`
+    attack_limit: Limit,
+    enforce: bool,
     trusted: TrustedProxies,
+    now: fn() -> Instant,
+}
+
+struct Inner {
+    table: Table<ClientKey>,
+    watch: Option<Watch>,
 }
 
 impl RateLimitLayer {
-    pub fn new(config: RateLimitConfig) -> Self {
-        Self {
+    /// Fails on a detection config the engine rejects.
+    pub fn new(config: RateLimitConfig) -> Result<Self, DetectError> {
+        let (watch, enforce, attack_limit) = match config.detection {
+            Some(Detection {
+                mut detect,
+                enforce,
+                attack_rate_factor: f,
+            }) => {
+                if !(f > 0.0 && f <= 1.0) {
+                    return Err(DetectError("attack_rate_factor must be in (0, 1]".into()));
+                }
+                // a heavy hitter sent more than one client may in a window
+                detect.heavy_min = config.limit.allowance(detect.window).ceil() as u32;
+                let w = Watch::new(Detector::new(detect)?);
+                (Some(w), enforce, config.limit.scaled(f))
+            }
+            None => (None, false, config.limit),
+        };
+        Ok(Self {
             shared: Arc::new(Shared {
-                table: Mutex::new(Table::new(config.max_clients)),
+                state: Mutex::new(Inner {
+                    table: Table::new(config.max_clients),
+                    watch,
+                }),
                 limit: config.limit,
+                attack_limit,
+                enforce,
                 trusted: config.trusted,
+                now: config.now,
             }),
-        }
+        })
     }
 
     /// Clients currently in the table.
     pub fn clients(&self) -> usize {
-        self.shared.lock().len()
+        self.shared.lock().table.len()
     }
 }
 
@@ -141,17 +176,32 @@ where
 }
 
 impl Shared {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Table<ClientKey>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // a panic while holding the lock leaves a consistent table (every
         // mutation is a few field writes), so keep serving instead of dying
-        self.table.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn take(&self, key: ClientKey) -> Verdict {
+        let now = (self.now)();
         let (verdict, clients, evicted) = {
-            let mut t = self.lock();
+            let mut g = self.lock();
+            let check = match g.watch.as_mut() {
+                Some(w) => w.check(key.into(), now),
+                None => Check::default(),
+            };
+            if check.heavy && !self.enforce {
+                log_would_drop(key);
+            }
+            let t = &mut g.table;
             let before = t.evictions();
-            let v = t.take(key, &self.limit, Instant::now());
+            let v = if check.heavy && self.enforce {
+                Verdict::Drop
+            } else if check.attack && self.enforce {
+                t.take(key, &self.attack_limit, now)
+            } else {
+                t.take(key, &self.limit, now)
+            };
             (v, t.len(), t.evictions() - before)
         };
         metrics::gauge!("dvarapala_limiter_clients").set(clients as f64);
@@ -195,6 +245,17 @@ fn log_throttled(key: ClientKey) {
         .is_multiple_of(1024)
     {
         tracing::debug!(msg = "throttled", key = %key);
+    }
+}
+
+/// Observe mode: one info line per 1024 requests enforce mode would drop.
+fn log_would_drop(key: ClientKey) {
+    static WOULD_DROP: AtomicU64 = AtomicU64::new(0);
+    if WOULD_DROP
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(1024)
+    {
+        tracing::info!(msg = "would_drop", key = %key, mode = "observe");
     }
 }
 

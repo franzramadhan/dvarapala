@@ -5,6 +5,10 @@
 listen = "0.0.0.0:8080"
 upstream = "http://127.0.0.1:8081"
 
+# Only peers in these blocks may set X-Forwarded-For. Top-level key: keep it
+# above the first [section].
+# trusted_proxies = ["192.0.2.0/24"]
+
 [metrics]
 listen = "127.0.0.1:9090"
 
@@ -14,5 +18,13 @@ rate = 20
 burst = 40
 max_clients = 100000
 
-# Only peers in these blocks may set X-Forwarded-For.
-# trusted_proxies = ["192.0.2.0/24"]
+# Adaptive detection (RFC 0002). Starts in observe mode: logs and metrics
+# only. Watch dvarapala_detection_* settle before switching to "enforce".
+[detection]
+enabled = true
+mode = "observe"
+window = "1s"
+# Group sources by prefix; shorten to 24 / 48 to catch floods spread over
+# a subnet, at the cost of dropping its neighbors too.
+prefix_v4 = 32
+prefix_v6 = 64
