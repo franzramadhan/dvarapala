@@ -143,7 +143,6 @@ impl Scorer for Fixed {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0002 case 26"]
 async fn score_over_threshold_throttles() {
     for (score, want) in [(0.95, StatusCode::TOO_MANY_REQUESTS), (0.5, StatusCode::OK)] {
         let scoring = Scoring {
@@ -154,4 +153,34 @@ async fn score_over_threshold_throttles() {
         at(0);
         assert_eq!(send(&mut svc, "198.51.100.1").await, want, "score {score}");
     }
+}
+
+/// Scores the client's 4xx share.
+struct ErrorShare;
+
+impl Scorer for ErrorShare {
+    fn score(&self, f: &Features) -> f64 {
+        f[7]
+    }
+}
+
+#[tokio::test]
+async fn response_status_feeds_the_features() {
+    let scoring = Scoring {
+        scorer: Arc::new(ErrorShare),
+        threshold: 0.5,
+    };
+    let not_found = service_fn(|_req: Request<Body>| async {
+        let mut r = Response::new(Body::new());
+        *r.status_mut() = StatusCode::NOT_FOUND;
+        Ok::<_, Infallible>(r)
+    });
+    let mut svc = layer(true, 32, Some(scoring)).layer(not_found);
+    at(0);
+    assert_eq!(send(&mut svc, "198.51.100.1").await, StatusCode::NOT_FOUND);
+    at(1000);
+    assert_eq!(
+        send(&mut svc, "198.51.100.1").await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }

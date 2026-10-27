@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::future::Future;
+use std::hash::RandomState;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,14 +9,15 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    ClientKey, DetectError, Detector, Limit, Table, TrustedProxies, Verdict, client_key,
+    ClientKey, ClientStats, DetectError, Detector, Limit, Table, TrustedProxies, Verdict,
+    client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode};
 use tower_layer::Layer;
 use tower_service::Service;
 
-use crate::detection::{Check, Watch};
+use crate::detection::{Check, ReqInfo, Watch};
 use crate::{Detection, PeerAddr, Scoring};
 
 #[derive(Debug, Clone)]
@@ -49,10 +51,15 @@ struct Shared {
     enforce: bool,
     trusted: TrustedProxies,
     now: fn() -> Instant,
+    scoring: Option<Scoring>,
+    /// seeds the path hash of the distinct-paths feature
+    paths: RandomState,
 }
 
 struct Inner {
-    table: Table<ClientKey>,
+    /// stats are boxed and only filled in when scoring is on, so the table
+    /// grows by one pointer per client otherwise
+    table: Table<ClientKey, Option<Box<ClientStats>>>,
     watch: Option<Watch>,
 }
 
@@ -86,6 +93,8 @@ impl RateLimitLayer {
                 enforce,
                 trusted: config.trusted,
                 now: config.now,
+                scoring: config.scoring,
+                paths: RandomState::new(),
             }),
         })
     }
@@ -138,11 +147,17 @@ where
             forwarded_for(req.headers()).as_deref(),
             &self.shared.trusted,
         );
-        match self.shared.take(key) {
+        let info = self
+            .shared
+            .scoring
+            .as_ref()
+            .map(|_| ReqInfo::of(&req, &self.shared.paths));
+        match self.shared.take(key, info) {
             Verdict::Allow => {
                 metrics::counter!("dvarapala_requests_total", "verdict" => "allow").increment(1);
                 ResponseFuture::Inner {
                     fut: self.inner.call(req),
+                    status: info.map(|_| StatusRecorder(self.shared.clone(), key)),
                 }
             }
             Verdict::Throttle { retry_after } => {
@@ -182,7 +197,7 @@ impl Shared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn take(&self, key: ClientKey) -> Verdict {
+    fn take(&self, key: ClientKey, info: Option<ReqInfo>) -> Verdict {
         let now = (self.now)();
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
@@ -193,16 +208,28 @@ impl Shared {
             if check.heavy && !self.enforce {
                 log_would_drop(key);
             }
-            let t = &mut g.table;
-            let before = t.evictions();
-            let v = if check.heavy && self.enforce {
+            let g = &mut *g;
+            let before = g.table.evictions();
+            let mut v = if check.heavy && self.enforce {
                 Verdict::Drop
             } else if check.attack && self.enforce {
-                t.take(key, &self.attack_limit, now)
+                g.table.take(key, &self.attack_limit, now)
             } else {
-                t.take(key, &self.limit, now)
+                g.table.take(key, &self.limit, now)
             };
-            (v, t.len(), t.evictions() - before)
+            if let (Some(s), Some(info), Verdict::Allow) = (&self.scoring, info, v) {
+                let (window, instance) = g
+                    .watch
+                    .as_ref()
+                    .map_or((Duration::from_secs(1), (0.0, 0.0)), |w| {
+                        (w.window(), w.instance())
+                    });
+                if let Some(slot) = g.table.get_mut(&key) {
+                    let stats = slot.get_or_insert_with(Box::default);
+                    v = s.judge(stats, info, now, window, instance);
+                }
+            }
+            (v, g.table.len(), g.table.evictions() - before)
         };
         metrics::gauge!("dvarapala_limiter_clients").set(clients as f64);
         if evicted > 0 {
@@ -259,11 +286,23 @@ fn log_would_drop(key: ClientKey) {
     }
 }
 
+/// Feeds the response status back into the client's stats (scoring only).
+pub struct StatusRecorder(Arc<Shared>, ClientKey);
+
+impl StatusRecorder {
+    fn record(self, status: StatusCode) {
+        let mut g = self.0.lock();
+        if let Some(Some(stats)) = g.table.get_mut(&self.1) {
+            stats.record_status(status.as_u16());
+        }
+    }
+}
+
 pin_project_lite::pin_project! {
     /// Either the inner service's future or a ready rejection.
     #[project = Proj]
     pub enum ResponseFuture<F, R> {
-        Inner { #[pin] fut: F },
+        Inner { #[pin] fut: F, status: Option<StatusRecorder> },
         Rejected { res: Option<Response<R>> },
     }
 }
@@ -276,7 +315,13 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.project() {
-            Proj::Inner { fut } => fut.poll(cx),
+            Proj::Inner { fut, status } => {
+                let out = std::task::ready!(fut.poll(cx));
+                if let (Ok(res), Some(s)) = (&out, status.take()) {
+                    s.record(res.status());
+                }
+                Poll::Ready(out)
+            }
             Proj::Rejected { res } => Poll::Ready(Ok(res
                 .take()
                 .expect("ResponseFuture polled after completion"))),
