@@ -9,3 +9,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0002](rfc/0002-adaptive-detection.md) | Adaptive detection: heavy hitters, baseline, entropy, optional tree model | implemented | v0.2.0 |
 | [0003](rfc/0003-tls.md) | TLS termination with ALPN, HTTPS upstreams, bounded handshakes | accepted | v0.3.0 |
 | [0004](rfc/0004-http2-grpc.md) | HTTP/2 upstreams, trailers, gRPC-shaped errors, HTTP/2 flood limits | accepted | v0.3.0 |
+| [0005](rfc/0005-websocket.md) | WebSocket upgrade pass-through with tunnel limits | accepted | v0.4.0 |
