@@ -1,0 +1,19 @@
+[package]
+name = "dvarapala"
+description = "Anti-DDoS gateway: L4 to L7 protection as a reverse proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+dvarapala-engine.workspace = true
+dvarapala-l7.workspace = true
+dvarapala-proxy.workspace = true
+figment.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+figment = { workspace = true, features = ["test"] }

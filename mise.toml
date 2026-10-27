@@ -1,3 +1,4 @@
 [tools]
 betterleaks = "1.9.0"
+cargo-deny = "0.20.2"
 git-cliff = "2.14.2"

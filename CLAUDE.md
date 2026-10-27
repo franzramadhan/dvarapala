@@ -175,5 +175,7 @@ comma, colon, parentheses or a new sentence.
 ## Tooling
 
 - Rust is pinned in `rust-toolchain.toml`. Bump it there.
-- `betterleaks` and `git-cliff` are pinned in `mise.toml` (`mise install`).
+- `betterleaks`, `git-cliff` and `cargo-deny` are pinned in `mise.toml`
+  (`mise install`). Run `cargo deny check` before opening a PR that adds a
+  dependency.
   Keep the `betterleaks` version in `mise.toml` and `ci.yml` in step.
