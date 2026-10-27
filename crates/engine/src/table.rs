@@ -12,11 +12,14 @@ const NIL: u32 = u32::MAX;
 /// seen client is evicted, so a flood of spoofed sources cannot grow memory.
 /// Slots are allocated as clients arrive, not up front.
 ///
+/// Each slot also holds a `V` (default `()`) for per-client data that
+/// shares the bucket's capacity and eviction; it resets on eviction.
+///
 /// Not thread-safe; callers wrap it in a lock.
-pub struct Table<K> {
+pub struct Table<K, V = ()> {
     capacity: usize,
     index: HashMap<K, u32>,
-    slots: Vec<Slot<K>>,
+    slots: Vec<Slot<K, V>>,
     /// most recently seen slot
     head: u32,
     /// least recently seen slot, evicted first
@@ -24,14 +27,15 @@ pub struct Table<K> {
     evictions: u64,
 }
 
-struct Slot<K> {
+struct Slot<K, V> {
     key: K,
     bucket: Bucket,
+    extra: V,
     prev: u32,
     next: u32,
 }
 
-impl<K: Hash + Eq + Clone> Table<K> {
+impl<K: Hash + Eq + Clone, V: Default> Table<K, V> {
     /// `capacity` is capped at `u32::MAX - 1` clients.
     pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
@@ -56,6 +60,7 @@ impl<K: Hash + Eq + Clone> Table<K> {
             self.slots.push(Slot {
                 key: key.clone(),
                 bucket,
+                extra: V::default(),
                 prev: NIL,
                 next: NIL,
             });
@@ -67,12 +72,19 @@ impl<K: Hash + Eq + Clone> Table<K> {
             self.index.remove(&slot.key);
             slot.key = key.clone();
             slot.bucket = bucket;
+            slot.extra = V::default();
             self.evictions += 1;
             t
         };
         self.index.insert(key, i);
         self.push_front(i);
         self.slots[i as usize].bucket.take(limit, now)
+    }
+
+    /// `key`'s extra data, without touching its recency.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let &i = self.index.get(key)?;
+        Some(&mut self.slots[i as usize].extra)
     }
 
     pub fn len(&self) -> usize {
@@ -149,6 +161,21 @@ mod tests {
         assert_eq!(tb.evictions(), 999_000);
         assert!(tb.slots.capacity() <= 2048);
         assert!(tb.index.capacity() <= 4096);
+    }
+
+    #[test]
+    fn extra_data_resets_on_eviction() {
+        let l = Limit::new(1, 1).unwrap();
+        let t = Instant::now();
+        let mut tb: Table<u32, u32> = Table::new(NonZeroUsize::new(1).unwrap());
+        assert_eq!(tb.get_mut(&1), None);
+        tb.take(1, &l, t);
+        *tb.get_mut(&1).unwrap() = 7;
+        tb.take(1, &l, t);
+        assert_eq!(tb.get_mut(&1), Some(&mut 7));
+        tb.take(2, &l, t);
+        assert_eq!(tb.get_mut(&1), None);
+        assert_eq!(tb.get_mut(&2), Some(&mut 0));
     }
 
     #[test]

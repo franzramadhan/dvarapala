@@ -5,10 +5,12 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
+#[cfg(feature = "ml")]
+use std::sync::Arc;
 use std::time::Instant;
 
 use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
-use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer};
+use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 use dvarapala_proxy::{ReverseProxy, serve};
 use hyper::body::Incoming;
 use tokio::net::TcpListener;
@@ -67,12 +69,12 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
                 .ok_or("rate_limit.max_clients must be at least 1")?,
             trusted: TrustedProxies::new(trusted),
             detection: detection(&cfg.detection),
-            scoring: None,
+            scoring: scoring(&cfg.ml)?,
             now: Instant::now,
         })?)
     } else {
-        if cfg.detection.enabled {
-            tracing::warn!("detection runs inside the rate limiter, which is off");
+        if cfg.detection.enabled || cfg.ml.model.is_some() {
+            tracing::warn!("detection and scoring run inside the rate limiter, which is off");
         }
         None
     };
@@ -113,6 +115,29 @@ fn detection(d: &config::Detection) -> Option<Detection> {
         enforce: d.mode == config::Mode::Enforce,
         attack_rate_factor: d.attack_rate_factor,
     })
+}
+
+/// Loads `ml.model`; a model in a build without the `ml` feature is an error.
+fn scoring(m: &config::Ml) -> Result<Option<Scoring>, Box<dyn Error>> {
+    let Some(path) = &m.model else {
+        return Ok(None);
+    };
+    #[cfg(feature = "ml")]
+    {
+        let bytes = std::fs::read(path).map_err(|e| format!("ml.model {}: {e}", path.display()))?;
+        let model = dvarapala_engine::TreeEnsemble::from_json(&bytes)
+            .map_err(|e| format!("ml.model {}: {e}", path.display()))?;
+        Ok(Some(Scoring {
+            scorer: Arc::new(model),
+            threshold: m.threshold,
+        }))
+    }
+    #[cfg(not(feature = "ml"))]
+    Err(format!(
+        "ml.model {} needs a build with the ml feature",
+        path.display()
+    )
+    .into())
 }
 
 /// Resolves on Ctrl-C or SIGTERM.

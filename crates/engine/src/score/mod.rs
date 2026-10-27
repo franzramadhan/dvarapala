@@ -1,9 +1,6 @@
 //! Optional scoring: per-client online features and a model that turns
 //! them into a score.
 
-// rfc 0002 stubs: removed once the implementation fills the bodies in
-#![allow(dead_code)]
-
 mod features;
 #[cfg(feature = "ml")]
 mod tree;

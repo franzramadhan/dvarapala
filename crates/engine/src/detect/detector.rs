@@ -204,6 +204,10 @@ impl Detector {
         }
     }
 
+    pub fn window(&self) -> Duration {
+        self.cfg.window
+    }
+
     pub fn state(&self) -> State {
         self.machine.state()
     }

@@ -1,11 +1,14 @@
 //! RFC 0002 settings for the rate limit layer: adaptive detection and the
 //! optional scorer.
 
+use std::hash::{BuildHasher, RandomState};
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use dvarapala_engine::{DetectConfig, Detector, Scorer, State, WindowReport};
+use dvarapala_engine::{ClientStats, DetectConfig, Detector, Scorer, State, Verdict, WindowReport};
+use http::Request;
+use http::header::{CONTENT_LENGTH, USER_AGENT};
 
 #[derive(Debug, Clone)]
 pub struct Detection {
@@ -21,6 +24,53 @@ pub struct Scoring {
     pub scorer: Arc<dyn Scorer>,
     /// A score above it turns `Allow` into `Throttle`.
     pub threshold: f64,
+}
+
+/// What the scorer's features need from one request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReqInfo {
+    size: u64,
+    has_user_agent: bool,
+    path_hash: u64,
+}
+
+impl ReqInfo {
+    pub(crate) fn of<B>(req: &Request<B>, paths: &RandomState) -> Self {
+        Self {
+            // ponytail: declared length only; a chunked body counts as 0
+            size: req
+                .headers()
+                .get(CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok()?.parse().ok())
+                .unwrap_or(0),
+            has_user_agent: req.headers().contains_key(USER_AGENT),
+            path_hash: paths.hash_one(req.uri().path()),
+        }
+    }
+}
+
+impl Scoring {
+    /// Records the request in the client's stats and scores it. A score
+    /// above the threshold turns the request into a throttle for `window`.
+    pub(crate) fn judge(
+        &self,
+        stats: &mut ClientStats,
+        info: ReqInfo,
+        now: Instant,
+        window: Duration,
+        instance: (f64, f64),
+    ) -> Verdict {
+        stats.record(now, window, info.size, info.has_user_agent, info.path_hash);
+        let score = self.scorer.score(&stats.features(instance.0, instance.1));
+        metrics::histogram!("dvarapala_ml_score").record(score);
+        if score > self.threshold {
+            Verdict::Throttle {
+                retry_after: window,
+            }
+        } else {
+            Verdict::Allow
+        }
+    }
 }
 
 impl std::fmt::Debug for Scoring {
@@ -66,6 +116,15 @@ impl Watch {
 
     /// Metrics for every closed window, one log line per attack start and end.
     // runs under the layer's lock; transitions are rare, gauges are atomics
+    pub(crate) fn window(&self) -> Duration {
+        self.detector.window()
+    }
+
+    /// Rate z-score and normalized entropy of the last closed window.
+    pub(crate) fn instance(&self) -> (f64, f64) {
+        (self.detector.zscore(), self.detector.entropy())
+    }
+
     fn report(&mut self, r: &WindowReport, now: Instant) {
         metrics::gauge!("dvarapala_detection_state").set(f64::from(r.to.code()));
         metrics::gauge!("dvarapala_detection_rate_zscore").set(r.zscore);
