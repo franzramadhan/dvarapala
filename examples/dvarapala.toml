@@ -1,0 +1,18 @@
+# Minimal reverse proxy with the default rate limit.
+# Every key can be overridden by DVARAPALA__<SECTION>__<KEY>, for example
+# DVARAPALA__RATE_LIMIT__RATE=5.
+
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+enabled = true
+rate = 20
+burst = 40
+max_clients = 100000
+
+# Only peers in these blocks may set X-Forwarded-For.
+# trusted_proxies = ["192.0.2.0/24"]

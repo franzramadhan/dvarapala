@@ -26,6 +26,9 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# workspace path deps have no version; allowed while the crates are
+# private (publish = false). Publishing the SDK crates is its own RFC.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

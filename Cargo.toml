@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/franzramadhan/dvarapala"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+dvarapala-engine = { path = "crates/engine" }
+dvarapala-l7 = { path = "crates/l7" }
+dvarapala-proxy = { path = "crates/proxy" }
+
+bytes = "1.12.1"
+figment = { version = "0.10.19", default-features = false, features = ["toml", "env"] }
+http = "1.5.0"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", default-features = false }
+hyper-util = { version = "0.1.21", default-features = false }
+metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+pin-project-lite = "0.2.17"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", default-features = false }
+tower = { version = "0.5.3", default-features = false }
+tower-layer = "0.3.3"
+tower-service = "0.3.3"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+
+# Small static binary. Panics unwind (no panic = "abort"): a panic in one
+# connection task must not take the whole proxy down.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

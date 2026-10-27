@@ -1,0 +1,12 @@
+[package]
+name = "dvarapala-engine"
+description = "Verdict engine for dvarapala: limiters and rules, no I/O"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# No dependencies on purpose: the engine embeds anywhere, including the C ABI.
+[dependencies]
