@@ -5,4 +5,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 
 | RFC | Feature | Status | Target |
 |---|---|---|---|
-| [0001](rfc/0001-foundation.md) | Foundation: engine, L7 rate limit, reverse proxy | draft | v0.1.0 |
+| [0001](rfc/0001-foundation.md) | Foundation: engine, L7 rate limit, reverse proxy | accepted | v0.1.0 |

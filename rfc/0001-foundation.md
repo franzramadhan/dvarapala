@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-27 | #N | v0.1.0 |
+| accepted | 2026-10-27 | #1 | v0.1.0 |
 
 > Set the architecture (one I/O-free verdict engine, thin entry points) and
 > ship the first usable slice: per-client L7 rate limiting in front of a
