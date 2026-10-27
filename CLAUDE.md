@@ -120,6 +120,24 @@ comma, colon, parentheses or a new sentence.
 - Versioning: `v0.MINOR.PATCH` only. 0.x is alpha; no v1 until the
   maintainer decides. No pre-release suffixes for now.
 
+### Stacked PRs
+
+- A PR that depends on another open PR goes in a stack with the `gh stack`
+  extension (`gh extension install github/gh-stack`), never a branch based
+  on another branch by hand. Agents load the `gh-stack` skill
+  (`gh skill install github/gh-stack`).
+- Typical split for an accepted RFC: the failing tests at the bottom, then
+  the implementation in one layer per domain (for example `engine`, then
+  `l7`, then the binary wiring), each one reviewable alone.
+- `gh stack add <branch>` for the next layer, `gh stack submit` to open
+  the PRs, `gh stack sync` after a lower layer changes (cascade rebase and
+  push).
+- Merge with `gh stack merge <top PR> --squash`: all layers up to that PR
+  land on `main` in one all-or-nothing step, each as its own squash
+  commit.
+- After the merge: `git switch main && git pull --ff-only && gh stack sync
+  --prune`.
+
 ### Release flow
 
 1. Branch `release/v<version>` from `main`.
