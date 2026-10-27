@@ -47,7 +47,6 @@ fn req(peer: &str, xff: Option<&str>) -> Request<Body> {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0001 case 11"]
 async fn second_request_gets_429_with_retry_after() {
     let (_, inner) = counting();
     let mut svc = layer(1, 1, &[]).layer(inner);
@@ -71,7 +70,6 @@ async fn second_request_gets_429_with_retry_after() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0001 case 12"]
 async fn throttled_request_never_reaches_inner() {
     let (calls, inner) = counting();
     let mut svc = layer(1, 1, &[]).layer(inner);
@@ -88,7 +86,6 @@ async fn throttled_request_never_reaches_inner() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0001"]
 async fn clients_have_separate_buckets() {
     let (_, inner) = counting();
     let l = layer(1, 1, &[]);
@@ -107,7 +104,6 @@ async fn clients_have_separate_buckets() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0001"]
 async fn trusted_proxy_keys_on_forwarded_client() {
     let (_, inner) = counting();
     let mut svc = layer(1, 1, &["192.0.2.0/24"]).layer(inner);
@@ -138,7 +134,6 @@ async fn trusted_proxy_keys_on_forwarded_client() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0001"]
 async fn missing_peer_fails_closed() {
     let (calls, inner) = counting();
     let mut svc = layer(1, 1, &[]).layer(inner);
