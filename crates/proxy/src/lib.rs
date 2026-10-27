@@ -4,6 +4,10 @@
 mod hop;
 mod reverse;
 mod server;
+#[cfg(feature = "tls")]
+pub mod tls;
 
 pub use reverse::{ProxyBody, ReverseProxy, UpstreamError};
 pub use server::serve;
+#[cfg(feature = "tls")]
+pub use server::serve_tls;

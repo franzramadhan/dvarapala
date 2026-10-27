@@ -24,6 +24,12 @@ hyper-util = { version = "0.1.21", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 pin-project-lite = "0.2.17"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
+rustls-pki-types = { version = "1.15.1", features = ["std"] }
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 criterion = { version = "0.8.2", default-features = false }

@@ -140,6 +140,14 @@ fn scoring(m: &config::Ml) -> Result<Option<Scoring>, Box<dyn Error>> {
     .into())
 }
 
+/// A build without the `tls` feature refuses `[tls]` and `https://`
+/// instead of ignoring them.
+#[cfg(not(feature = "tls"))]
+#[allow(dead_code)] // stub until the rfc 0003 wiring
+fn no_tls(_tls: &config::Tls, _upstream: &str) -> Result<(), String> {
+    todo!("rfc 0003")
+}
+
 /// Resolves on Ctrl-C or SIGTERM.
 async fn shutdown() {
     #[cfg(unix)]
@@ -154,4 +162,31 @@ async fn shutdown() {
     #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
     tracing::info!("shutting down, draining connections");
+}
+
+#[cfg(all(test, not(feature = "tls")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "rfc 0003"]
+    fn tls_needs_the_feature() {
+        let on = config::Tls {
+            cert: Some("c.pem".into()),
+            key: Some("k.pem".into()),
+            ..config::Tls::default()
+        };
+        assert!(
+            no_tls(&on, "http://127.0.0.1:1")
+                .unwrap_err()
+                .contains("tls feature")
+        );
+        let off = config::Tls::default();
+        assert!(
+            no_tls(&off, "https://127.0.0.1:1")
+                .unwrap_err()
+                .contains("tls feature")
+        );
+        assert_eq!(no_tls(&off, "http://127.0.0.1:1"), Ok(()));
+    }
 }
