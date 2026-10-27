@@ -4,6 +4,8 @@
 use std::net::SocketAddr;
 use std::path::Path;
 
+use figment::Figment;
+use figment::providers::{Env, Format, Toml};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -60,8 +62,15 @@ impl Default for RateLimit {
 }
 
 /// Reads `path` (when given) and the environment.
-pub fn load(_path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
-    todo!("rfc 0001")
+pub fn load(path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
+    let mut f = Figment::new();
+    if let Some(path) = path {
+        // file_exact: a missing --config file is an error, not an empty config
+        f = f.merge(Toml::file_exact(path));
+    }
+    f.merge(Env::prefixed("DVARAPALA__").split("__"))
+        .extract()
+        .map_err(Box::new)
 }
 
 #[cfg(test)]
@@ -72,7 +81,6 @@ mod tests {
     use figment::Jail;
 
     #[test]
-    #[ignore = "rfc 0001 case 15"]
     fn env_overrides_file() {
         Jail::expect_with(|j| {
             j.create_file(
@@ -88,7 +96,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 16"]
     fn missing_upstream_names_the_key() {
         Jail::expect_with(|j| {
             j.create_file("d.toml", "listen = \"127.0.0.1:8080\"\n")?;
@@ -99,7 +106,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn defaults_match_the_rfc() {
         Jail::expect_with(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
@@ -121,7 +127,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn unknown_key_is_an_error() {
         Jail::expect_with(|j| {
             j.create_file(
@@ -135,7 +140,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn example_config_loads() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dvarapala.toml");
         load(Some(&path)).unwrap();

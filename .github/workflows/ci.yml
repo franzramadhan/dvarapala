@@ -83,6 +83,34 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
 
+  # RFC 0001 case 17: the release binary idles under 10 MB RSS. Also a
+  # smoke test: no upstream behind it, so a request is a 502 and shows up
+  # in /metrics.
+  footprint:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo build --locked --release -p dvarapala
+      - name: idle RSS and smoke
+        run: |
+          set -euo pipefail
+          ./target/release/dvarapala serve --config examples/dvarapala.toml &
+          pid=$!
+          for _ in $(seq 50); do curl -fs -o /dev/null http://127.0.0.1:9090/metrics && break; sleep 0.1; done
+          rss=$(awk '/^VmRSS/ {print $2}' "/proc/$pid/status")
+          echo "idle RSS: ${rss} kB"
+          [ "$rss" -lt 10240 ] || { echo "::error::idle RSS ${rss} kB, limit 10240 kB"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)
+          [ "$code" = 502 ] || { echo "::error::expected 502 without upstream, got $code"; exit 1; }
+          curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_upstream_errors_total 1'
+          kill -TERM "$pid"
+          wait "$pid"
+
   # RustSec advisories, licenses, duplicate crates, sources (deny.toml)
   deny:
     needs: changes
