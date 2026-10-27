@@ -24,15 +24,40 @@ impl FromStr for Cidr {
     type Err = CidrError;
 
     /// Accepts `addr/prefix` or a bare address (a single host).
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!("rfc 0001")
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err = || CidrError(s.to_owned());
+        let (addr, prefix) = match s.split_once('/') {
+            Some((a, p)) => (a, Some(p)),
+            None => (s, None),
+        };
+        let addr: IpAddr = addr.parse().map_err(|_| err())?;
+        let max = if addr.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            // u8 parsing rejects signs, spaces and a second slash
+            Some(p) => p.parse::<u8>().ok().filter(|&p| p <= max).ok_or_else(err)?,
+            None => max,
+        };
+        Ok(Self { addr, prefix })
     }
 }
 
 impl Cidr {
-    pub fn contains(&self, _ip: IpAddr) -> bool {
-        let _ = (self.addr, self.prefix);
-        todo!("rfc 0001")
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.addr, ip.to_canonical()) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u32::from(net) & mask == u32::from(ip) & mask
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u128::from(net) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
     }
 }
 
@@ -59,7 +84,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn v4_block() {
         let c: Cidr = "192.0.2.0/24".parse().unwrap();
         assert!(c.contains(ip("192.0.2.255")));
@@ -68,7 +92,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn v6_block_and_bare_host() {
         let c: Cidr = "2001:db8::/32".parse().unwrap();
         assert!(c.contains(ip("2001:db8:ffff::1")));
@@ -79,7 +102,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn zero_prefix_matches_family() {
         let c: Cidr = "0.0.0.0/0".parse().unwrap();
         assert!(c.contains(ip("203.0.113.9")));
@@ -87,7 +109,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn rejects_garbage() {
         for s in [
             "",

@@ -1,5 +1,5 @@
 use std::fmt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::Verdict;
 
@@ -29,13 +29,17 @@ impl std::error::Error for LimitError {}
 
 impl Limit {
     /// `rate` tokens per second, at most `burst` tokens saved up.
-    pub fn new(_rate: u32, _burst: u32) -> Result<Self, LimitError> {
-        todo!("rfc 0001")
-    }
-
-    /// The same limit with the rate multiplied by `factor` (RFC 0002 attack mode).
-    pub fn scaled(&self, _factor: f64) -> Self {
-        todo!("rfc 0001")
+    pub fn new(rate: u32, burst: u32) -> Result<Self, LimitError> {
+        if rate == 0 {
+            return Err(LimitError::ZeroRate);
+        }
+        if burst == 0 {
+            return Err(LimitError::ZeroBurst);
+        }
+        Ok(Self {
+            rate: f64::from(rate),
+            burst: f64::from(burst),
+        })
     }
 }
 
@@ -47,27 +51,38 @@ pub struct Bucket {
 }
 
 impl Bucket {
-    pub fn full(_limit: &Limit, _now: Instant) -> Self {
-        todo!("rfc 0001")
+    pub fn full(limit: &Limit, now: Instant) -> Self {
+        Self {
+            tokens: limit.burst,
+            last: now,
+        }
     }
 
-    pub fn take(&mut self, _limit: &Limit, _now: Instant) -> Verdict {
-        let _ = (self.tokens, self.last);
-        todo!("rfc 0001")
+    pub fn take(&mut self, limit: &Limit, now: Instant) -> Verdict {
+        // a clock that went backwards refills nothing and moves `last` nowhere
+        let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * limit.rate).min(limit.burst);
+        self.last = self.last.max(now);
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            Verdict::Allow
+        } else {
+            Verdict::Throttle {
+                retry_after: Duration::from_secs_f64((1.0 - self.tokens) / limit.rate),
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn limit(rate: u32, burst: u32) -> Limit {
         Limit::new(rate, burst).unwrap()
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 1"]
     fn burst_then_throttle_with_retry_after() {
         let l = limit(1, 2);
         let t0 = Instant::now();
@@ -83,7 +98,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 2"]
     fn refills_over_time() {
         let l = limit(10, 1);
         let t0 = Instant::now();
@@ -94,7 +108,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 3"]
     fn idle_refill_caps_at_burst() {
         let l = limit(100, 3);
         let t0 = Instant::now();
@@ -110,7 +123,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 4"]
     fn clock_going_backwards_gains_nothing() {
         let l = limit(1, 1);
         let t1 = Instant::now() + Duration::from_secs(10);
@@ -123,7 +135,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn rejects_zero_rate_and_burst() {
         assert_eq!(Limit::new(0, 1), Err(LimitError::ZeroRate));
         assert_eq!(Limit::new(1, 0), Err(LimitError::ZeroBurst));

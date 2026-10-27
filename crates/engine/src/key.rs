@@ -13,8 +13,11 @@ pub enum ClientKey {
 }
 
 impl From<IpAddr> for ClientKey {
-    fn from(_ip: IpAddr) -> Self {
-        todo!("rfc 0001")
+    fn from(ip: IpAddr) -> Self {
+        match ip.to_canonical() {
+            IpAddr::V4(a) => Self::V4(a),
+            IpAddr::V6(a) => Self::V6((u128::from(a) >> 64) as u64),
+        }
     }
 }
 
@@ -30,9 +33,30 @@ impl fmt::Display for ClientKey {
 /// The client behind `peer`. `X-Forwarded-For` counts only when `peer` is a
 /// trusted proxy; then the rightmost untrusted hop is the client. Anything
 /// malformed falls back to `peer`, never to a value the client chose.
-pub fn client_key(_peer: IpAddr, _xff: Option<&str>, _trusted: &TrustedProxies) -> ClientKey {
-    todo!("rfc 0001")
+pub fn client_key(peer: IpAddr, xff: Option<&str>, trusted: &TrustedProxies) -> ClientKey {
+    let fallback = ClientKey::from(peer);
+    let Some(xff) = xff.filter(|_| trusted.contains(peer)) else {
+        return fallback;
+    };
+    let mut leftmost = None;
+    for (n, hop) in xff.rsplit(',').enumerate() {
+        if n == MAX_HOPS {
+            return fallback;
+        }
+        let Ok(ip) = hop.trim().parse::<IpAddr>() else {
+            return fallback;
+        };
+        if !trusted.contains(ip) {
+            return ip.into();
+        }
+        leftmost = Some(ip);
+    }
+    leftmost.map_or(fallback, ClientKey::from)
 }
+
+/// Hops read from `X-Forwarded-For` before giving up and using the peer,
+/// so a huge header costs bounded work.
+const MAX_HOPS: usize = 32;
 
 #[cfg(test)]
 mod tests {
@@ -48,14 +72,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 7"]
     fn untrusted_peer_ignores_xff() {
         let k = client_key(ip("192.0.2.10"), Some("198.51.100.7"), &trusted(&[]));
         assert_eq!(k, ClientKey::from(ip("192.0.2.10")));
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 8"]
     fn trusted_peer_uses_rightmost_untrusted_hop() {
         let t = trusted(&["192.0.2.0/24"]);
         let k = client_key(ip("192.0.2.1"), Some("198.51.100.7, 192.0.2.1"), &t);
@@ -66,7 +88,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 9"]
     fn malformed_xff_falls_back_to_peer() {
         let t = trusted(&["192.0.2.0/24"]);
         for xff in ["", " , ", "not-an-ip", "198.51.100.7, garbage", "999.1.1.1"] {
@@ -76,7 +97,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn all_hops_trusted_uses_leftmost() {
         let t = trusted(&["192.0.2.0/24"]);
         let k = client_key(ip("192.0.2.1"), Some("192.0.2.5, 192.0.2.6"), &t);
@@ -84,7 +104,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001 case 10"]
     fn ipv6_keyed_per_64() {
         let a = ClientKey::from(ip("2001:db8::1"));
         let b = ClientKey::from(ip("2001:db8::ffff:1"));
@@ -95,11 +114,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn ipv4_mapped_v6_is_v4() {
         assert_eq!(
             ClientKey::from(ip("::ffff:192.0.2.1")),
             ClientKey::from(ip("192.0.2.1"))
         );
+    }
+
+    #[test]
+    fn too_many_hops_falls_back_to_peer() {
+        let t = trusted(&["192.0.2.0/24"]);
+        let xff = vec!["192.0.2.9"; 100].join(", ");
+        let k = client_key(ip("192.0.2.1"), Some(&xff), &t);
+        assert_eq!(k, ClientKey::from(ip("192.0.2.1")));
     }
 }

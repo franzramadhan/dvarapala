@@ -1,0 +1,25 @@
+[package]
+name = "dvarapala-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+dvarapala-engine = { path = "../crates/engine" }
+libfuzzer-sys = "0.4.13"
+
+# Its own workspace: fuzzing needs nightly and sanitizer flags that the main
+# workspace must not inherit.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "client_key"
+path = "fuzz_targets/client_key.rs"
+test = false
+doc = false
+bench = false
