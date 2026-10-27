@@ -1,0 +1,104 @@
+name: ci
+
+# Pull requests only. Tags are handled by release.yml, pushes to main by
+# coverage.yml. secrets runs on every PR; test runs only when Rust code
+# changed (a skipped required check counts as passing); release-check runs
+# only on release/v* branches.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.files.outputs.rust }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
+          printf '%s\n' "$files"
+          rust=false
+          if grep -qE '^(crates/|examples/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
+          printf 'rust=%s\n' "$rust" >> "$GITHUB_OUTPUT"
+
+  # betterleaks over the PR's commits only. Pinned by version and sha256
+  # from the release's checksums.txt; keep the version in step with mise.toml.
+  secrets:
+    runs-on: ubuntu-26.04
+    env:
+      BETTERLEAKS_VERSION: "1.9.0"
+      BETTERLEAKS_SHA256: f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
+      BASE: ${{ github.event.pull_request.base.sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install betterleaks
+        run: |
+          set -euo pipefail
+          name="betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "/tmp/$name" \
+            "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/$name"
+          echo "$BETTERLEAKS_SHA256  /tmp/$name" | sha256sum -c -
+          mkdir -p ~/.local/bin
+          tar -xzf "/tmp/$name" -C ~/.local/bin betterleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: betterleaks git . --redact --no-banner --log-opts="${BASE}..${HEAD}"
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rustup on the runner installs the toolchain from rust-toolchain.toml
+      # on the first cargo call.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: file-size
+        run: |
+          # domain scoping: no Rust file over 500 lines (CLAUDE.md)
+          big=$(find crates -name '*.rs' -exec wc -l {} + 2>/dev/null | awk '$2 != "total" && $1 > 500')
+          if [ -n "$big" ]; then
+            printf '::error::split these files by concern (limit 500 lines):\n%s\n' "$big"
+            exit 1
+          fi
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+
+  release-check:
+    if: startsWith(github.head_ref, 'release/v')
+    runs-on: ubuntu-26.04
+    env:
+      BRANCH: ${{ github.head_ref }}
+      TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Branch, title, Cargo.toml and CHANGELOG.md agree
+        run: |
+          want="${BRANCH#release/v}"
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          fail=0
+          [ "$version" = "$want" ] || { echo "::error::Cargo.toml version $version, branch says $want"; fail=1; }
+          [ "$TITLE" = "release: v$want" ] || { echo "::error::PR title must be 'release: v$want'"; fail=1; }
+          grep -q "^## \[$want\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$want]' section, run git cliff"; fail=1; }
+          exit "$fail"

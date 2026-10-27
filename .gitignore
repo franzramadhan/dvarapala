@@ -1,7 +1,13 @@
-/bin/
-/dist/
-*.test
-*.out
-*.o
-.env
 /target/
+/dist/
+/bin/
+*.profraw
+cov.json
+lcov.info
+# secrets: never commit
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx

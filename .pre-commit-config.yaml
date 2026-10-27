@@ -1,0 +1,9 @@
+# pre-commit install (once). betterleaks comes from mise.toml (mise install).
+repos:
+  - repo: local
+    hooks:
+      - id: betterleaks
+        name: betterleaks (staged changes)
+        entry: betterleaks git --staged --redact --no-banner
+        language: system
+        pass_filenames: false

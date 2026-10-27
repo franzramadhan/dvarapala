@@ -86,4 +86,6 @@ including through the C ABI.
 
 ## Status
 
-Design stage.
+Design stage, 0.x is alpha. Features land through RFCs: see
+[ROADMAP.md](ROADMAP.md) and [rfc/](rfc/). Contributor and agent rules are
+in [CLAUDE.md](CLAUDE.md).
