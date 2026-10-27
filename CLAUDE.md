@@ -94,7 +94,7 @@ comma, colon, parentheses or a new sentence.
 
 - `.github/workflows/ci.yml` runs on pull requests only: `betterleaks` on
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
-  `cargo test`, the file-size check, `cargo deny check` (`deny.toml`) and
+  `cargo test` (also the binary with `--no-default-features`), the file-size check, `cargo deny check` (`deny.toml`) and
   the fuzz targets, plus the `footprint` job (release build, idle RSS
   under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`,
   Cargo files, `deny.toml`, toolchain). Release PRs also get
