@@ -42,14 +42,16 @@ the default detection statistical, bounded and training-free.
     total request rate. A window more than `z_threshold` standard
     deviations above the mean is anomalous.
   - **Source entropy:** Shannon entropy of client prefixes over a fixed
-    number of hashed buckets. A sharp drop means few sources dominate; a
-    sharp rise with a rate spike means a spoofed or botnet flood.
+    number of hashed buckets. A sharp drop means few sources dominate. A
+    spoofed or botnet flood (entropy up with the rate) is the rate
+    baseline's job.
 - An attack state machine: `Normal`, `Suspect`, `Attack`, `Cooldown`.
   `Suspect` after one anomalous window, `Attack` after `trigger_windows`
-  in a row, `Cooldown` after `cooldown_windows` normal ones, then
-  `Normal`. The baseline does not learn during `Attack`, so a long flood
-  cannot become the new normal.
-- In `Attack`:
+  in a row, `Cooldown` on the first normal window, then `Normal` after
+  `cooldown_windows` normal ones (an anomalous window in `Cooldown` goes
+  straight back to `Attack`). The baseline does not learn during `Attack`,
+  so a long flood cannot become the new normal.
+- In `Attack` (not `Cooldown`):
   - Top-k heavy-hitter prefixes get `Drop`.
   - Every other client's bucket rate is multiplied by
     `attack_rate_factor` (default `0.25`).
@@ -152,7 +154,7 @@ All engine tests take time as an input; none sleep.
 | 5 | constant rate 100/window for warmup | window at 100 | z-score near 0 | unit (`baseline`) |
 | 6 | Poisson rate 100 after warmup | window at 1000 | z-score above 4 | unit (`baseline`) |
 | 7 | before `warmup_windows` | window at 1000 | no alarm | unit (`baseline`) |
-| 8 | state `Attack` | 1 hour of flood windows | baseline mean unchanged | unit (`baseline`, `state`) |
+| 8 | state `Attack` | 1 hour of flood windows (360 windows of 10 s) | baseline mean unchanged | unit (`baseline`, `state`) |
 | 9 | uniform sources over 1024 buckets | entropy | near 1.0 normalized | unit (`entropy`) |
 | 10 | one source | entropy | 0.0 | unit (`entropy`) |
 | 11 | `Normal` | 1 anomalous window | `Suspect` | unit (`state`) |
@@ -162,7 +164,7 @@ All engine tests take time as an input; none sleep.
 | 15 | `Cooldown` | anomalous window | `Attack` again, no `Suspect` step | unit (`state`) |
 | 16 | synthetic trace: 10 min baseline, then 200 prefixes at 50x | replay through `Detector` | `Attack` within `trigger_windows + 1` windows, top-k holds attack prefixes | integration (`engine/tests/replay.rs`) |
 | 17 | synthetic trace: baseline that doubles over 1 hour | replay | never `Attack` | integration (`replay`) |
-| 18 | synthetic trace: one /24 at 30% of traffic, rate normal | replay | entropy drop flags it, `Attack` | integration (`replay`) |
+| 18 | synthetic trace: one /24 at 30% of traffic, rate normal, `prefix_v4 = 24` | replay | entropy drop flags it, `Attack` | integration (`replay`) |
 | 29 | defaults, heavy hitter 192.0.2.10 in `Attack`, `enforce` | request from 192.0.2.11 | not dropped (own group) | integration (`l7`) |
 | 30 | `prefix_v4 = 24`, same case | request from 192.0.2.11 | dropped | integration (`l7`) |
 | 19 | `mode = "observe"`, `Attack` | heavy-hitter request | `Allow`, metrics and log still emitted | integration (`l7`) |
@@ -175,6 +177,29 @@ All engine tests take time as an input; none sleep.
 | 26 | `ml.threshold` 0.9, score 0.95 | request otherwise allowed | 429 | integration (`l7`, feature `ml`) |
 | 27 | detection on, 100k req/s synthetic | `Detector::observe` | under 200 ns per observation | bench (`criterion`) |
 | 28 | detection on, defaults | engine memory | under 256 KB beyond the limiter table | bench |
+
+## Implementation notes
+
+Found while building, folded back from the PRs:
+
+- One sketch window, cleared when the window closes, instead of two
+  rotating ones: detection only reads the current window.
+- Entropy is judged as a relative drop of perplexity (`2^H`) against its
+  own EWMA baseline, only when the window has at least 256 samples and the
+  rate z-score is above `-z_threshold` (a quiet window is not an attack).
+- The baselines learn only from non-anomalous windows outside `Attack`.
+  Known limit: a lasting legitimate step change (a launch) stays in
+  `Attack` until the operator restarts or raises `z_threshold`; `observe`
+  mode is the guard while baselines settle.
+- Idle gaps close up to `trigger_windows + cooldown_windows` empty
+  windows, so time without traffic still moves the state machine.
+- The heavy-hitter threshold is the limiter's allowance per window: a
+  prefix under the normal rate limit is never a heavy hitter.
+- `RateLimitLayer::new` returns `Result`: it validates the detector config
+  and `attack_rate_factor` in `(0, 1]`. `RateLimitConfig` gained a `now`
+  clock so tests drive time.
+- The binary has an `ml` feature; setting `ml.model` in a build without it
+  is a start-up error, not a silent no-op.
 
 ## Alternatives
 
@@ -207,9 +232,11 @@ All engine tests take time as an input; none sleep.
   at the instance level.
 - The model file is input from disk: parsed once at start with limits on
   trees (`1024`), depth (`16`) and nodes (`65536`), and fuzzed.
-- Defaults: about 64 KB for two sketch windows, 4 KB for entropy, a few KB
-  for top-k. Per observation: `sketch_depth` hashes and increments, O(log k)
-  for top-k, O(1) for the rest.
+- Defaults: about 32 KB for one sketch window, 4 KB for entropy, a few KB
+  for top-k. Per observation: one hash and `sketch_depth` increments
+  (double hashing), O(k) for top-k, O(1) for the rest. Per-client features
+  are boxed in the limiter table entry and allocated only with `ml`
+  scoring on.
 
 ## Rollout
 
