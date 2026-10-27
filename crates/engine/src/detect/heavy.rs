@@ -8,24 +8,40 @@ pub(crate) struct TopK {
 }
 
 impl TopK {
-    pub(crate) fn new(_k: usize) -> Self {
-        todo!("rfc 0002")
+    pub(crate) fn new(k: usize) -> Self {
+        Self {
+            k,
+            items: Vec::with_capacity(k),
+        }
     }
 
     /// Offers `key` with its current estimate.
-    pub(crate) fn offer(&mut self, _key: Cidr, _estimate: u32) {
-        todo!("rfc 0002")
+    // ponytail: linear scan, fine for k in the tens; a min-heap plus index
+    // if top_k grows into the thousands
+    pub(crate) fn offer(&mut self, key: Cidr, estimate: u32) {
+        if let Some(e) = self.items.iter_mut().find(|(k, _)| *k == key) {
+            e.1 = estimate;
+        } else if self.items.len() < self.k {
+            self.items.push((key, estimate));
+        } else if let Some(min) = self.items.iter_mut().min_by_key(|(_, c)| *c)
+            && min.1 < estimate
+        {
+            *min = (key, estimate);
+        }
     }
 
     /// Entries above `min`, highest first, written into `out` (cleared first).
-    pub(crate) fn ranked_into(&self, _min: u32, _out: &mut Vec<(Cidr, u32)>) {
-        todo!("rfc 0002")
+    pub(crate) fn ranked_into(&self, min: u32, out: &mut Vec<(Cidr, u32)>) {
+        out.clear();
+        out.extend(self.items.iter().filter(|(_, c)| *c > min));
+        out.sort_unstable_by_key(|e| std::cmp::Reverse(e.1));
     }
 
     pub(crate) fn clear(&mut self) {
         self.items.clear();
     }
 
+    #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.items.capacity()
     }
@@ -48,7 +64,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 3"]
     fn dominant_key_ranks_first() {
         let hs = RandomState::new();
         let (mut s, mut t) = (Sketch::new(2048, 4), TopK::new(8));
@@ -64,7 +79,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002 case 4"]
     fn million_keys_keep_memory_fixed() {
         let hs = RandomState::new();
         let (mut s, mut t) = (Sketch::new(2048, 4), TopK::new(64));
@@ -77,7 +91,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0002"]
     fn ranked_skips_entries_at_or_below_min() {
         let mut t = TopK::new(4);
         t.offer(key(1), 5);

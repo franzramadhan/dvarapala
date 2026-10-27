@@ -87,7 +87,6 @@ fn none(_: &mut Rng) -> IpAddr {
 }
 
 #[test]
-#[ignore = "rfc 0002 case 16"]
 fn distributed_flood_reaches_attack_fast() {
     let cfg = DetectConfig::default();
     let trigger = cfg.trigger_windows;
@@ -120,7 +119,6 @@ fn distributed_flood_reaches_attack_fast() {
 }
 
 #[test]
-#[ignore = "rfc 0002 case 17"]
 fn slow_doubling_never_attacks() {
     let mut r = Replay::new(DetectConfig::default());
     for w in 0..3600 {
@@ -130,7 +128,6 @@ fn slow_doubling_never_attacks() {
 }
 
 #[test]
-#[ignore = "rfc 0002 case 18"]
 fn one_subnet_at_thirty_percent_drops_entropy() {
     // grouping by /24 is what makes one subnet one source
     let cfg = DetectConfig {
