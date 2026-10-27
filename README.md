@@ -49,20 +49,40 @@ binary and the SDK are thin wrappers around it.
 |-----------------|--------------------------------------------------|
 | Reverse proxy   | `dvarapala serve --mode reverse --upstream ...`  |
 | Forward proxy   | `dvarapala serve --mode forward` (HTTP CONNECT)  |
-| Embedded SDK    | `net.Listener` wrapper and `http.Handler` middleware |
+| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper       |
+| Embedded (other)| C ABI (`cdylib` + generated header) for Go, Python, Node, etc. |
 
-### Layout (planned)
+### Stack
+
+Rust, for a small memory footprint without a GC and memory safety at the
+trust boundary.
+
+| Concern     | Crate                         |
+|-------------|-------------------------------|
+| Async I/O   | `tokio`                       |
+| HTTP/1, 2   | `hyper`, `hyper-util`         |
+| Middleware  | `tower`                       |
+| TLS         | `rustls`                      |
+| eBPF/XDP    | `aya` (pure Rust, no libbpf)  |
+| C bindings  | `cbindgen`                    |
+| Metrics     | `metrics` + Prometheus exporter |
+
+### Layout (planned, cargo workspace)
 
 ```
-cmd/dvarapala/      binary entry point
-engine/             verdict engine, rule evaluation
-l4/                 listener wrapper, conn limits, timeouts
-l7/                 http middleware chain, challenges
-limiter/            token bucket, sliding window
-store/              memory and redis backends
-xdp/                eBPF programs (linux only, optional)
-sdk/                public Go API for embedding
+crates/
+  engine/       verdict engine, rules, limiters (no I/O, no tokio)
+  l4/           listener wrapper, conn limits, timeouts
+  l7/           tower layers: rate limit, rules, challenges
+  proxy/        reverse and forward proxy core
+  store/        memory and redis backends
+  xdp/          aya eBPF programs (linux only, optional)
+  ffi/          C ABI for non-Rust embedders
+  dvarapala/    binary
 ```
+
+`engine` stays free of I/O and async runtime so it can embed anywhere,
+including through the C ABI.
 
 ## Status
 
