@@ -5,13 +5,18 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use dvarapala_l7::PeerAddr;
 use http::uri::{Authority, Scheme};
-use http::{Request, Response, Uri};
+use http::{Request, Response, StatusCode, Uri, Version};
 use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Empty};
 use hyper::body::Body;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::rt::TokioExecutor;
 use tower_service::Service;
+
+use crate::hop::{append_forwarded_for, strip_hop_by_hop};
 
 /// Response body of the proxy: the upstream's, or a short local error.
 pub type ProxyBody = BoxBody<Bytes, hyper::Error>;
@@ -61,8 +66,34 @@ where
     B: Body<Data = Bytes> + Send + Unpin + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    pub fn new(_upstream: &str) -> Result<Self, UpstreamError> {
-        todo!("rfc 0001")
+    pub fn new(upstream: &str) -> Result<Self, UpstreamError> {
+        let invalid = || UpstreamError::Invalid(upstream.to_owned());
+        let uri: Uri = upstream.parse().map_err(|_| invalid())?;
+        let (Some(scheme), Some(authority)) = (uri.scheme(), uri.authority()) else {
+            return Err(invalid());
+        };
+        if *scheme == Scheme::HTTPS {
+            return Err(UpstreamError::Unsupported(upstream.to_owned()));
+        }
+        if *scheme != Scheme::HTTP || uri.query().is_some() {
+            return Err(invalid());
+        }
+        Ok(Self {
+            scheme: scheme.clone(),
+            authority: authority.clone(),
+            base_path: uri.path().trim_end_matches('/').to_owned(),
+            client: Client::builder(TokioExecutor::new()).build_http(),
+        })
+    }
+
+    /// The upstream URI for `uri`: base path, then the request's path and query.
+    fn target(&self, uri: &Uri) -> Result<Uri, http::Error> {
+        let pq = uri.path_and_query().map_or("/", |pq| pq.as_str());
+        Uri::builder()
+            .scheme(self.scheme.clone())
+            .authority(self.authority.clone())
+            .path_and_query(format!("{}{pq}", self.base_path))
+            .build()
     }
 }
 
@@ -79,10 +110,41 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: Request<B>) -> Self::Future {
-        let _ = Uri::default();
-        todo!("rfc 0001")
+    fn call(&mut self, req: Request<B>) -> Self::Future {
+        let (mut parts, body) = req.into_parts();
+        let target = match self.target(&parts.uri) {
+            Ok(t) => t,
+            Err(_) => return Box::pin(async { Ok(status(StatusCode::BAD_REQUEST)) }),
+        };
+        parts.uri = target;
+        // the client pool speaks HTTP/1.1 upstream whatever the client used
+        parts.version = Version::HTTP_11;
+        strip_hop_by_hop(&mut parts.headers);
+        if let Some(PeerAddr(peer)) = parts.extensions.get::<PeerAddr>() {
+            append_forwarded_for(&mut parts.headers, peer.ip());
+        }
+        let fut = self.client.request(Request::from_parts(parts, body));
+        Box::pin(async move {
+            Ok(match fut.await {
+                Ok(res) => {
+                    let mut res = res.map(BodyExt::boxed);
+                    strip_hop_by_hop(res.headers_mut());
+                    res
+                }
+                Err(e) => {
+                    metrics::counter!("dvarapala_upstream_errors_total").increment(1);
+                    tracing::warn!(error = %e, "upstream request failed");
+                    status(StatusCode::BAD_GATEWAY)
+                }
+            })
+        })
     }
+}
+
+fn status(code: StatusCode) -> Response<ProxyBody> {
+    let mut res = Response::new(Empty::new().map_err(|never| match never {}).boxed());
+    *res.status_mut() = code;
+    res
 }
 
 #[cfg(test)]
@@ -91,7 +153,6 @@ mod tests {
     use hyper::body::Incoming;
 
     #[test]
-    #[ignore = "rfc 0001"]
     fn parses_upstream() {
         assert!(ReverseProxy::<Incoming>::new("http://127.0.0.1:8081").is_ok());
         assert!(ReverseProxy::<Incoming>::new("http://app.internal/base/").is_ok());
