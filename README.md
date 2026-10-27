@@ -1,5 +1,10 @@
 # dvarapala
 
+[![ci](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml/badge.svg)](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/tests.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/coverage.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Anti-DDoS gateway with L4 to L7 protection. Named after the Dvarapala, the
 guardian statues that stand at Javanese temple gates.
 
@@ -89,3 +94,11 @@ including through the C ABI.
 Design stage, 0.x is alpha. Features land through RFCs: see
 [ROADMAP.md](ROADMAP.md) and [rfc/](rfc/). Contributor and agent rules are
 in [CLAUDE.md](CLAUDE.md).
+
+## Security
+
+Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)

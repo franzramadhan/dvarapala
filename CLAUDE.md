@@ -52,7 +52,11 @@ crates ahead of time.
 - Unit tests live next to the code (`#[cfg(test)] mod tests`). Cross-crate
   and network tests live in each crate's `tests/`.
 - Parsers and anything that reads attacker input get a `cargo fuzz` target
-  once the RFC that adds them is implemented.
+  in `fuzz/` in the same PR. CI's `fuzz` job runs every target for 60 s;
+  a crash reproducer becomes a regression test.
+- Resource budget is a test too: the `footprint` CI job (added with the
+  RFC 0001 implementation) fails when the idle binary's RSS exceeds the
+  budget in that RFC. Hot paths get a `criterion` bench in `benches/`.
 
 ## Domain scoping
 
@@ -78,6 +82,8 @@ in tests and examples.
 - Scan the full history before making anything public:
   `betterleaks git . --redact`.
 - A leaked secret is rotated first, then removed from history.
+- Vulnerabilities are reported privately (`SECURITY.md`). Never discuss an
+  unfixed one in a public issue, PR or commit message.
 
 ## Writing
 
@@ -88,10 +94,18 @@ comma, colon, parentheses or a new sentence.
 
 - `.github/workflows/ci.yml` runs on pull requests only: `betterleaks` on
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
-  `cargo test` and the file-size check when Rust code changed (`crates/`,
-  `examples/`, Cargo files, toolchain). Release PRs also get
-  `release-check`. Docs-only PRs skip the Rust job (skipped required checks
-  count as passing).
+  `cargo test`, the file-size check, `cargo deny check` (`deny.toml`) and
+  the fuzz targets when Rust code changed (`crates/`, `fuzz/`, `examples/`,
+  Cargo files, `deny.toml`, toolchain). Release PRs also get
+  `release-check`. Docs-only PRs skip the Rust jobs (skipped required
+  checks count as passing).
+- `main` is protected by a ruleset: PRs only, squash merge only, signed
+  commits, no force push or deletion, required checks `secrets`, `test`,
+  `deny`, `fuzz`, `release-check` and `title`. A new job that must gate
+  merges is added to the ruleset in the same PR.
+- New dependencies must pass `deny.toml` (permissive licenses, crates.io
+  only, no advisories). Prefer `default-features = false` and the smallest
+  feature set: binary size is a product goal.
 - `.github/workflows/coverage.yml` runs on pushes to `main` that touch Rust
   code: `cargo llvm-cov`, then writes the test and coverage badge JSON to the
   orphan branch `badges`. Never merge `badges`.
