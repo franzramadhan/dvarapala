@@ -236,7 +236,8 @@ pub async fn relay(server: SocketAddr, mode: Mode) -> SocketAddr {
     addr
 }
 
-/// Serializes the tests that read the global counters.
+/// Serializes the tests: the counters are global, and any handshake moves
+/// them.
 pub async fn serial() -> MutexGuard<'static, ()> {
     static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     LOCK.lock().await

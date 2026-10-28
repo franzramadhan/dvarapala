@@ -94,6 +94,20 @@ impl Tls {
         }
     }
 
+    /// The QUIC side (RFC 0006): the same certificate, so reload covers
+    /// it; TLS 1.3 only, ALPN `h3`, no early data (0-RTT is replayable).
+    #[cfg(feature = "http3")]
+    pub(crate) fn quic(&self) -> Result<ServerConfig, rustls::Error> {
+        let mut sc =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13])?
+                .with_no_client_auth()
+                .with_cert_resolver(self.0.cert.clone());
+        sc.alpn_protocols = vec![b"h3".to_vec()];
+        sc.max_early_data_size = 0;
+        Ok(sc)
+    }
+
     /// The handshake, bounded in concurrency and time. `None` closes the
     /// connection.
     pub(crate) async fn accept<IO>(&self, tcp: IO) -> Option<TlsStream<IO>>

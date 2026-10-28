@@ -122,10 +122,10 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
-        let protocol = if req.version() == Version::HTTP_2 {
-            "http2"
-        } else {
-            "http1"
+        let protocol = match req.version() {
+            Version::HTTP_2 => "http2",
+            Version::HTTP_3 => "http3",
+            _ => "http1",
         };
         let Some(PeerAddr(peer)) = req.extensions().get::<PeerAddr>().copied() else {
             // fail closed: without a peer every client would share one key

@@ -23,8 +23,8 @@ const REFUSED: &str = "dvarapala_quic_handshakes_total{result=refused}";
 
 // case 1
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn get_reaches_the_upstream() {
+    let _s = serial().await;
     let p = proxy(|_| {}, None).await;
     let mut tx = h3(connect(&client(&p.ca, false), p.addr).await.unwrap()).await;
     let (status, _, body) = send(&mut tx, "GET", "/", Bytes::new()).await;
@@ -34,8 +34,8 @@ async fn get_reaches_the_upstream() {
 
 // case 2
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn post_body_arrives_whole() {
+    let _s = serial().await;
     let p = proxy(|_| {}, None).await;
     let mut tx = h3(connect(&client(&p.ca, false), p.addr).await.unwrap()).await;
     let body = Bytes::from(vec![7u8; 1 << 20]);
@@ -45,8 +45,8 @@ async fn post_body_arrives_whole() {
 
 // case 3
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn tcp_responses_advertise_h3() {
+    let _s = serial().await;
     let up = quic::upstream().await;
     let p = ReverseProxy::<Incoming>::new(&format!("http://{}", up.addr)).unwrap();
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -73,8 +73,8 @@ async fn tcp_responses_advertise_h3() {
 
 // case 6
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn rate_limit_applies() {
+    let _s = serial().await;
     let limiter = RateLimitLayer::new(RateLimitConfig {
         limit: Limit::new(1, 1).unwrap(),
         max_clients: NonZeroUsize::new(16).unwrap(),
@@ -98,7 +98,6 @@ async fn rate_limit_applies() {
 
 // case 7
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn always_retry_costs_one_round_trip() {
     record();
     let _s = serial().await;
@@ -115,7 +114,6 @@ async fn always_retry_costs_one_round_trip() {
 
 // case 8
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn retry_starts_under_load() {
     record();
     let _s = serial().await;
@@ -143,7 +141,6 @@ async fn retry_starts_under_load() {
 
 // case 9
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn token_for_another_address_is_rejected() {
     record();
     let _s = serial().await;
@@ -156,7 +153,6 @@ async fn token_for_another_address_is_rejected() {
 
 // case 10
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn expired_token_is_rejected() {
     record();
     let _s = serial().await;
@@ -177,7 +173,6 @@ async fn expired_token_is_rejected() {
 
 // case 11
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn over_max_connections_is_refused() {
     record();
     let _s = serial().await;
@@ -185,6 +180,8 @@ async fn over_max_connections_is_refused() {
     let e = client(&p.ca, false);
     let _a = connect(&e, p.addr).await.unwrap();
     let _b = connect(&e, p.addr).await.unwrap();
+    // the server finishes its side of the handshake after the client
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let (refused, ok) = (counter(REFUSED), counter(OK));
     let err = connect(&e, p.addr).await.unwrap_err();
     assert!(err.to_lowercase().contains("refused"), "{err}");
@@ -193,8 +190,8 @@ async fn over_max_connections_is_refused() {
 
 // case 12
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn third_stream_waits_for_credit() {
+    let _s = serial().await;
     let p = proxy(|c| c.max_streams = 2, None).await;
     // hold every upstream answer
     let held = p
@@ -219,8 +216,8 @@ async fn third_stream_waits_for_credit() {
 
 // case 13
 #[tokio::test]
-#[ignore = "rfc 0006"]
 async fn zero_rtt_is_refused() {
+    let _s = serial().await;
     let p = proxy(|_| {}, None).await;
     let e = client(&p.ca, true);
     // a first connection leaves a session ticket
