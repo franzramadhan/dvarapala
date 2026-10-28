@@ -73,7 +73,9 @@ name = "dvarapala-fuzz"
 version = "0.0.0"
 dependencies = [
  "dvarapala-engine",
+ "dvarapala-l7",
  "dvarapala-proxy",
+ "http",
  "libfuzzer-sys",
 ]
 

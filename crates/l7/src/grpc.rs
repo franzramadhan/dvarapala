@@ -1,6 +1,9 @@
 use std::time::Duration;
 
+use http::header::{CONTENT_TYPE, HeaderValue, RETRY_AFTER};
 use http::{HeaderMap, Response};
+
+use crate::rate_limit::retry_after_secs;
 
 /// gRPC status codes dvarapala answers with itself (RFC 0004).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,16 +18,39 @@ pub enum GrpcStatus {
 
 /// `content-type: application/grpc` or `application/grpc+<codec>`.
 pub fn is_grpc(headers: &HeaderMap) -> bool {
-    let _ = headers;
-    todo!("rfc 0004")
+    let Some(v) = headers.get(CONTENT_TYPE) else {
+        return false;
+    };
+    let v = v.as_bytes();
+    let prefix = b"application/grpc";
+    v.len() >= prefix.len()
+        && v[..prefix.len()].eq_ignore_ascii_case(prefix)
+        && matches!(v.get(prefix.len()), None | Some(b'+' | b';'))
 }
 
 /// A trailers-only gRPC response: HTTP 200, `grpc-status` and a fixed
 /// `grpc-message` in the headers, no body. `retry_after` adds
 /// `retry-after` and `grpc-retry-pushback-ms`.
 pub fn grpc_response<R: Default>(status: GrpcStatus, retry_after: Option<Duration>) -> Response<R> {
-    let _ = (status, retry_after);
-    todo!("rfc 0004")
+    let (code, message, label) = match status {
+        GrpcStatus::PermissionDenied => ("7", "denied", "permission_denied"),
+        GrpcStatus::ResourceExhausted => ("8", "rate limited", "resource_exhausted"),
+        GrpcStatus::Unavailable => ("14", "upstream unavailable", "unavailable"),
+    };
+    metrics::counter!("dvarapala_grpc_local_responses_total", "status" => label).increment(1);
+    let mut res = Response::new(R::default());
+    let h = res.headers_mut();
+    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
+    h.insert("grpc-status", HeaderValue::from_static(code));
+    h.insert("grpc-message", HeaderValue::from_static(message));
+    if let Some(d) = retry_after {
+        h.insert(RETRY_AFTER, retry_after_secs(d));
+        h.insert(
+            "grpc-retry-pushback-ms",
+            HeaderValue::from(d.as_millis().max(1) as u64),
+        );
+    }
+    res
 }
 
 #[cfg(test)]
@@ -40,7 +66,6 @@ mod tests {
 
     /// RFC 0004 case 19
     #[test]
-    #[ignore = "rfc 0004"]
     fn detects_grpc_content_types_only() {
         for yes in [
             &b"application/grpc"[..],
@@ -67,7 +92,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0004"]
     fn trailers_only_response() {
         let r: Response<()> = grpc_response(
             GrpcStatus::ResourceExhausted,
