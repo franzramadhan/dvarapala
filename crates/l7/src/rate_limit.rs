@@ -58,6 +58,7 @@ struct Shared {
     /// how long a published heavy hitter stays listed; `None` publishes
     /// none (observe mode or no detection)
     heavy_ttl: Option<Duration>,
+    block: Option<BlockSink>,
 }
 
 struct Inner {
@@ -96,6 +97,7 @@ impl RateLimitLayer {
                 paths: RandomState::new(),
                 cluster: config.cluster,
                 heavy_ttl,
+                block: config.block,
             }),
         })
     }
@@ -267,7 +269,7 @@ impl Shared {
             if let (Some(r), Some(det)) = (&d.report, guard.detector()) {
                 watch.report(r, det, now);
                 if self.heavy_ttl.is_some()
-                    && self.cluster.is_some()
+                    && (self.cluster.is_some() || self.block.is_some())
                     && det.state() == State::Attack
                 {
                     heavy.extend(det.heavy().iter().map(|(c, _)| *c));
@@ -292,6 +294,11 @@ impl Shared {
         metrics::gauge!("dvarapala_limiter_clients").set(clients as f64);
         if evicted > 0 {
             metrics::counter!("dvarapala_limiter_evictions_total").increment(evicted);
+        }
+        if let (Some(b), Some(_)) = (&self.block, self.heavy_ttl) {
+            for net in &heavy {
+                b.block(*net);
+            }
         }
         if let Some(mut c) = self.cluster() {
             if verdict == Verdict::Allow {

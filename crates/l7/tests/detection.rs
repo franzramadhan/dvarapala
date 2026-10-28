@@ -255,7 +255,6 @@ async fn heavy_hitters_are_published_while_enforcing() {
 
 // RFC 0011: heavy hitters reach the XDP block sink in enforce mode only
 #[tokio::test]
-#[ignore = "rfc 0011"]
 async fn heavy_hitters_reach_the_block_sink_while_enforcing() {
     for enforce in [false, true] {
         let seen: Arc<Mutex<Vec<String>>> = Arc::default();
