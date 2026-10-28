@@ -13,12 +13,12 @@ use dvarapala_engine::{
     client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, Version};
 use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::detection::{Check, ReqInfo, Watch};
-use crate::{Detection, PeerAddr, Scoring};
+use crate::{Detection, GrpcStatus, PeerAddr, Scoring, grpc_response, is_grpc};
 
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
@@ -136,11 +136,18 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
+        let protocol = if req.version() == Version::HTTP_2 {
+            "http2"
+        } else {
+            "http1"
+        };
         let Some(PeerAddr(peer)) = req.extensions().get::<PeerAddr>().copied() else {
             // fail closed: without a peer every client would share one key
             tracing::error!(msg = "request without PeerAddr, the server does not set it");
-            metrics::counter!("dvarapala_requests_total", "verdict" => "error").increment(1);
-            return rejected(StatusCode::INTERNAL_SERVER_ERROR);
+            count("error", protocol);
+            let mut res = Response::new(R::default());
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return ResponseFuture::Rejected { res: Some(res) };
         };
         let key = client_key(
             peer.ip(),
@@ -154,40 +161,65 @@ where
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
         match self.shared.take(key, info) {
             Verdict::Allow => {
-                metrics::counter!("dvarapala_requests_total", "verdict" => "allow").increment(1);
+                count("allow", protocol);
                 ResponseFuture::Inner {
                     fut: self.inner.call(req),
                     status: info.map(|_| StatusRecorder(self.shared.clone(), key)),
                 }
             }
-            Verdict::Throttle { retry_after } => {
-                metrics::counter!("dvarapala_requests_total", "verdict" => "throttle").increment(1);
-                log_throttled(key);
-                let mut fut = rejected(StatusCode::TOO_MANY_REQUESTS);
-                if let ResponseFuture::Rejected { res: Some(res) } = &mut fut {
-                    res.headers_mut()
-                        .insert(RETRY_AFTER, retry_after_secs(retry_after));
+            v => {
+                if matches!(v, Verdict::Throttle { .. }) {
+                    log_throttled(key);
                 }
-                fut
-            }
-            // ponytail: no challenge page until the challenge RFC; a 429
-            // without Retry-After is the closest honest answer
-            Verdict::Challenge => {
-                metrics::counter!("dvarapala_requests_total", "verdict" => "challenge")
-                    .increment(1);
-                rejected(StatusCode::TOO_MANY_REQUESTS)
-            }
-            Verdict::Drop => {
-                metrics::counter!("dvarapala_requests_total", "verdict" => "drop").increment(1);
-                let mut fut = rejected(StatusCode::FORBIDDEN);
-                if let ResponseFuture::Rejected { res: Some(res) } = &mut fut {
-                    res.headers_mut()
-                        .insert(CONNECTION, HeaderValue::from_static("close"));
+                ResponseFuture::Rejected {
+                    res: Some(reject(v, is_grpc(req.headers()), protocol)),
                 }
-                fut
             }
         }
     }
+}
+
+fn count(verdict: &'static str, protocol: &'static str) {
+    metrics::counter!("dvarapala_requests_total", "verdict" => verdict, "protocol" => protocol)
+        .increment(1);
+}
+
+/// The local answer to a rejected request (RFC 0004): trailers-only gRPC
+/// for gRPC clients, an HTTP status otherwise.
+fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str) -> Response<R> {
+    use GrpcStatus::{PermissionDenied, ResourceExhausted};
+    let (label, code, grpc_status, retry_after) = match v {
+        Verdict::Throttle { retry_after } => (
+            "throttle",
+            StatusCode::TOO_MANY_REQUESTS,
+            ResourceExhausted,
+            Some(retry_after),
+        ),
+        // ponytail: no challenge page until the challenge RFC; a 429
+        // without Retry-After is the closest honest answer
+        Verdict::Challenge => (
+            "challenge",
+            StatusCode::TOO_MANY_REQUESTS,
+            ResourceExhausted,
+            None,
+        ),
+        // `Allow` never gets here; fail closed if it ever does
+        Verdict::Drop | Verdict::Allow => ("drop", StatusCode::FORBIDDEN, PermissionDenied, None),
+    };
+    count(label, protocol);
+    if grpc {
+        return grpc_response(grpc_status, retry_after);
+    }
+    let mut res = Response::new(R::default());
+    *res.status_mut() = code;
+    if let Some(d) = retry_after {
+        res.headers_mut().insert(RETRY_AFTER, retry_after_secs(d));
+    }
+    if code == StatusCode::FORBIDDEN {
+        res.headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("close"));
+    }
+    res
 }
 
 impl Shared {
@@ -239,14 +271,8 @@ impl Shared {
     }
 }
 
-fn rejected<F, R: Default>(status: StatusCode) -> ResponseFuture<F, R> {
-    let mut res = Response::new(R::default());
-    *res.status_mut() = status;
-    ResponseFuture::Rejected { res: Some(res) }
-}
-
 /// Whole seconds, rounded up, at least 1 (`Retry-After: 0` invites a retry storm).
-fn retry_after_secs(d: Duration) -> HeaderValue {
+pub(crate) fn retry_after_secs(d: Duration) -> HeaderValue {
     HeaderValue::from(d.as_secs_f64().ceil().max(1.0) as u64)
 }
 

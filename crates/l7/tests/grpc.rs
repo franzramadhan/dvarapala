@@ -78,7 +78,6 @@ where
 
 /// RFC 0004 case 11
 #[tokio::test]
-#[ignore = "rfc 0004"]
 async fn throttled_grpc_gets_resource_exhausted() {
     let (calls, inner) = counting();
     let mut svc = layer(None).layer(inner);
@@ -103,7 +102,6 @@ async fn throttled_grpc_gets_resource_exhausted() {
 
 /// RFC 0004 case 12
 #[tokio::test]
-#[ignore = "rfc 0004"]
 async fn dropped_grpc_gets_permission_denied() {
     let detection = Detection {
         detect: DetectConfig {
