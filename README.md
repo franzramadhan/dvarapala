@@ -1,78 +1,102 @@
-# dvarapala
+<p align="center">
+  <img src="site/logo.svg" width="96" alt="dvarapala logo: a split temple gate">
+</p>
 
-[![ci](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml/badge.svg)](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/tests.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
-[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/coverage.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
-[![release](https://img.shields.io/github/v/release/franzramadhan/dvarapala)](https://github.com/franzramadhan/dvarapala/releases/latest)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+<h1 align="center">dvarapala</h1>
 
-**An anti-DDoS gateway in Rust, with protection from L4 to L7.** It sits in
-front of your app, bounds each client's connections and requests, learns
-what normal traffic looks like, and drops floods before they reach the
-upstream.
+<p align="center">
+  <b>A guardian at the gate.</b> An anti-DDoS gateway in Rust, with protection from L4 to L7.
+</p>
 
-Named after the Dvarapala, the guardian statues at Javanese temple gates.
+<p align="center">
+  <a href="https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml"><img src="https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/tests.json" alt="tests"></a>
+  <a href="https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/coverage.json" alt="coverage"></a>
+  <a href="https://github.com/franzramadhan/dvarapala/releases/latest"><img src="https://img.shields.io/github/v/release/franzramadhan/dvarapala" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
+</p>
 
-Docs: **[dvarapala.franzramadhan.dev](https://dvarapala.franzramadhan.dev)**
+<p align="center">
+  <a href="https://dvarapala.franzramadhan.dev"><b>Docs</b></a> ·
+  <a href="#install">Install</a> ·
+  <a href="CONFIG.md">Configuration</a> ·
+  <a href="examples/README.md">Examples</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+dvarapala sits in front of your app, bounds each client's connections and
+requests, learns what normal traffic looks like, and drops floods before
+they reach the upstream. It is named after the Dvarapala, the guardian
+statues at Javanese temple gates.
 
 ## Three ways to run it
 
 | Mode | What it does | Start with |
 |---|---|---|
-| **Reverse proxy** | Protects your app from inbound floods: HTTP/1.1, HTTP/2, gRPC, WebSocket, optional HTTP/3 | [`examples/dvarapala.toml`](examples/dvarapala.toml) |
-| **Forward proxy** | Holds your outbound calls to each third-party API's agreed rate and concurrency | [`examples/forward-proxy.toml`](examples/forward-proxy.toml) |
+| **Reverse proxy** | Protects your app from inbound floods: HTTP/1.1, HTTP/2, gRPC, WebSocket, optional HTTP/3 | [`dvarapala.toml`](examples/dvarapala.toml) |
+| **Forward proxy** | Holds your outbound calls to each third-party API's agreed rate and concurrency | [`forward-proxy.toml`](examples/forward-proxy.toml) |
 | **In process** | The same limits inside a Go, Python or JavaScript service, over a C ABI | [`sdk/`](sdk/README.md) |
 
-Any of the proxy modes scales out: replicas behind one load balancer share
-their limits through Redis or PostgreSQL ([`examples/cluster.toml`](examples/cluster.toml)).
+Either proxy mode scales out: replicas behind one load balancer share their
+limits through Redis or PostgreSQL ([`cluster.toml`](examples/cluster.toml)).
 
 ## What it protects
 
-| Layer | Protection | RFC |
+Every layer is optional and configurable, and every verdict is a Prometheus
+metric and a structured log line, so you can watch before you enforce.
+
+| Layer | Protection | |
 |---|---|---|
-| XDP | Optional eBPF program on Linux (feature `xdp`): block list, per-source packet, SYN and UDP rates in the NIC driver, dynamic blocks fed by L4 and L7 | [RFC 0011](rfc/0011-xdp.md) |
-| L4 | Open connections per client and in total, accept rate per client, header, idle and slow-body timeouts, before any TLS or HTTP | [RFC 0009](rfc/0009-l4-limits.md) |
-| TLS | rustls with ALPN, `SIGHUP` certificate reload, bounded handshakes, verified `https://` upstreams | [RFC 0003](rfc/0003-tls.md) |
-| QUIC | Optional HTTP/3 listener (feature `http3`): Retry under load, connection and stream limits, no 0-RTT, `Alt-Svc` on TCP | [RFC 0006](rfc/0006-http3.md) |
-| HTTP/2 | Rapid reset, header list and keepalive limits; h2c or ALPN upstreams, trailers, gRPC-shaped local errors | [RFC 0004](rfc/0004-http2-grpc.md) |
-| L7 | Token bucket per client with a bounded table, `X-Forwarded-For` only from trusted proxies | [RFC 0001](rfc/0001-foundation.md) |
-| Detection | Heavy hitters, rate baseline, source entropy, optional XGBoost model; `observe` first, then `enforce` | [RFC 0002](rfc/0002-adaptive-detection.md) |
-| WebSocket | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
-| Egress | Per-destination rate, concurrency and bounded queue, provider `Retry-After` pauses, `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
-| Embedding | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
-| Cluster | One per-client limit, egress budget and heavy hitter list across replicas, synced in the background through Redis or PostgreSQL (features `redis`, `postgres`) | [RFC 0010](rfc/0010-shared-state.md) |
+| **XDP** | Block list, per-source packet, SYN and UDP rates in the NIC driver; dynamic blocks fed by L4 and L7. Linux, feature `xdp` | [RFC 0011](rfc/0011-xdp.md) |
+| **L4** | Connections per client and in total, accept rate, header, idle and slow-body timeouts, before any TLS or HTTP | [RFC 0009](rfc/0009-l4-limits.md) |
+| **TLS** | rustls with ALPN, `SIGHUP` certificate reload, bounded handshakes, verified `https://` upstreams | [RFC 0003](rfc/0003-tls.md) |
+| **QUIC** | HTTP/3 listener with Retry under load, connection and stream limits, no 0-RTT. Feature `http3` | [RFC 0006](rfc/0006-http3.md) |
+| **HTTP/2** | Rapid reset, header list and keepalive limits; trailers and gRPC-shaped local errors | [RFC 0004](rfc/0004-http2-grpc.md) |
+| **L7** | Token bucket per client with a bounded table; `X-Forwarded-For` only from trusted proxies | [RFC 0001](rfc/0001-foundation.md) |
+| **Detection** | Heavy hitters, rate baseline, source entropy, optional XGBoost model; `observe` first, then `enforce` | [RFC 0002](rfc/0002-adaptive-detection.md) |
+| **WebSocket** | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
+| **Egress** | Per-destination rate, concurrency and bounded queue; provider `Retry-After` pauses; `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
+| **Embedding** | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
+| **Cluster** | One per-client limit, egress budget and heavy hitter list across replicas, synced off the request path. Features `redis`, `postgres` | [RFC 0010](rfc/0010-shared-state.md) |
 
-Every layer is optional and configurable. Every verdict is a Prometheus
-metric on a separate listener and a structured log line, so you can watch
-before you enforce.
+## Install
 
-## Quick start
-
-Install the latest release (static Linux musl or macOS, `x86_64` or
-`aarch64`):
+Static binaries for Linux (musl) and macOS, `x86_64` and `aarch64`:
 
 ```sh
 brew install franzramadhan/tap/dvarapala
-# or: checks SHA256SUMS, installs to /usr/local/bin or ~/.local/bin
-curl -fsSL https://dvarapala.franzramadhan.dev/install.sh | sh
-dvarapala serve --config dvarapala.toml
 ```
 
-`DVARAPALA_VERSION=v<version>` pins a release and `DVARAPALA_INSTALL=<dir>`
-picks the directory. Or download a tarball from the
-[releases](https://github.com/franzramadhan/dvarapala/releases) page and
-check it with `shasum -a 256 -c SHA256SUMS --ignore-missing`.
-
-Or build from source (toolchain pinned in `rust-toolchain.toml`):
+or
 
 ```sh
-cargo build --release                    # reverse and forward proxy, TLS
-cargo build --release --features http3   # plus HTTP/3 over QUIC
-cargo build --release --features ml      # plus the XGBoost scorer
-cargo build --release --features redis,postgres  # plus shared state backends
-cargo build --release --features xdp     # plus the XDP fast path (Linux)
-./target/release/dvarapala serve --config examples/dvarapala.toml
+curl -fsSL https://dvarapala.franzramadhan.dev/install.sh | sh
 ```
+
+The script checks the download against the release's `SHA256SUMS` and
+installs to `/usr/local/bin` (when writable) or `~/.local/bin`.
+`DVARAPALA_VERSION=v<version>` pins a release, `DVARAPALA_INSTALL=<dir>`
+picks the directory. Tarballs are also on the
+[releases](https://github.com/franzramadhan/dvarapala/releases) page.
+
+<details>
+<summary><b>Build from source</b></summary>
+
+The toolchain is pinned in `rust-toolchain.toml`. Optional protections are
+cargo features, off by default:
+
+```sh
+cargo build --release                            # reverse and forward proxy, TLS
+cargo build --release --features http3           # + HTTP/3 over QUIC
+cargo build --release --features ml              # + the XGBoost scorer
+cargo build --release --features redis,postgres  # + shared state backends
+cargo build --release --features xdp             # + the XDP fast path (Linux)
+```
+
+</details>
+
+## Quick start
 
 The smallest config:
 
@@ -81,37 +105,47 @@ listen = "0.0.0.0:8080"
 upstream = "http://127.0.0.1:8081"
 ```
 
+```sh
+dvarapala serve --config dvarapala.toml
+```
+
 Everything else has a default: 20 requests per second per client (burst
-40), detection in `observe` mode, metrics on `127.0.0.1:9090`. Every key
-is in [CONFIG.md](CONFIG.md); environment variables override the file
-(`DVARAPALA__RATE_LIMIT__RATE=5`). More deployments, from TLS and gRPC to
-HTTP/3, connection limits, clusters and XDP, are in [examples/](examples/README.md).
+40), detection in `observe` mode, metrics on `127.0.0.1:9090`. Environment
+variables override the file (`DVARAPALA__RATE_LIMIT__RATE=5`).
 
-## Architecture
+- Every key and metric: [CONFIG.md](CONFIG.md)
+- TLS, gRPC, WebSocket, HTTP/3, connection limits, forward proxy, clusters
+  and XDP: [examples/](examples/README.md)
 
-```
-  packets ------> XDP       block list, per-source packet and SYN rates  --> drop
-                            (optional, Linux, in the NIC driver)
-                    |
-                    v
-  connections --> L4        caps per client and in total, accept rate,   --> close
-                            header, idle and body timeouts
-                    |
-                    v
-                  listener  TCP, TLS (ALPN h2, http/1.1) or QUIC (HTTP/3)
-                    |
-                    v
-  requests -----> L7        identity: peer, or X-Forwarded-For if trusted
-                            rate limit: token bucket per client         --> 429
-                            detection: heavy hitters, baseline, entropy --> 403
-                    |
-                    v
-                  proxy     reverse: HTTP/1.1, HTTP/2, WebSocket to the upstream
-                            forward: shaped per destination, or CONNECT
+## How it works
+
+```mermaid
+flowchart LR
+  P[packets] --> X{XDP}
+  X -->|drop| D1((x))
+  X --> L4{L4}
+  L4 -->|close| D2((x))
+  L4 --> T[TLS / QUIC]
+  T --> R{rate limit}
+  R -->|429| D3((x))
+  R --> DT{detection}
+  DT -->|403| D4((x))
+  DT --> U[upstream]
+  L4 -.->|block source| X
+  DT -.->|block source| X
 ```
 
-One engine, several entry points. The `engine` crate decides every verdict
-and does no I/O, so the binary and the SDKs share the same logic.
+Each stage is cheaper than the next, so expensive work only happens for
+traffic that survived the cheap checks. In `enforce` mode, sources refused
+by L4 or dropped by detection are blocked in the XDP program for a while.
+Both completed a TCP handshake, so a spoofed address cannot get a victim
+blocked.
+
+One engine decides every verdict and does no I/O, so the binary and the
+SDKs share the same logic.
+
+<details>
+<summary><b>Crates</b></summary>
 
 | Crate | Role |
 |---|---|
@@ -127,24 +161,22 @@ and does no I/O, so the binary and the SDKs share the same logic.
 | `node` | N-API addon for the JavaScript SDK |
 | `dvarapala` | The binary: config, metrics, signals |
 
-Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`, `tokio-postgres` and `aya`. The idle
-binary has a 10 MB RSS budget that CI checks on every change. Rust crates
-embed as a git dependency; they are not on crates.io.
+Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
+`tokio-postgres` and `aya`. CI fails when the idle binary goes over a
+10 MB RSS budget. Rust crates embed as a git dependency; they are not on
+crates.io.
 
-## Status
+</details>
 
-0.x is alpha: config keys and metrics may change between minor versions.
-Release notes are in [CHANGELOG.md](CHANGELOG.md).
+## Project
 
-Every feature lands through an RFC: see [ROADMAP.md](ROADMAP.md) and
-[rfc/](rfc/). Request rules and challenges,
-sketched in [RFC 0001](rfc/0001-foundation.md), have no RFC yet.
-Contributor and agent rules are in [CLAUDE.md](CLAUDE.md).
+> [!NOTE]
+> 0.x is alpha: config keys and metrics may change between minor versions.
 
-## Security
-
-Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
-
-## License
-
-[MIT](LICENSE)
+| | |
+|---|---|
+| **Changes** | [CHANGELOG.md](CHANGELOG.md) |
+| **Roadmap** | Every feature lands through an RFC: [ROADMAP.md](ROADMAP.md), [rfc/](rfc/) |
+| **Contributing** | Contributor and agent rules: [CLAUDE.md](CLAUDE.md) |
+| **Security** | Report vulnerabilities privately: [SECURITY.md](SECURITY.md) |
+| **License** | [MIT](LICENSE) |
