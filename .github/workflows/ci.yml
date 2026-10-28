@@ -354,6 +354,33 @@ jobs:
           path: fuzz/artifacts
           retention-days: 14
 
+  # site/install.sh and scripts/homebrew-formula.sh against the latest
+  # release, on both release platforms
+  install:
+    strategy:
+      matrix:
+        runner: [ubuntu-26.04, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: runner.os == 'Linux'
+        run: shellcheck site/install.sh scripts/homebrew-formula.sh
+      - name: install.sh
+        run: |
+          DVARAPALA_INSTALL="$RUNNER_TEMP/bin" sh site/install.sh
+          "$RUNNER_TEMP/bin/dvarapala" --version
+      - name: homebrew formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
+          scripts/homebrew-formula.sh "${tag#v}" "$RUNNER_TEMP/SHA256SUMS" > "$RUNNER_TEMP/dvarapala.rb"
+          ruby -c "$RUNNER_TEMP/dvarapala.rb"
+
   release-check:
     if: startsWith(github.head_ref, 'release/v')
     runs-on: ubuntu-26.04

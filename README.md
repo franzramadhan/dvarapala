@@ -43,15 +43,20 @@ before you enforce.
 
 ## Quick start
 
-Download a binary from the
-[releases](https://github.com/franzramadhan/dvarapala/releases) page:
-static Linux (musl) and macOS, `x86_64` and `aarch64`. Check it first:
+Install the latest release (static Linux musl or macOS, `x86_64` or
+`aarch64`):
 
 ```sh
-shasum -a 256 -c SHA256SUMS --ignore-missing
-tar xzf dvarapala-v<version>-<target>.tar.gz
-./dvarapala serve --config dvarapala.toml
+brew install franzramadhan/tap/dvarapala
+# or: checks SHA256SUMS, installs to /usr/local/bin or ~/.local/bin
+curl -fsSL https://dvarapala.franzramadhan.dev/install.sh | sh
+dvarapala serve --config dvarapala.toml
 ```
+
+`DVARAPALA_VERSION=v<version>` pins a release and `DVARAPALA_INSTALL=<dir>`
+picks the directory. Or download a tarball from the
+[releases](https://github.com/franzramadhan/dvarapala/releases) page and
+check it with `shasum -a 256 -c SHA256SUMS --ignore-missing`.
 
 Or build from source (toolchain pinned in `rust-toolchain.toml`):
 
