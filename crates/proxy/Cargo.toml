@@ -11,6 +11,8 @@ publish.workspace = true
 [features]
 # TLS listener and https:// upstreams (RFC 0003).
 tls = ["dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types", "dep:hyper-rustls", "dep:tokio-rustls"]
+# HTTP/3 listener over QUIC (RFC 0006), experimental: pre-1.0 crates.
+http3 = ["tls", "dep:quinn", "dep:h3", "dep:h3-quinn"]
 
 [dependencies]
 # RFC 0007: the per-destination schedule and client CIDRs
@@ -34,9 +36,16 @@ rustls = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
+# RFC 0006: the HTTP/3 test client
+h3.workspace = true
+h3-quinn.workspace = true
+quinn.workspace = true
 futures-util.workspace = true
 # RFC 0005 case 13: getrusage in the tunnels bench
 libc.workspace = true
