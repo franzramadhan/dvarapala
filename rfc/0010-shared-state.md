@@ -256,6 +256,10 @@ Found while building:
 - Heartbeats expire after `3 x sync_interval + timeout`, not three
   intervals: under load in CI a round took over 200 ms and replicas lost
   sight of each other between rounds.
+- Connecting (and migrating, on PostgreSQL) is its own step before a
+  round, bounded by `10 x timeout` instead of `timeout`: replicas
+  starting together wait for each other's migrations, and a slow
+  migration must not be cancelled and retried forever.
 - The PostgreSQL round time in case 15 is mostly the Docker network on
   macOS; it is still well under the 500 ms default timeout.
 

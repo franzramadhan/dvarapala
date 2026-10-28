@@ -261,7 +261,7 @@ local limits and syncs in the background every `sync_interval`.
 | `cluster` | string | `"dvarapala"` | Key prefix (Redis) or `cluster` column (PostgreSQL); replicas with the same store and name share state |
 | `sync_interval` | duration | `"1s"` | How often each replica syncs. Above 0 |
 | `max_keys` | integer | `10000` | Clients synced per interval at most, busiest first; the rest count in `dvarapala_store_keys_dropped_total`. At least 1 |
-| `timeout` | duration | `"500ms"` | A round slower than this fails (PostgreSQL also sets `statement_timeout`). Above 0 |
+| `timeout` | duration | `"500ms"` | A round slower than this fails (PostgreSQL also sets `statement_timeout`); connecting, migrations included, may take 10 times as long. Above 0 |
 | `migrate` | bool | `true` | PostgreSQL only: apply missing schema migrations at start. `false` only checks the version, for a role without DDL rights |
 | `ca_file` | path | system roots | PEM roots for `rediss://` and PostgreSQL TLS |
 
