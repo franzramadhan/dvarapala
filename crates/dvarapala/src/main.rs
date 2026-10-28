@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
+use dvarapala_l4::Listener;
 use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
@@ -139,13 +140,15 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Starts the metrics endpoint when set, then binds the proxy listener.
-async fn bind(cfg: &config::Config) -> Result<TcpListener, Box<dyn Error>> {
+/// Starts the metrics endpoint when set, then binds the proxy listener
+/// with the `[l4]` limits.
+async fn bind(cfg: &config::Config) -> Result<Listener, Box<dyn Error>> {
+    let l4 = cfg.l4.config()?;
     if !cfg.metrics.listen.is_empty() {
         let addr = cfg.metrics.listen.parse()?;
         metrics::serve(addr, metrics::install()?).await?;
     }
-    Ok(TcpListener::bind(cfg.listen).await?)
+    Ok(Listener::new(TcpListener::bind(cfg.listen).await?, l4)?)
 }
 
 fn detection(d: &config::Detection) -> Option<Detection> {
@@ -276,7 +279,7 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
 }
 
 /// Serves `svc`, with TLS when `tls` is set.
-async fn listen<S>(listener: TcpListener, tls: Option<Tls>, h2: Http2Limits, svc: S)
+async fn listen<S>(listener: Listener, tls: Option<Tls>, h2: Http2Limits, svc: S)
 where
     S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
         + Clone

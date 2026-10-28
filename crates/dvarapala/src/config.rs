@@ -11,8 +11,10 @@ use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Deserializer, de};
 
 mod forward;
+mod l4;
 mod protocols;
 pub use forward::{Forward, ProxyMode};
+pub use l4::L4;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -46,6 +48,8 @@ pub struct Config {
     pub upgrade: Upgrade,
     #[serde(default)]
     pub forward: Forward,
+    #[serde(default)]
+    pub l4: L4,
 }
 
 impl Config {
