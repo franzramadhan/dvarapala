@@ -37,8 +37,9 @@ tar xzf dvarapala-v<version>-<target>.tar.gz
 ```
 
 Or as a container image, for `linux/amd64` and `linux/arm64`. It is
-`FROM scratch` with the static binary, runs as UID 10001 and listens on
-port 8080. With no config file, every key comes from the environment:
+`FROM scratch` with the static binary built with the Redis and PostgreSQL
+stores (`[store]`, so replicas can share limits), runs as UID 10001 and
+listens on port 8080. With no config file, every key comes from the environment:
 
 ```sh
 docker run --rm -p 8080:8080 \
@@ -56,7 +57,8 @@ docker run --rm -p 8080:8080 -v ./dvarapala.toml:/etc/dvarapala.toml:ro \
 Inside a container, set `[metrics] listen = "0.0.0.0:9090"` to scrape
 metrics from outside it (the default is loopback). The image has no CA
 bundle: for an `https://` upstream, mount one and set
-`upstream_tls.ca_file`.
+`upstream_tls.ca_file`; for a TLS store (`rediss://`, PostgreSQL), set
+`store.ca_file`.
 
 Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 
