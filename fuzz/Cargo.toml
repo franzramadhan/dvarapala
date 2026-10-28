@@ -20,6 +20,9 @@ bytes = "1.12.1"
 quinn-proto = { version = "0.11.19", default-features = false, features = ["rustls-ring"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
 rustls-pki-types = "1.15.1"
+# RFC 0010 case 14: replies the Redis backend decodes
+dvarapala-store = { path = "../crates/store", features = ["redis"] }
+redis = { version = "1.8.0", default-features = false }
 
 # Its own workspace: fuzzing needs nightly and sanitizer flags that the main
 # workspace must not inherit.
@@ -78,6 +81,13 @@ bench = false
 [[bin]]
 name = "quic_datagram"
 path = "fuzz_targets/quic_datagram.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_reply"
+path = "fuzz_targets/store_reply.rs"
 test = false
 doc = false
 bench = false

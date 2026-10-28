@@ -608,6 +608,7 @@ dependencies = [
 name = "dvarapala-store"
 version = "0.5.0"
 dependencies = [
+ "criterion",
  "dvarapala-engine",
  "metrics",
  "redis",

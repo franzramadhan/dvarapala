@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, unused_mut, dead_code)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -24,16 +23,70 @@ struct State {
 impl Memory {
     /// While down, every round fails, as if the store went away.
     pub fn set_down(&self, down: bool) {
-        todo!("rfc 0010")
+        self.lock().down = down;
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
-        todo!("rfc 0010")
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 impl Store for Memory {
     async fn round(&mut self, r: &Round<'_>) -> Result<Reply, Error> {
-        todo!("rfc 0010")
+        let now = Instant::now();
+        let mut s = self.lock();
+        if s.down {
+            return Err(Error("store down".into()));
+        }
+        let c = r.cluster.to_owned();
+        s.replicas.retain(|_, t| *t > now);
+        s.counts.retain(|_, (_, t)| *t > now);
+        s.heavy.retain(|_, t| *t > now);
+        s.pauses.retain(|_, t| *t > now);
+        s.replicas
+            .insert((c.clone(), r.replica.to_owned()), now + r.heartbeat);
+        let replicas = s.replicas.keys().filter(|(k, _)| *k == c).count() as u32;
+        let expires = now + r.window * 2;
+        let totals = r
+            .batch
+            .counts
+            .iter()
+            .map(|&(key, n)| {
+                let e = s
+                    .counts
+                    .entry((c.clone(), r.batch.window_start, key))
+                    .or_insert((0, expires));
+                e.0 += u64::from(n);
+                (key, e.0)
+            })
+            .collect();
+        for &(net, ttl) in &r.batch.heavy {
+            let t = s.heavy.entry((c.clone(), net)).or_insert(now);
+            *t = (*t).max(now + ttl);
+        }
+        for (name, ttl) in &r.batch.pauses {
+            let t = s.pauses.entry((c.clone(), name.clone())).or_insert(now);
+            *t = (*t).max(now + *ttl);
+        }
+        let heavy = s
+            .heavy
+            .iter()
+            .filter(|((k, _), _)| *k == c)
+            .take(r.max_list)
+            .map(|((_, net), t)| (*net, *t - now))
+            .collect();
+        let pauses = s
+            .pauses
+            .iter()
+            .filter(|((k, _), _)| *k == c)
+            .take(r.max_list)
+            .map(|((_, name), t)| (name.clone(), *t - now))
+            .collect();
+        Ok(Reply {
+            replicas,
+            totals,
+            heavy,
+            pauses,
+        })
     }
 }

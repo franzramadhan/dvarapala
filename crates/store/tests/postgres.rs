@@ -77,7 +77,6 @@ async fn columns(c: &Client) -> Vec<String> {
 
 // case 16
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn replicas_starting_together_migrate_once() {
     let Some(url) = fresh().await else { return };
     let (mut a, mut b) = (store(&url, true), store(&url, true));
@@ -90,7 +89,6 @@ async fn replicas_starting_together_migrate_once() {
 
 // case 17
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn without_migrate_a_missing_schema_fails_open() {
     let Some(url) = fresh().await else { return };
     let e = round(&mut store(&url, false)).await.unwrap_err();
@@ -105,7 +103,6 @@ async fn without_migrate_a_missing_schema_fails_open() {
 
 // case 18
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn only_the_missing_migration_runs() {
     let Some(url) = fresh().await else { return };
     let mut c = client(&url).await;
@@ -126,7 +123,6 @@ async fn only_the_missing_migration_runs() {
 
 // case 19
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn a_newer_database_is_refused() {
     let Some(url) = fresh().await else { return };
     let mut c = client(&url).await;
@@ -150,7 +146,6 @@ async fn a_newer_database_is_refused() {
 
 // case 20
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn rendered_schema_matches_migrate() {
     let (Some(by_hand), Some(by_migrate)) = (fresh().await, fresh().await) else {
         return;
@@ -167,7 +162,6 @@ async fn rendered_schema_matches_migrate() {
 
 // case 22
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0010"]
 async fn sweep_deletes_expired_rows_on_one_replica() {
     let Some(url) = fresh().await else { return };
     let mut s = store(&url, true);
