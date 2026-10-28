@@ -16,12 +16,16 @@ tls = ["dvarapala-proxy/tls"]
 ml = ["dvarapala-engine/ml"]
 # HTTP/3 listener over QUIC (RFC 0006), experimental.
 http3 = ["tls", "dvarapala-proxy/http3"]
+# Shared state across replicas (RFC 0010), each backend opt-in.
+redis = ["dvarapala-store/redis"]
+postgres = ["dvarapala-store/postgres"]
 
 [dependencies]
 dvarapala-engine.workspace = true
 dvarapala-l4.workspace = true
 dvarapala-l7.workspace = true
 dvarapala-proxy.workspace = true
+dvarapala-store.workspace = true
 figment.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }

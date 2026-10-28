@@ -2,6 +2,7 @@ mod config;
 mod metrics;
 #[cfg(feature = "http3")]
 mod quic;
+mod store;
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -33,6 +34,7 @@ use tracing_subscriber::EnvFilter;
 enum Tls {}
 
 const USAGE: &str = "usage: dvarapala serve [--config <file>]
+       dvarapala store schema [--from <version>]
 
 Config keys can also be set as DVARAPALA__<SECTION>__<KEY>.
 Log level comes from RUST_LOG (default info).";
@@ -47,6 +49,20 @@ fn main() -> ExitCode {
     ) {
         (Some("serve"), None, None, None) => None,
         (Some("serve"), Some("--config"), Some(path), None) => Some(PathBuf::from(path)),
+        (Some("store"), Some("schema"), from, n) => {
+            // RFC 0010: the PostgreSQL schema for a hand-run migration
+            let from = match (from.as_deref(), n) {
+                (None, None) => Some(0),
+                (Some("--from"), Some(n)) => n.parse().ok(),
+                _ => None,
+            };
+            let Some(from) = from.filter(|_| args.next().is_none()) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            print!("{}", dvarapala_store::render(from));
+            return ExitCode::SUCCESS;
+        }
         (Some("--version"), None, None, None) => {
             println!("dvarapala {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
@@ -85,6 +101,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         }
         // RFC 0007: the callers are our own services, no per-client limiter
         let (clients, destinations) = cfg.forward.parts()?;
+        let cluster = store::start(&cfg.store, None, cfg.rate_limit.max_clients)?;
         let names: Vec<String> = destinations.iter().map(|d| d.name.clone()).collect();
         let proxy = ForwardProxy::<Incoming>::new(&ForwardConfig {
             clients,
@@ -93,7 +110,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             tunnels,
             #[cfg(feature = "tls")]
             tls: upstream_tls,
-            cluster: None,
+            cluster,
         })?;
         let listener = bind(&cfg).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
@@ -117,22 +134,27 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     };
     let proxy = ReverseProxy::<Incoming>::with_config(target, &upstream)?;
     let limiter = if cfg.rate_limit.enabled {
+        let limit = Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)?;
+        let cluster = store::start(&cfg.store, Some(limit), cfg.rate_limit.max_clients)?;
         let trusted = cfg
             .trusted_proxies
             .iter()
             .map(|c| c.parse::<Cidr>())
             .collect::<Result<_, _>>()?;
         Some(RateLimitLayer::new(RateLimitConfig {
-            limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)?,
+            limit,
             max_clients: NonZeroUsize::new(cfg.rate_limit.max_clients)
                 .ok_or("rate_limit.max_clients must be at least 1")?,
             trusted: TrustedProxies::new(trusted),
             detection: detection(&cfg.detection),
             scoring: scoring(&cfg.ml)?,
             now: Instant::now,
-            cluster: None,
+            cluster,
         })?)
     } else {
+        if cfg.store.backend != config::Backend::Memory {
+            tracing::warn!("store shares the rate limiter's counts, which is off");
+        }
         if cfg.detection.enabled || cfg.ml.model.is_some() {
             tracing::warn!("detection and scoring run inside the rate limiter, which is off");
         }

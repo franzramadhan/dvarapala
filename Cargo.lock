@@ -501,6 +501,7 @@ dependencies = [
  "dvarapala-l4",
  "dvarapala-l7",
  "dvarapala-proxy",
+ "dvarapala-store",
  "figment",
  "http-body-util",
  "hyper",

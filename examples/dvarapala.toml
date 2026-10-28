@@ -92,3 +92,15 @@ prefix_v6 = 64
 # header_timeout = "30s"
 # idle_timeout = "60s"
 # min_body_rate = 0
+
+# Shared state across replicas (RFC 0010), in builds with the redis or
+# postgres feature. Put the password in DVARAPALA__STORE__URL.
+# [store]
+# backend = "redis"
+# url = "redis://<host>:6379/0"
+# cluster = "dvarapala"
+# sync_interval = "1s"
+# max_keys = 10000
+# timeout = "500ms"
+# migrate = true
+# ca_file = "/etc/dvarapala/store-ca.pem"
