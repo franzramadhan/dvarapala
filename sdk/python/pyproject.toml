@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dvarapala"
+description = "In-process rate limit, flood detection and connection limits from the dvarapala gateway (RFC 0008)"
+version = "0.4.0"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = []
+
+[tool.setuptools.package-data]
+# the wheel carries the shared library from `cargo build --release -p dvarapala-ffi`
+dvarapala = ["libdvarapala.so", "libdvarapala.dylib", "dvarapala.dll"]
