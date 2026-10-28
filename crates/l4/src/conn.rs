@@ -1,34 +1,71 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+use tokio::time::Instant;
 
 use crate::limits::Guard;
 
 /// Bytes and requests on one connection, for the idle timeout.
 pub struct Activity {
-    _todo: (),
+    base: Instant,
+    /// nanoseconds after `base` of the last byte or request end
+    last: AtomicU64,
+    in_flight: AtomicUsize,
 }
 
 /// A request in flight on a connection; dropping it ends the request.
-#[allow(dead_code)]
 pub struct InFlight(Arc<Activity>);
 
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.touch();
+        self.0.in_flight.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 impl Activity {
+    fn new() -> Self {
+        Self {
+            base: Instant::now(),
+            last: AtomicU64::new(0),
+            in_flight: AtomicUsize::new(0),
+        }
+    }
+
+    fn touch(&self) {
+        let at = self.base.elapsed().as_nanos() as u64;
+        self.last.fetch_max(at, Ordering::Relaxed);
+    }
+
     /// Counts a request until the guard drops.
     pub fn begin(self: &Arc<Self>) -> InFlight {
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
         InFlight(self.clone())
     }
 
     /// Resolves once nothing was read or written and no request was in
     /// flight for `timeout`.
     pub async fn idle(&self, timeout: Duration) {
-        let _ = timeout;
-        todo!("rfc 0009")
+        loop {
+            // ponytail: rechecks every `timeout` while a request runs, a
+            // Notify if requests ever outlast many timeouts in bulk
+            if self.in_flight.load(Ordering::Acquire) > 0 {
+                tokio::time::sleep(timeout).await;
+                continue;
+            }
+            let last = self.base + Duration::from_nanos(self.last.load(Ordering::Relaxed));
+            let deadline = last + timeout;
+            if Instant::now() >= deadline {
+                return;
+            }
+            tokio::time::sleep_until(deadline).await;
+        }
     }
 }
 
@@ -41,10 +78,12 @@ pub struct Conn {
 }
 
 impl Conn {
-    #[allow(dead_code)]
     pub(crate) fn new(io: TcpStream, guard: Option<Guard>) -> Self {
-        let _ = (&io, &guard);
-        todo!("rfc 0009")
+        Self {
+            io,
+            _guard: guard,
+            activity: Arc::new(Activity::new()),
+        }
     }
 
     pub fn activity(&self) -> Arc<Activity> {
@@ -58,7 +97,12 @@ impl AsyncRead for Conn {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.io).poll_read(cx, buf)
+        let before = buf.filled().len();
+        let r = Pin::new(&mut self.io).poll_read(cx, buf);
+        if buf.filled().len() > before {
+            self.activity.touch();
+        }
+        r
     }
 }
 
@@ -68,7 +112,13 @@ impl AsyncWrite for Conn {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.io).poll_write(cx, buf)
+        let r = Pin::new(&mut self.io).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = r
+            && n > 0
+        {
+            self.activity.touch();
+        }
+        r
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -93,7 +143,6 @@ mod tests {
 
     /// RFC 0009 case 10, at the connection
     #[tokio::test(start_paused = true)]
-    #[ignore = "rfc 0009"]
     async fn idle_waits_for_quiet_and_no_request() {
         let (conn, _client) = pair().await;
         let act = conn.activity();

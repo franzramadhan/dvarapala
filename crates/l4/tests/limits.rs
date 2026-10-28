@@ -64,7 +64,6 @@ async fn served(mut conn: Conn, mut s: TcpStream) {
 
 /// RFC 0009 case 6
 #[tokio::test]
-#[ignore = "rfc 0009"]
 async fn third_from_one_client_is_closed() {
     record();
     let (addr, mut rx) = listen(limits(2, 0)).await;
@@ -79,7 +78,6 @@ async fn third_from_one_client_is_closed() {
 
 /// RFC 0009 cases 7 and 8
 #[tokio::test]
-#[ignore = "rfc 0009"]
 async fn total_cap_and_freed_places() {
     record();
     let (addr, mut rx) = listen(limits(0, 2)).await;
@@ -97,7 +95,6 @@ async fn total_cap_and_freed_places() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0009"]
 async fn off_accepts_everything() {
     let (addr, mut rx) = listen(L4Config {
         enabled: false,
