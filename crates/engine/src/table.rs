@@ -50,12 +50,26 @@ impl<K: Hash + Eq + Clone, V: Default> Table<K, V> {
 
     /// Takes one token from `key`'s bucket, creating a full one if unseen.
     pub fn take(&mut self, key: K, limit: &Limit, now: Instant) -> Verdict {
-        if let Some(&i) = self.index.get(&key) {
-            self.unlink(i);
-            self.push_front(i);
-            return self.slots[i as usize].bucket.take(limit, now);
-        }
-        let bucket = Bucket::full(limit, now);
+        let (bucket, _) = self.entry(key, limit, now);
+        bucket.take(limit, now)
+    }
+
+    /// The bucket and value of `key`, moved to the front, or inserted (a
+    /// full bucket, the default value) in place of the least recently seen.
+    pub fn entry(&mut self, key: K, limit: &Limit, now: Instant) -> (&mut Bucket, &mut V) {
+        let i = match self.index.get(&key) {
+            Some(&i) => {
+                self.unlink(i);
+                i
+            }
+            None => self.insert(key, Bucket::full(limit, now)),
+        };
+        self.push_front(i);
+        let slot = &mut self.slots[i as usize];
+        (&mut slot.bucket, &mut slot.extra)
+    }
+
+    fn insert(&mut self, key: K, bucket: Bucket) -> u32 {
         let i = if self.slots.len() < self.capacity {
             self.slots.push(Slot {
                 key: key.clone(),
@@ -77,11 +91,9 @@ impl<K: Hash + Eq + Clone, V: Default> Table<K, V> {
             t
         };
         self.index.insert(key, i);
-        self.push_front(i);
-        self.slots[i as usize].bucket.take(limit, now)
+        i
     }
 
-    /// `key`'s extra data, without touching its recency.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         let &i = self.index.get(key)?;
         Some(&mut self.slots[i as usize].extra)
