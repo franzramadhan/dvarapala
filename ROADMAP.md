@@ -11,3 +11,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0004](rfc/0004-http2-grpc.md) | HTTP/2 upstreams, trailers, gRPC-shaped errors, HTTP/2 flood limits | implemented | v0.4.0 |
 | [0005](rfc/0005-websocket.md) | WebSocket upgrade pass-through with tunnel limits | implemented | v0.4.0 |
 | [0006](rfc/0006-http3.md) | Optional HTTP/3 over QUIC with Retry under load | accepted | unplanned |
+| [0007](rfc/0007-forward-proxy.md) | Forward proxy with per-destination egress rate shaping | accepted | v0.5.0 |
