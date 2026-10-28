@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-28 | #71 | unplanned |
+| accepted | 2026-10-28 | #71 | unplanned |
 
 > A `store` crate with optional Redis and PostgreSQL backends, so several
 > dvarapala replicas behind one load balancer enforce one per-client
