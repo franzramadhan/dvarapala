@@ -1,6 +1,5 @@
 //! PostgreSQL schema versions (RFC 0010). A released file is never edited:
 //! a change is a new file.
-#![allow(unused_variables, unused_imports, unused_mut, dead_code)]
 
 /// One schema version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +20,18 @@ pub const LATEST: u32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 /// transaction per migration with its `schema_version` row, for
 /// `dvarapala store schema` and hand-run migrations.
 pub fn render(from: u32) -> String {
-    todo!("rfc 0010")
+    MIGRATIONS
+        .iter()
+        .filter(|m| m.version > from)
+        .map(|m| {
+            format!(
+                "-- dvarapala schema version {v}\nBEGIN;\n{sql}\nINSERT INTO dvarapala.schema_version (version) VALUES ({v});\nCOMMIT;\n",
+                v = m.version,
+                sql = m.sql.trim_end()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(feature = "postgres")]
@@ -32,12 +42,35 @@ mod apply {
     use crate::Error;
 
     fn pg(e: tokio_postgres::Error) -> Error {
-        todo!("rfc 0010")
+        match e.as_db_error() {
+            // the message only, never the detail: it can hold row values
+            Some(d) => Error(format!("postgres: {} ({})", d.message(), d.code().code())),
+            None => Error(format!("postgres: {e}")),
+        }
     }
 
     /// The schema version of the database, 0 when there is none.
     pub async fn version(client: &impl GenericClient) -> Result<u32, Error> {
-        todo!("rfc 0010")
+        // two queries: a missing table fails at parse time, even in a CASE
+        let exists: bool = client
+            .query_one(
+                "SELECT to_regclass('dvarapala.schema_version') IS NOT NULL",
+                &[],
+            )
+            .await
+            .map_err(pg)?
+            .get(0);
+        if !exists {
+            return Ok(0);
+        }
+        let row = client
+            .query_one(
+                "SELECT coalesce(max(version), 0) FROM dvarapala.schema_version",
+                &[],
+            )
+            .await
+            .map_err(pg)?;
+        Ok(row.get::<_, i32>(0) as u32)
     }
 
     /// Applies the missing migrations of `list` in order, each in its own
@@ -49,7 +82,34 @@ mod apply {
         client: &mut tokio_postgres::Client,
         list: &[Migration],
     ) -> Result<u32, Error> {
-        todo!("rfc 0010")
+        let latest = list.last().map_or(0, |m| m.version);
+        loop {
+            let tx = client.transaction().await.map_err(pg)?;
+            tx.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('dvarapala.migrate'))",
+                &[],
+            )
+            .await
+            .map_err(pg)?;
+            let v = version(&tx).await?;
+            if v > latest {
+                return Err(Error(format!(
+                    "schema version {v} is newer than this binary's {latest}"
+                )));
+            }
+            let Some(m) = list.iter().find(|m| m.version > v) else {
+                return Ok(v);
+            };
+            tx.batch_execute(m.sql).await.map_err(pg)?;
+            tx.execute(
+                "INSERT INTO dvarapala.schema_version (version) VALUES ($1)",
+                &[&(m.version as i32)],
+            )
+            .await
+            .map_err(pg)?;
+            tx.commit().await.map_err(pg)?;
+            tracing::info!(msg = "store schema migrated", version = m.version);
+        }
     }
 }
 
@@ -72,7 +132,6 @@ mod tests {
     const RELEASED: &[(u32, u64)] = &[(1, 0xb50c0e7f96ea4f9e)];
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn released_migrations_never_change() {
         for &(v, sum) in RELEASED {
             let m = MIGRATIONS.iter().find(|m| m.version == v).unwrap();
@@ -81,7 +140,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn versions_count_up_from_one() {
         for (i, m) in MIGRATIONS.iter().enumerate() {
             assert_eq!(m.version as usize, i + 1);
@@ -89,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn render_starts_after_from() {
         assert!(render(0).contains("VALUES (1);"));
         assert_eq!(render(LATEST), "");

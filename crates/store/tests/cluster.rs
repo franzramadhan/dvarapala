@@ -250,7 +250,6 @@ macro_rules! cases {
             static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
             $(
                 #[tokio::test(flavor = "multi_thread")]
-                #[ignore = "rfc 0010"]
                 async fn $case() {
                     let _serial = SERIAL.lock().await;
                     #[allow(clippy::redundant_closure_call)]
