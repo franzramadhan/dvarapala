@@ -1,5 +1,4 @@
 //! Starts the RFC 0011 XDP fast path when `xdp.interface` is set.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::error::Error;
 
@@ -12,17 +11,42 @@ use crate::config;
 /// `block_ttl` above 0). The program stays attached while the runtime
 /// runs and is detached when the process exits.
 pub fn start(cfg: &config::Config) -> Result<Option<BlockSink>, Box<dyn Error>> {
-    todo!("rfc 0011")
+    if cfg.xdp.interface.is_none() {
+        return Ok(None);
+    }
+    if !cfg!(all(feature = "xdp", target_os = "linux")) {
+        return Err("xdp.interface needs a Linux build with the xdp feature".into());
+    }
+    let udp = cfg.quic.listen.map_or(0, |a| a.port());
+    let Some(plan) = cfg.xdp.plan(cfg.listen.port(), udp)? else {
+        return Ok(None);
+    };
+    load(plan)
 }
 
 #[cfg(all(feature = "xdp", target_os = "linux"))]
 fn load(plan: config::XdpPlan) -> Result<Option<BlockSink>, Box<dyn Error>> {
-    todo!("rfc 0011")
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mut x = dvarapala_xdp::Xdp::load(&plan.config)?;
+    x.attach(&plan.interface, plan.attach)?;
+    let x = Arc::new(x);
+    let t = x.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            every.tick().await;
+            t.tick();
+        }
+    });
+    let dynamic = plan.config.enforce && !plan.config.block_ttl.is_zero();
+    Ok(dynamic.then(|| BlockSink::new(move |net| x.block(net))))
 }
 
 #[cfg(not(all(feature = "xdp", target_os = "linux")))]
 fn load(_: config::XdpPlan) -> Result<Option<BlockSink>, Box<dyn Error>> {
-    todo!("rfc 0011")
+    unreachable!("start refuses xdp.interface first")
 }
 
 #[cfg(all(test, not(feature = "xdp")))]
@@ -33,8 +57,14 @@ mod tests {
 
     // RFC 0011 case 11
     #[test]
-    #[ignore = "rfc 0011"]
     fn interface_needs_the_feature() {
-        todo!("rfc 0011")
+        Jail::expect_with(|j| {
+            j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
+            j.set_env("DVARAPALA__XDP__INTERFACE", "eth0");
+            let c = crate::config::load(None).map_err(|e| e.to_string())?;
+            let e = super::start(&c).unwrap_err().to_string();
+            assert!(e.contains("xdp feature"), "{e}");
+            Ok(())
+        });
     }
 }
