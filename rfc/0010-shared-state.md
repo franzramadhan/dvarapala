@@ -4,10 +4,10 @@
 |---|---|---|---|
 | draft | 2026-10-28 | #71 | unplanned |
 
-> A `store` crate and an optional Redis backend, so several dvarapala
-> replicas behind one load balancer enforce one per-client limit, one
-> egress budget per destination and one list of heavy hitters, without a
-> network call on the request path.
+> A `store` crate with optional Redis and PostgreSQL backends, so several
+> dvarapala replicas behind one load balancer enforce one per-client
+> limit, one egress budget per destination and one list of heavy hitters,
+> without a network call on the request path.
 
 ## Problem
 
@@ -24,29 +24,32 @@ load balancer:
 - **Detection (RFC 0002):** each replica sees `1/N` of a flood. A heavy
   hitter found on one replica is still served by the others.
 
-A synchronous Redis call per request would fix the counts, but adds a
-round trip (0.2 to 1 ms in one zone) to every request, makes Redis the
-first thing an attacker saturates, and turns a Redis outage into a
+A synchronous store call per request would fix the counts, but adds a
+round trip (0.2 to 1 ms in one zone) to every request, makes the store
+the first thing an attacker saturates, and turns a store outage into a
 gateway outage.
 
 ## Proposal
 
 - `[store] backend = "memory"` (default) keeps today's behavior: no
-  change, no new socket. `backend = "redis"` with `store.url` shares state
-  between every replica that uses the same Redis and `store.cluster` name.
-- Nothing on the request path waits for Redis. Each replica keeps its
+  change, no new socket. `backend = "redis"` or `backend = "postgres"`
+  with `store.url` shares state between every replica that uses the same
+  store and `store.cluster` name. Both backends implement the same
+  `Store` trait and pass the same tests; the choice is whichever the
+  deployment already runs.
+- Nothing on the request path waits for the store. Each replica keeps its
   local state as today and syncs in the background every
   `store.sync_interval` (default 1 s). Limits are therefore approximate,
   with a bounded overshoot (below), never a hard dependency.
-- **Replica count:** each replica writes a heartbeat key with a TTL of
-  three intervals and reads how many are alive. `dvarapala_store_replicas`
-  reports it.
+- **Replica count:** each replica writes a heartbeat that expires after
+  three intervals and reads how many are alive.
+  `dvarapala_store_replicas` reports it.
 - **Per-client limit:** the local token bucket stays at the full rate
   (exact when the load balancer pins a client to one replica). On top,
   every interval each replica adds the requests it allowed per active
-  client to a cluster counter for the current window (`INCRBY` and
-  `EXPIRE`, pipelined, at most `store.max_keys` clients per sync, busiest
-  first). When a client's cluster count for the window is over
+  client to a cluster counter for the current window (at most
+  `store.max_keys` clients per sync, busiest first, in one round trip).
+  When a client's cluster count for the window is over
   `rate x window + burst`, every replica throttles it locally until the
   window ends. Overshoot is at most `N x rate x sync_interval` per window.
 - **Forward proxy:** a destination's rate, burst and `max_concurrent` are
@@ -55,16 +58,66 @@ gateway outage.
   pause (`Retry-After`) seen by one replica is published and applies on
   all.
 - **Heavy hitters:** in `enforce` mode each replica publishes the
-  prefixes its detector marks as heavy, with a TTL of
+  prefixes its detector marks as heavy, expiring after
   `detection.cooldown_windows` windows; every replica drops them too.
   Detection state (`Normal` to `Attack`) stays per replica.
-- **Lost Redis: fail open to local limits**, as `CLAUDE.md` allows for
+- **Lost store: fail open to local limits**, as `CLAUDE.md` allows for
   this case. Local buckets and detection keep working; the cluster
   counters and the shared drop list stop growing and expire. The last
   known replica count is kept for the forward split, so egress stays
   under the agreement. Logged once as `msg="store unavailable"`, and
   `msg="store recovered"` when it comes back; reconnects back off up to
   `store.sync_interval x 10`.
+
+### Redis backend
+
+One sync round is one pipeline: `SET` the heartbeat with `PX`, `SCAN`
+the heartbeat keys for the count, `INCRBY` and `PEXPIRE` per client
+window key, `SET ... PX` for pauses and heavy hitters, `MGET` the window
+keys this replica cares about. Keys are `<cluster>:<kind>:<id>`; Redis
+TTLs do the expiry.
+
+### PostgreSQL backend
+
+For deployments that run PostgreSQL and no Redis, for example a
+CloudNativePG cluster. Counters live in `UNLOGGED` tables in their own
+schema:
+
+```sql
+CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
+  cluster text, key text, window_start bigint, count bigint,
+  expires_at timestamptz,
+  PRIMARY KEY (cluster, key, window_start));
+-- heartbeats(cluster, replica, expires_at)
+-- marks(cluster, kind, key, expires_at)  -- pauses and heavy hitters
+```
+
+- One sync round is one transaction of a few statements, never one per
+  client: window counts go up as arrays,
+  `INSERT ... SELECT * FROM unnest($1, $2, $3) ON CONFLICT DO UPDATE SET
+  count = counters.count + EXCLUDED.count RETURNING key, count`, so the
+  same statement returns the cluster totals. Heartbeat and marks are
+  upserts the same way; the live replica count is a `count(*)` over
+  unexpired heartbeats.
+- Expiry: reads filter on `expires_at > now()`, and one replica at a time
+  (`pg_try_advisory_lock`) deletes expired rows every 10 intervals, in
+  batches, so the tables stay small.
+- `UNLOGGED` skips the WAL: cheaper writes, and the counters are not
+  replicated to standbys and are emptied after a crash or failover. That
+  is acceptable, since a counter reset is the same as a short store
+  outage: replicas fall back to local limits for at most one window.
+- Schema: created at start with `CREATE ... IF NOT EXISTS` when
+  `store.migrate = true` (the default); set it to `false` to apply the
+  bundled SQL by hand and run with a role that has only `SELECT`,
+  `INSERT`, `UPDATE` and `DELETE` on the `dvarapala` schema.
+- Connection: `store.url` is a libpq URL; TLS follows `sslmode`
+  (`require`, `verify-ca`, `verify-full`) with rustls. With CloudNativePG,
+  point it at the `<cluster>-rw` service or a `Pooler` in transaction
+  mode: the backend uses unnamed prepared statements only, so it works
+  through PgBouncer.
+- `LISTEN/NOTIFY` for instant pauses is left out: one sync interval of
+  delay is within the forward proxy's budget, and NOTIFY does not pass
+  through a transaction-mode pooler.
 
 ### Domain
 
@@ -73,28 +126,36 @@ gateway outage.
 | `crates/engine/src/cluster.rs` | pure merge rules: window counts to verdict overrides, budget split by replica count, overshoot bound. Time and counts as input |
 | `crates/store/src/lib.rs` | the `Store` trait: heartbeat, add and read window counts, publish and read the drop list and pauses |
 | `crates/store/src/memory.rs` | single-process backend, the default; also the test double |
-| `crates/store/src/redis.rs` | Redis backend: pipelined commands, one connection, reconnect with backoff |
+| `crates/store/src/redis.rs` | Redis backend: one pipeline per round, one connection, reconnect with backoff |
+| `crates/store/src/postgres.rs` | PostgreSQL backend: one transaction per round, schema creation, expiry sweep |
+| `crates/store/src/postgres.sql` | the schema, applied by `store.migrate` or by hand |
 | `crates/store/src/sync.rs` | the background task that drains local deltas into the store and applies what comes back |
 | `crates/l7/src/rate_limit.rs` | consult the cluster overrides and the shared drop list before the local bucket |
 | `crates/proxy/src/forward/shaper.rs` | apply the replica split and shared pauses |
 | `crates/dvarapala/src/config/store.rs` | `[store]` section |
 
 `engine` keeps no I/O: it gets counts in and returns decisions, and the
-sync task in `store` does the talking. The Redis client is the `redis`
-crate (BSD-3-Clause) with `tokio-comp` and, for `rediss://`, rustls; it
-must pass `cargo deny check` and lands behind a `redis` cargo feature so
-the default binary does not grow.
+sync task in `store` does the talking. Clients, each behind its own cargo
+feature so the default binary does not grow, and each must pass
+`cargo deny check`:
+
+- `redis` feature: the `redis` crate (BSD-3-Clause) with `tokio-comp`
+  and rustls for `rediss://`.
+- `postgres` feature: `tokio-postgres` (MIT or Apache-2.0) with
+  `tokio-postgres-rustls` for TLS. No `sqlx`: it brings macros, a
+  migration runner and more dependencies than three tables need.
 
 ### Configuration
 
 | Key | Default | |
 |---|---|---|
-| `store.backend` | `"memory"` | `"memory"` or `"redis"`; `"memory"` turns sharing off |
-| `store.url` | unset | `redis://<host>:6379/0` or `rediss://` for TLS; required with `"redis"`. The password goes in the URL or `DVARAPALA__STORE__URL`, and is never logged |
-| `store.cluster` | `"dvarapala"` | Key prefix; replicas with the same Redis and name share state |
-| `store.sync_interval` | `"1s"` | How often each replica syncs; shorter is tighter and costs more Redis commands |
+| `store.backend` | `"memory"` | `"memory"`, `"redis"` or `"postgres"`; `"memory"` turns sharing off |
+| `store.url` | unset | Required with a shared backend. `redis://<host>:6379/0`, `rediss://` for TLS; or `postgres://<user>@<host>:5432/<db>?sslmode=verify-full`. The password goes in the URL or `DVARAPALA__STORE__URL`, and is never logged |
+| `store.cluster` | `"dvarapala"` | Key prefix (Redis) or `cluster` column (PostgreSQL); replicas with the same store and name share state |
+| `store.sync_interval` | `"1s"` | How often each replica syncs; shorter is tighter and costs more store round trips |
 | `store.max_keys` | `10000` | Clients synced per interval at most, busiest first |
 | `store.timeout` | `"500ms"` | One sync round slower than this counts as a failure |
+| `store.migrate` | `true` | PostgreSQL only: create the schema and tables at start if missing |
 
 ### Logs and metrics
 
@@ -110,53 +171,72 @@ the default binary does not grow.
 
 ## Test cases
 
+Cases 5 to 11 run once per shared backend, against a Redis service and a
+PostgreSQL service in CI.
+
 | # | Given | When | Then | Kind |
 |---|---|---|---|---|
 | 1 | `backend = "memory"` | start | no store task, no socket, behavior and metrics as before | integration (`dvarapala`) |
 | 2 | window counts from 3 replicas over the limit | merge | the client is throttled until the window ends | unit (`engine::cluster`) |
 | 3 | rate 20, 4 replicas, interval 1 s | overshoot bound | at most 80 extra requests per window | unit (`engine::cluster`) |
 | 4 | destination rate 50, 2 then 3 live replicas | split | 25, then 16.67 per replica; burst and `max_concurrent` rounded down, at least 1 | unit (`engine::cluster`) |
-| 5 | two proxies on one Redis, one client round robin, rate 10 | 100 requests in 1 s | at most `10 + burst + overshoot` reach the upstream | integration (`store/tests`, Redis service) |
-| 6 | two forward proxies on one Redis, destination rate 10 | callers on both send 100 rps | the test upstream sees at most 10 rps plus burst | integration (`store/tests`) |
+| 5 | two proxies on one store, one client round robin, rate 10 | 100 requests in 1 s | at most `10 + burst + overshoot` reach the upstream | integration (`store/tests`) |
+| 6 | two forward proxies on one store, destination rate 10 | callers on both send 100 rps | the test upstream sees at most 10 rps plus burst | integration (`store/tests`) |
 | 7 | a provider `429` with `Retry-After: 2` on replica A | next request on replica B | B waits or refuses as paused | integration (`store/tests`) |
 | 8 | heavy hitter found on A, `enforce` | it sends to B | B drops it after one sync | integration (`store/tests`) |
-| 9 | Redis stops | traffic continues | local limits apply, `store_up` 0, one `store unavailable` log, no request waits | integration (`store/tests`) |
-| 10 | Redis comes back | next round | counters resume, one `store recovered` log | integration (`store/tests`) |
+| 9 | the store stops | traffic continues | local limits apply, `store_up` 0, one `store unavailable` log, no request waits | integration (`store/tests`) |
+| 10 | the store comes back | next round | counters resume, one `store recovered` log | integration (`store/tests`) |
 | 11 | 50 000 active clients, `max_keys` 10 000 | one sync | 10 000 busiest synced, `keys_dropped_total` 40 000, round under `timeout` | integration (`store/tests`) |
 | 12 | `store.url` with a password | any log or error | the password does not appear | unit (`config`) |
-| 13 | `backend = "redis"`, no `url` | start | config error naming `store.url` | unit (`config`) |
+| 13 | `backend = "redis"` or `"postgres"`, no `url` | start | config error naming `store.url` | unit (`config`) |
 | 14 | arbitrary bytes as a Redis reply | the backend parses it | no panic, an error | fuzz (`store_reply`) |
 | 15 | sync task on a busy proxy | bench | request latency p99 unchanged within noise, sync under 5 ms for 10 000 keys on loopback | bench (`store/benches`) |
+| 16 | PostgreSQL, empty database, `migrate = true` | start twice | schema created once, second start is a no-op | integration (`store/tests`) |
+| 17 | PostgreSQL, `migrate = false`, schema missing | start | `store unavailable` with the missing table named, local limits apply | integration (`store/tests`) |
+| 18 | PostgreSQL, rows past `expires_at` | sweep | deleted by one replica only, unexpired rows kept | integration (`store/tests`) |
+| 19 | PostgreSQL through PgBouncer in transaction mode | cases 5 and 9 | same results | integration (`store/tests`) |
+
+The PostgreSQL wire protocol is parsed by `tokio-postgres` and the reply
+values are typed columns, so no separate fuzz target; case 14 covers the
+Redis client, whose replies are untyped.
 
 ## Alternatives
 
 | Option | Why not |
 |---|---|
-| Synchronous Redis per request (GCRA in Lua) | exact, but a round trip on every request, Redis becomes the attack target, and an outage stops traffic |
+| Synchronous store call per request (GCRA in Lua) | exact, but a round trip on every request, the store becomes the attack target, and an outage stops traffic |
 | Divide every per-client rate by `N` | wrong when the load balancer pins clients: a client on one replica would get `rate / N` |
-| Gossip between replicas (no Redis) | membership, discovery and NAT handling are more work than one Redis most clusters already run |
+| Gossip between replicas (no store) | membership, discovery and NAT handling are more work than one Redis or PostgreSQL most clusters already run |
 | Sticky load balancing only | out of our control, and still leaves the forward proxy and heavy hitters per replica |
 | Envoy-style external rate limit service | another service to run, and again synchronous on the request path |
+| PostgreSQL with logged tables | WAL and replication for counters that are worthless after a minute |
+| PostgreSQL `hstore` or `jsonb` as a key/value column | one hot row for every replica, lock contention; a row per key spreads it |
 
 ## Security and resource limits
 
-- Redis is trusted: anyone who can write the keys can throttle clients
-  or pause destinations. Use a Redis that only the replicas reach, a
-  password, and `rediss://` across untrusted networks.
+- The store is trusted: anyone who can write the keys or rows can
+  throttle clients or pause destinations. Use a store only the replicas
+  reach, a password, and TLS (`rediss://`, `sslmode=verify-full`) across
+  untrusted networks.
+- PostgreSQL: give dvarapala its own role and schema, never a superuser
+  or an application database's owner. With `migrate = false` the role
+  needs no DDL rights. All values are bound parameters, never SQL text.
 - An attacker controls which clients are active, not what is synced:
-  `max_keys` bounds the work and the keys per round, busiest first, so a
-  spoofed-source flood of single requests costs at most `max_keys` keys
-  per interval, each with a TTL of two windows.
+  `max_keys` bounds the work and the keys or rows per round, busiest
+  first, so a spoofed-source flood of single requests costs at most
+  `max_keys` entries per interval, each expiring after two windows.
 - Memory per replica: the local delta map is bounded by the existing
   `rate_limit.max_clients` table, plus the shared drop list capped at the
   detector's `top_k` per replica.
-- No request path code waits on the store, so a slow or hostile Redis
-  costs sync rounds, never request latency.
+- No request path code waits on the store, so a slow or hostile store
+  costs sync rounds, never request latency. On PostgreSQL every round
+  sets `statement_timeout` to `store.timeout`, so a stuck round does not
+  hold locks.
 
 ## Rollout
 
 - **Rollout:** unplanned. Default `memory`, so upgrading changes nothing.
-  The `redis` cargo feature is off by default; release binaries may ship
-  with it once the footprint job measures it.
-- **Off switch:** `store.backend = "memory"`, or stop Redis: replicas fall
-  back to local limits.
+  The `redis` and `postgres` cargo features are off by default; release
+  binaries may ship with them once the footprint job measures them.
+- **Off switch:** `store.backend = "memory"`, or stop the store: replicas
+  fall back to local limits.
