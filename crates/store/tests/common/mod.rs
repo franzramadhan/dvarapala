@@ -57,10 +57,13 @@ impl Gate {
         let (o, c) = (open.clone(), conns.clone());
         tokio::spawn(async move {
             while let Ok((mut down, _)) = l.accept().await {
+                // under the lock set_open takes: a connection is either
+                // refused or registered before a close drains the list
+                let mut conns = c.lock().unwrap();
                 if !o.load(Ordering::Acquire) {
                     continue;
                 }
-                c.lock().unwrap().push(tokio::spawn(async move {
+                conns.push(tokio::spawn(async move {
                     if let Ok(mut up) = TcpStream::connect(target).await {
                         let _ = tokio::io::copy_bidirectional(&mut down, &mut up).await;
                     }
@@ -71,9 +74,10 @@ impl Gate {
     }
 
     pub fn set_open(&self, open: bool) {
+        let mut conns = self.conns.lock().unwrap();
         self.open.store(open, Ordering::Release);
         if !open {
-            for c in self.conns.lock().unwrap().drain(..) {
+            for c in conns.drain(..) {
                 c.abort();
             }
         }
