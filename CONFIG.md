@@ -17,8 +17,9 @@ Top-level keys go above the first `[section]` in the file.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `mode` | `"reverse"` or `"forward"` | `"reverse"` | `"forward"` runs an egress forward proxy ([RFC 0007](rfc/0007-forward-proxy.md)), see [`[forward]`](#forward) |
 | `listen` | address | `"0.0.0.0:8080"` | Proxy listen address |
-| `upstream` | URL | required | Upstream base URL, `http://` or `https://` |
+| `upstream` | URL | required in reverse mode | Upstream base URL, `http://` or `https://`; ignored in forward mode |
 | `upstream_protocol` | `"http1"`, `"http2"` or `"auto"` | `"http1"` | Protocol to the upstream ([RFC 0004](rfc/0004-http2-grpc.md)): `http2` is h2c with prior knowledge for `http://` and ALPN `h2` for `https://` (an upstream that cannot speak it gets 502); `auto` lets ALPN choose for `https://` and keeps HTTP/1.1 for `http://` |
 | `trusted_proxies` | list of CIDRs | `[]` | Peers allowed to set `X-Forwarded-For`; others are keyed by their own address |
 
@@ -131,6 +132,49 @@ An idle tunnel costs about 19 KB in the proxy (two 8 KB copy buffers plus
 connection state), so the default `max_tunnels` bounds tunnels to about
 200 MB. Shutdown closes open tunnels and waits for them within the 30 s
 drain.
+
+## `[forward]`
+
+Forward proxy mode (`mode = "forward"`, [RFC 0007](rfc/0007-forward-proxy.md)):
+egress rate compliance for calls to third-party APIs. Clients set
+`HTTP_PROXY` (or their HTTP client's proxy) to `listen`. Only listed
+destinations are reachable, each shaped to its own rate shared by every
+client: a request waits for its slot, or gets a local `429` with
+`Retry-After` when the slot is more than `max_wait` away. The proxy never
+sends above the rate. When a destination answers `429` or `503` with
+`Retry-After` (seconds), it pauses for that long, capped by `max_pause`.
+
+`[rate_limit]`, `[detection]` and `[ml]` do not apply in forward mode: the
+callers are your own services. `[upstream_tls]` verifies `https://`
+destinations, `[upgrade]` limits `CONNECT` tunnels (`max_tunnels`,
+`idle_timeout`, `max_lifetime`), `[tls]` and `[http2]` apply to the
+listener as in reverse mode.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `clients` | list of CIDRs | `["127.0.0.0/8", "::1/128"]` | Peers allowed to use the proxy; others get `403` |
+| `connect` | bool | `true` | Allow `CONNECT` to listed destinations; `false` accepts absolute-form requests only |
+
+Each `[[forward.destinations]]` (at least one):
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `origin` | URL | required | `https://host[:port]` or `http://host[:port]`, no path. Matched on scheme, host and port; `CONNECT` matches host and port |
+| `name` | string | the host | Label in logs and metrics |
+| `rate` | number | required | Requests (or new `CONNECT` tunnels) per second, at least 0.001 |
+| `burst` | integer | `1` | Requests that may go at once after an idle period; at least 1 |
+| `max_concurrent` | integer | `0` (off) | Requests or tunnels in flight at once; a request waits for a place within `max_wait`, then gets `429` with `Retry-After: 1` |
+| `max_queue` | integer | `100` | Requests waiting at once; `0` refuses instead of waiting |
+| `max_wait` | duration | `"2s"` | Longest wait for a slot or a place |
+| `max_pause` | duration | `"60s"` | Cap on a destination's `Retry-After`; `"0s"` ignores it |
+
+Two ways in. An absolute-form request (`GET https://host/path` sent to the
+proxy as plain HTTP) is sent by the proxy itself, opening TLS for
+`https://` destinations, so every request is shaped; keep that hop on a
+trusted network. Most clients send `https://` URLs through a proxy as
+`CONNECT` instead: the tunnel keeps TLS end to end and takes one slot per
+tunnel, not per request. Hop-by-hop headers (`Proxy-Authorization`
+included) are removed and no `X-Forwarded-For` is added. A waiting request costs about 5.5 KB.
 
 ## gRPC
 

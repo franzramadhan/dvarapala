@@ -180,6 +180,10 @@ Found while building, folded back from the PRs:
   its connection and the timer), over the 2 KB estimate above. Its budget
   is 8 KB, so the default `max_queue` of 100 is under 1 MB per
   destination.
+- `upstream` is optional in the file; reverse mode fails at start without
+  it. Forward mode needs at least one destination. `rate` is a number
+  (`0.5` is one request every 2 s).
+- `examples/forward-proxy.toml` is the egress rate compliance use case.
 
 ## Alternatives
 
