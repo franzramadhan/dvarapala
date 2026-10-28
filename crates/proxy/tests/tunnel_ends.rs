@@ -56,8 +56,9 @@ async fn idle_tunnel_is_closed() {
         ..UpgradeConfig::default()
     };
     let (addr, _stop) = proxy(up, idle, None).await;
-    let mut ws = connect(addr, "/echo").await.unwrap();
+    // the idle clock starts at the upgrade, before connect returns
     let start = Instant::now();
+    let mut ws = connect(addr, "/echo").await.unwrap();
     // the proxy closes the sockets without a close frame: an error or the end
     let got = within("idle close", ws.next()).await;
     assert!(!matches!(got, Some(Ok(Message::Text(_)))), "{got:?}");
