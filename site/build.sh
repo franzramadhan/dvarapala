@@ -23,7 +23,7 @@ page() { printf -- '---\ntitle: %s\nsource: %s\n---\n\n' "$1" "$2"; }
     n=$(basename "$f")
     printf '\n## %s\n\n' "$n"
     # the leading comment block is the use case: render it as prose
-    awk '/^#/ { sub(/^# ?/, ""); print; next } { exit }' "$f"
+    awk '/^#/ { sub(/^# ?/, ""); gsub(/</, "\\&lt;"); print; next } { exit }' "$f"
     printf '\n```toml\n'
     cat "$f"
     printf '```\n'
