@@ -371,6 +371,7 @@ dependencies = [
  "bytes",
  "criterion",
  "dvarapala-l7",
+ "h2",
  "http",
  "http-body-util",
  "hyper",

@@ -4,12 +4,74 @@
 mod h2;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use dvarapala_proxy::{Http2Limits, UpstreamProtocol};
 use h2::{proxy, upstream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+/// Counts `dvarapala_http2_goaway_total{reason="flood"}`; every
+/// other metric is a no-op.
+struct Floods;
+
+static FLOODS: AtomicU64 = AtomicU64::new(0);
+
+struct Count;
+
+impl metrics::CounterFn for Count {
+    fn increment(&self, n: u64) {
+        FLOODS.fetch_add(n, Ordering::SeqCst);
+    }
+    fn absolute(&self, _: u64) {}
+}
+
+impl metrics::Recorder for Floods {
+    fn describe_counter(
+        &self,
+        _: metrics::KeyName,
+        _: Option<metrics::Unit>,
+        _: metrics::SharedString,
+    ) {
+    }
+    fn describe_gauge(
+        &self,
+        _: metrics::KeyName,
+        _: Option<metrics::Unit>,
+        _: metrics::SharedString,
+    ) {
+    }
+    fn describe_histogram(
+        &self,
+        _: metrics::KeyName,
+        _: Option<metrics::Unit>,
+        _: metrics::SharedString,
+    ) {
+    }
+    fn register_counter(&self, key: &metrics::Key, _: &metrics::Metadata<'_>) -> metrics::Counter {
+        let rapid = key.name() == "dvarapala_http2_goaway_total"
+            && key
+                .labels()
+                .any(|l| l.key() == "reason" && l.value() == "flood");
+        if rapid {
+            metrics::Counter::from_arc(Arc::new(Count))
+        } else {
+            metrics::Counter::noop()
+        }
+    }
+    fn register_gauge(&self, _: &metrics::Key, _: &metrics::Metadata<'_>) -> metrics::Gauge {
+        metrics::Gauge::noop()
+    }
+    fn register_histogram(
+        &self,
+        _: &metrics::Key,
+        _: &metrics::Metadata<'_>,
+    ) -> metrics::Histogram {
+        metrics::Histogram::noop()
+    }
+}
 
 const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 const HEADERS: u8 = 1;
@@ -105,7 +167,6 @@ async fn start(h2: Http2Limits) -> (SocketAddr, tokio::sync::oneshot::Sender<()>
 
 /// RFC 0004 case 15
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn third_stream_is_refused() {
     let (addr, _stop) = start(Http2Limits {
         max_concurrent_streams: 2,
@@ -129,6 +190,8 @@ async fn third_stream_is_refused() {
 /// RFC 0004 case 16
 #[tokio::test(flavor = "multi_thread")]
 async fn rapid_reset_gets_goaway() {
+    // only this test in the binary installs a recorder
+    metrics::set_global_recorder(Floods).unwrap();
     let (addr, _stop) = start(Http2Limits::default()).await;
     let mut s = connect(addr).await;
     let mut burst = Vec::new();
@@ -141,6 +204,14 @@ async fn rapid_reset_gets_goaway() {
     let _ = s.write_all(&burst).await;
     let goaway = until(&mut s, |f| (f.ty == GOAWAY).then(|| code(f, 4))).await;
     assert_eq!(goaway, Some(ENHANCE_YOUR_CALM));
+    // the server task counts after the GOAWAY is out; give it a moment
+    for _ in 0..50 {
+        if FLOODS.load(Ordering::SeqCst) > 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("dvarapala_http2_goaway_total{{reason=\"flood\"}} not counted");
 }
 
 /// RFC 0004 case 17: 64 KB of headers in CONTINUATION frames
@@ -184,7 +255,6 @@ async fn oversized_header_list_is_rejected() {
 
 /// RFC 0004 case 18
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn unanswered_ping_closes_the_connection() {
     let (addr, _stop) = start(Http2Limits {
         keepalive_interval: Some(Duration::from_millis(200)),

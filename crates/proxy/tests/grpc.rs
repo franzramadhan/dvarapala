@@ -23,7 +23,6 @@ async fn grpc_proxy() -> (std::net::SocketAddr, tokio::sync::oneshot::Sender<()>
 
 /// RFC 0004 case 8
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn unary_call() {
     let (addr, _stop) = grpc_proxy().await;
     let req = grpc_request(addr, "/test.Echo/Unary", full(grpc_frame(b"hello")));
@@ -37,7 +36,6 @@ async fn unary_call() {
 
 /// RFC 0004 case 9
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn server_streaming_keeps_order() {
     let (addr, _stop) = grpc_proxy().await;
     let req = grpc_request(addr, "/test.Echo/Stream", full(grpc_frame(b"")));
@@ -53,7 +51,6 @@ async fn server_streaming_keeps_order() {
 /// RFC 0004 case 10: each message is echoed before the next is sent, so
 /// the proxy must stream both directions at once.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn bidirectional_stream() {
     let (addr, _stop) = grpc_proxy().await;
     let (tx, body) = chan();

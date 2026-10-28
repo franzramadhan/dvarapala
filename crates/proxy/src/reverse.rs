@@ -5,20 +5,19 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use dvarapala_l7::PeerAddr;
+use dvarapala_l7::{GrpcStatus, PeerAddr, grpc_response, is_grpc};
 use http::uri::{Authority, Scheme};
-use http::{Request, Response, StatusCode, Uri, Version};
+use http::{Request, Response, StatusCode, Uri};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Body;
 use hyper_util::client::legacy::Client;
 #[cfg(not(feature = "tls"))]
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
 use tower_service::Service;
 
-use crate::UpstreamConfig;
 use crate::hop::{append_forwarded_for, strip_hop_by_hop};
+use crate::{UpstreamConfig, UpstreamProtocol};
 
 /// Response body of the proxy: the upstream's, or a short local error.
 pub type ProxyBody = BoxBody<Bytes, hyper::Error>;
@@ -52,6 +51,7 @@ pub struct ReverseProxy<B> {
     scheme: Scheme,
     authority: Authority,
     base_path: String,
+    protocol: UpstreamProtocol,
     client: Client<Connector, B>,
 }
 
@@ -66,6 +66,7 @@ impl<B> Clone for ReverseProxy<B> {
             scheme: self.scheme.clone(),
             authority: self.authority.clone(),
             base_path: self.base_path.clone(),
+            protocol: self.protocol,
             client: self.client.clone(),
         }
     }
@@ -81,11 +82,17 @@ where
         let (scheme, authority, base_path) = parse(upstream, false)?;
         #[cfg(feature = "tls")]
         let connector = crate::tls::UpstreamTls::default()
-            .connector(false)
+            .connector(false, UpstreamProtocol::Http1)
             .map_err(UpstreamError::Tls)?;
         #[cfg(not(feature = "tls"))]
         let connector = HttpConnector::new();
-        Ok(Self::build(scheme, authority, base_path, connector))
+        Ok(Self::build(
+            scheme,
+            authority,
+            base_path,
+            connector,
+            UpstreamProtocol::Http1,
+        ))
     }
 
     /// Like [`ReverseProxy::new`], with the protocol from `config`, and
@@ -95,13 +102,17 @@ where
         #[cfg(feature = "tls")]
         let connector = config
             .tls
-            .connector(scheme == Scheme::HTTPS)
+            .connector(scheme == Scheme::HTTPS, config.protocol)
             .map_err(UpstreamError::Tls)?;
         #[cfg(not(feature = "tls"))]
         let connector = HttpConnector::new();
-        // ponytail: rfc 0004 stub, the protocol is not applied yet
-        let _ = config.protocol;
-        Ok(Self::build(scheme, authority, base_path, connector))
+        Ok(Self::build(
+            scheme,
+            authority,
+            base_path,
+            connector,
+            config.protocol,
+        ))
     }
 
     fn build(
@@ -109,12 +120,14 @@ where
         authority: Authority,
         base_path: String,
         connector: Connector,
+        protocol: UpstreamProtocol,
     ) -> Self {
         Self {
             scheme,
             authority,
             base_path,
-            client: Client::builder(TokioExecutor::new()).build(connector),
+            protocol,
+            client: protocol.client(connector),
         }
     }
 
@@ -149,9 +162,10 @@ where
             Err(_) => return Box::pin(async { Ok(status(StatusCode::BAD_REQUEST)) }),
         };
         parts.uri = target;
-        // the client pool speaks HTTP/1.1 upstream whatever the client used
-        parts.version = Version::HTTP_11;
-        strip_hop_by_hop(&mut parts.headers, false);
+        // the upstream protocol is fixed by config, not by the client
+        parts.version = self.protocol.version();
+        let grpc = is_grpc(&parts.headers);
+        strip_hop_by_hop(&mut parts.headers, self.protocol.keeps_trailers());
         if let Some(PeerAddr(peer)) = parts.extensions.get::<PeerAddr>() {
             append_forwarded_for(&mut parts.headers, peer.ip());
         }
@@ -166,7 +180,11 @@ where
                 Err(e) => {
                     metrics::counter!("dvarapala_upstream_errors_total").increment(1);
                     tracing::warn!(error = %e, "upstream request failed");
-                    status(StatusCode::BAD_GATEWAY)
+                    if grpc {
+                        grpc_response(GrpcStatus::Unavailable, None)
+                    } else {
+                        status(StatusCode::BAD_GATEWAY)
+                    }
                 }
             })
         })

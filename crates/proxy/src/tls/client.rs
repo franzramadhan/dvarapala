@@ -7,6 +7,8 @@ use rustls::{ClientConfig, RootCertStore};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, ServerName};
 
+use crate::UpstreamProtocol;
+
 /// How the proxy verifies `https://` upstreams.
 #[derive(Debug, Clone, Default)]
 pub struct UpstreamTls {
@@ -20,8 +22,13 @@ pub(crate) type Connector = HttpsConnector<HttpConnector>;
 
 impl UpstreamTls {
     /// A connector for `http://` and `https://`. Roots are only loaded when
-    /// `https` is set, so a cleartext upstream costs no root store.
-    pub(crate) fn connector(&self, https: bool) -> Result<Connector, String> {
+    /// `https` is set, so a cleartext upstream costs no root store. ALPN
+    /// offers what `protocol` allows (RFC 0004).
+    pub(crate) fn connector(
+        &self,
+        https: bool,
+        protocol: UpstreamProtocol,
+    ) -> Result<Connector, String> {
         let roots = if https {
             self.roots()?
         } else {
@@ -44,7 +51,11 @@ impl UpstreamTls {
             }
             None => b,
         };
-        Ok(b.enable_http1().build())
+        Ok(match protocol {
+            UpstreamProtocol::Http1 => b.enable_http1().build(),
+            UpstreamProtocol::Http2 => b.enable_http2().build(),
+            UpstreamProtocol::Auto => b.enable_all_versions().build(),
+        })
     }
 
     fn roots(&self) -> Result<RootCertStore, String> {
