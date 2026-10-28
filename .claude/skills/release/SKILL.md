@@ -85,6 +85,10 @@ grep -rnP "[\x{2013}\x{2014}]" README.md CONFIG.md site examples rfc CHANGELOG.m
 
 4. Watch `release.yml` (`gh run list --workflow release.yml`), then check
    `gh release view v<version>`: one tarball per target and `SHA256SUMS`.
+   Then the image: `docker buildx imagetools inspect
+   ghcr.io/franzramadhan/dvarapala:<version>` lists `linux/amd64` and
+   `linux/arm64`, and `docker run --rm ghcr.io/franzramadhan/dvarapala:<version>
+   --version` prints the version.
 5. Check the Pages deploy (`pages.yml`) and the live site at
    `https://dvarapala.franzramadhan.dev`: the new cards, pages and the
    roadmap statuses.

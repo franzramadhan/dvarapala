@@ -100,7 +100,7 @@ listen = "127.0.0.1:9090"</pre>
     <div class="wrap two">
       <div>
         <h2>Install</h2>
-        <p class="sub">Binaries for Linux (musl, static) and macOS, x86_64 and aarch64, with <code>SHA256SUMS</code>.</p>
+        <p class="sub">Binaries for Linux (musl, static) and macOS, x86_64 and aarch64, with <code>SHA256SUMS</code>, and a container image.</p>
         <h3 class="label">Homebrew</h3>
 <pre>brew install franzramadhan/tap/dvarapala</pre>
         <h3 class="label">Install script</h3>
@@ -116,6 +116,11 @@ cd dvarapala
 cargo build --release
 ./target/release/dvarapala serve \
   --config examples/dvarapala.toml</pre>
+        <h3 class="label">Container</h3>
+<pre><span class="c"># linux/amd64, linux/arm64; FROM scratch, UID 10001</span>
+docker run --rm -p 8080:8080 \
+  -e DVARAPALA__UPSTREAM=http://app.example:8081 \
+  ghcr.io/franzramadhan/dvarapala:&lt;version&gt;</pre>
         <p class="hint" style="text-align:left">Environment variables override the file: <code>DVARAPALA__RATE_LIMIT__RATE=5</code>.</p>
       </div>
     </div>
