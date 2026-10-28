@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use dvarapala_proxy::tls::{Tls, TlsConfig};
-use dvarapala_proxy::{ReverseProxy, serve_tls};
+use dvarapala_proxy::{Http2Limits, ReverseProxy, serve_tls};
 use http::{StatusCode, Version};
 use hyper::body::Incoming;
 use rustls::HandshakeKind;
@@ -44,9 +44,15 @@ async fn proxy(handshake_timeout: Duration, max_handshakes: usize) -> Proxy {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (tx, rx) = oneshot::channel::<()>();
-    tokio::spawn(serve_tls(l, tls.clone(), p, async {
-        let _ = rx.await;
-    }));
+    tokio::spawn(serve_tls(
+        l,
+        tls.clone(),
+        Http2Limits::default(),
+        p,
+        async {
+            let _ = rx.await;
+        },
+    ));
     Proxy {
         addr,
         tls,

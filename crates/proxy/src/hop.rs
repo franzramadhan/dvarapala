@@ -18,8 +18,11 @@ const HOP_BY_HOP: [&str; 9] = [
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
 
 /// Removes hop-by-hop headers (RFC 9110 section 7.6.1): the fixed list and
-/// every header named in `Connection`.
-pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap) {
+/// every header named in `Connection`. With `keep_trailers`, a `te` that
+/// lists `trailers` becomes `te: trailers` (HTTP/2 upstreams, RFC 0004).
+pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap, keep_trailers: bool) {
+    // ponytail: rfc 0004 stub
+    let _ = keep_trailers;
     let listed: Vec<HeaderName> = headers
         .get_all(CONNECTION)
         .iter()
@@ -69,9 +72,37 @@ mod tests {
         ] {
             h.append(k, HeaderValue::from_static(v));
         }
-        strip_hop_by_hop(&mut h);
+        strip_hop_by_hop(&mut h, false);
         assert_eq!(h.len(), 1);
         assert_eq!(h["x-end-to-end"], "kept");
+    }
+
+    /// RFC 0004 case 5
+    #[test]
+    #[ignore = "rfc 0004"]
+    fn http2_upstream_keeps_te_trailers_only() {
+        let mut h = HeaderMap::new();
+        h.append("te", HeaderValue::from_static("trailers"));
+        h.append("te", HeaderValue::from_static("gzip"));
+        strip_hop_by_hop(&mut h, true);
+        assert_eq!(h.get_all("te").iter().collect::<Vec<_>>(), ["trailers"]);
+        let mut h = HeaderMap::new();
+        h.append("te", HeaderValue::from_static("gzip, trailers;q=0.5"));
+        strip_hop_by_hop(&mut h, true);
+        assert_eq!(h.get_all("te").iter().collect::<Vec<_>>(), ["trailers"]);
+        let mut h = HeaderMap::new();
+        h.append("te", HeaderValue::from_static("gzip"));
+        strip_hop_by_hop(&mut h, true);
+        assert!(h.get("te").is_none());
+    }
+
+    /// RFC 0004 case 6
+    #[test]
+    fn http1_upstream_strips_te_trailers() {
+        let mut h = HeaderMap::new();
+        h.append("te", HeaderValue::from_static("trailers"));
+        strip_hop_by_hop(&mut h, false);
+        assert!(h.get("te").is_none());
     }
 
     #[test]

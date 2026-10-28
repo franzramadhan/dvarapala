@@ -13,8 +13,10 @@ use std::time::Instant;
 use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
 use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
+use dvarapala_proxy::UpstreamConfig;
+#[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
-use dvarapala_proxy::{ProxyBody, ReverseProxy, serve};
+use dvarapala_proxy::{Http2Limits, ProxyBody, ReverseProxy, serve};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use tokio::net::TcpListener;
@@ -66,11 +68,14 @@ fn main() -> ExitCode {
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
     #[cfg(feature = "tls")]
-    let proxy = ReverseProxy::<Incoming>::with_tls(
+    let proxy = ReverseProxy::<Incoming>::with_config(
         &cfg.upstream,
-        &UpstreamTls {
-            ca_file: cfg.upstream_tls.ca_file.clone(),
-            server_name: cfg.upstream_tls.server_name.clone(),
+        &UpstreamConfig {
+            tls: UpstreamTls {
+                ca_file: cfg.upstream_tls.ca_file.clone(),
+                server_name: cfg.upstream_tls.server_name.clone(),
+            },
+            ..UpstreamConfig::default()
         },
     )?;
     #[cfg(not(feature = "tls"))]
@@ -224,9 +229,11 @@ where
     S::Future: Send + 'static,
 {
     match tls {
-        None => serve(listener, svc, shutdown()).await,
+        None => serve(listener, Http2Limits::default(), svc, shutdown()).await,
         #[cfg(feature = "tls")]
-        Some(tls) => dvarapala_proxy::serve_tls(listener, tls, svc, shutdown()).await,
+        Some(tls) => {
+            dvarapala_proxy::serve_tls(listener, tls, Http2Limits::default(), svc, shutdown()).await
+        }
         #[cfg(not(feature = "tls"))]
         Some(never) => match never {},
     }

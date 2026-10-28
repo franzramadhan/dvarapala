@@ -11,31 +11,18 @@ use hyper_util::server::graceful::GracefulShutdown;
 use tokio::net::TcpListener;
 use tower_service::Service;
 
-use crate::ProxyBody;
+use crate::{Http2Limits, ProxyBody};
 
 /// How long open connections get to finish after shutdown starts.
 const DRAIN: Duration = Duration::from_secs(30);
 
 /// Serves `service` on `listener` (HTTP/1.1 and HTTP/2) until `shutdown`
 /// resolves, then waits for open connections to finish. Every request gets
-/// a [`dvarapala_l7::PeerAddr`] extension.
-pub async fn serve<S>(listener: TcpListener, service: S, shutdown: impl Future<Output = ()>)
-where
-    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
-        + Clone
-        + Send
-        + 'static,
-    S::Future: Send + 'static,
-{
-    run(listener, None, service, shutdown).await;
-}
-
-/// Like [`serve`], with TLS on every connection (RFC 0003). The handshake
-/// runs in the connection's task, bounded by the [`crate::tls::Tls`] limits.
-#[cfg(feature = "tls")]
-pub async fn serve_tls<S>(
+/// a [`dvarapala_l7::PeerAddr`] extension. HTTP/2 connections are bounded
+/// by `h2` (RFC 0004).
+pub async fn serve<S>(
     listener: TcpListener,
-    tls: crate::tls::Tls,
+    h2: Http2Limits,
     service: S,
     shutdown: impl Future<Output = ()>,
 ) where
@@ -45,7 +32,26 @@ pub async fn serve_tls<S>(
         + 'static,
     S::Future: Send + 'static,
 {
-    run(listener, Some(tls), service, shutdown).await;
+    run(listener, None, h2, service, shutdown).await;
+}
+
+/// Like [`serve`], with TLS on every connection (RFC 0003). The handshake
+/// runs in the connection's task, bounded by the [`crate::tls::Tls`] limits.
+#[cfg(feature = "tls")]
+pub async fn serve_tls<S>(
+    listener: TcpListener,
+    tls: crate::tls::Tls,
+    h2: Http2Limits,
+    service: S,
+    shutdown: impl Future<Output = ()>,
+) where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    run(listener, Some(tls), h2, service, shutdown).await;
 }
 
 #[cfg(feature = "tls")]
@@ -58,6 +64,7 @@ enum Tls {}
 async fn run<S>(
     listener: TcpListener,
     tls: Option<Tls>,
+    h2: Http2Limits,
     service: S,
     shutdown: impl Future<Output = ()>,
 ) where
@@ -71,6 +78,8 @@ async fn run<S>(
     // a timer turns on hyper's header read timeout (slowloris)
     builder.http1().timer(TokioTimer::new());
     builder.http2().timer(TokioTimer::new());
+    // ponytail: rfc 0004 stub, the limits are not applied yet
+    let _ = h2;
     let graceful = GracefulShutdown::new();
     tokio::pin!(shutdown);
     loop {
