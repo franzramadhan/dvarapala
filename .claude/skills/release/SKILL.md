@@ -16,7 +16,11 @@ git switch main && git pull --ff-only && git switch -c release/v<version>
 
 - `version` under `[workspace.package]` in `Cargo.toml`
 - `sdk/js/package.json` and `sdk/python/pyproject.toml`
-- `cargo update -w` and `(cd fuzz && cargo update -w)` for both lock files
+- `cargo update -w` and `(cd fuzz && cargo update -w)`; in
+  `crates/xdp-ebpf/Cargo.lock` (its own workspace, nightly) bump the
+  `dvarapala-xdp-common` version by hand. CI's `xdp object` step builds
+  with `--locked` and fails on a stale lock; the object itself does not
+  change
 - `git cliff --tag v<version> -o CHANGELOG.md`
 
 ## 2. Status
