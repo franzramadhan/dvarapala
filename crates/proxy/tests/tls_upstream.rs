@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use dvarapala_proxy::tls::UpstreamTls;
-use dvarapala_proxy::{ReverseProxy, serve};
+use dvarapala_proxy::{Http2Limits, ReverseProxy, UpstreamConfig, serve};
 use http::{Request, StatusCode};
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Incoming;
@@ -53,12 +53,19 @@ async fn tls_upstream(ca: &Ca, names: &[&str]) -> SocketAddr {
 }
 
 /// Cleartext proxy in front of `upstream`; GET / and return the status.
+fn config(tls: &UpstreamTls) -> UpstreamConfig {
+    UpstreamConfig {
+        tls: tls.clone(),
+        ..UpstreamConfig::default()
+    }
+}
+
 async fn get_through(upstream: &str, tls: &UpstreamTls) -> StatusCode {
-    let p = ReverseProxy::<Incoming>::with_tls(upstream, tls).unwrap();
+    let p = ReverseProxy::<Incoming>::with_config(upstream, &config(tls)).unwrap();
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (_stop, rx) = oneshot::channel::<()>();
-    tokio::spawn(serve(l, p, async {
+    tokio::spawn(serve(l, Http2Limits::default(), p, async {
         let _ = rx.await;
     }));
     let client = Client::builder(TokioExecutor::new()).build_http::<Empty<Bytes>>();
@@ -128,5 +135,5 @@ fn unreadable_ca_file_is_an_error() {
         ca_file: Some(tempdir().join("missing.pem")),
         server_name: None,
     };
-    assert!(ReverseProxy::<Incoming>::with_tls("https://127.0.0.1:1", &tls).is_err());
+    assert!(ReverseProxy::<Incoming>::with_config("https://127.0.0.1:1", &config(&tls)).is_err());
 }

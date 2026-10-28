@@ -17,6 +17,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use tower_service::Service;
 
+use crate::UpstreamConfig;
 use crate::hop::{append_forwarded_for, strip_hop_by_hop};
 
 /// Response body of the proxy: the upstream's, or a short local error.
@@ -87,14 +88,19 @@ where
         Ok(Self::build(scheme, authority, base_path, connector))
     }
 
-    /// Like [`ReverseProxy::new`], also accepting `https://` upstreams
-    /// verified as `tls` says (RFC 0003).
-    #[cfg(feature = "tls")]
-    pub fn with_tls(upstream: &str, tls: &crate::tls::UpstreamTls) -> Result<Self, UpstreamError> {
-        let (scheme, authority, base_path) = parse(upstream, true)?;
-        let connector = tls
+    /// Like [`ReverseProxy::new`], with the protocol from `config`, and
+    /// also `https://` upstreams with the `tls` feature (RFC 0003, 0004).
+    pub fn with_config(upstream: &str, config: &UpstreamConfig) -> Result<Self, UpstreamError> {
+        let (scheme, authority, base_path) = parse(upstream, cfg!(feature = "tls"))?;
+        #[cfg(feature = "tls")]
+        let connector = config
+            .tls
             .connector(scheme == Scheme::HTTPS)
             .map_err(UpstreamError::Tls)?;
+        #[cfg(not(feature = "tls"))]
+        let connector = HttpConnector::new();
+        // ponytail: rfc 0004 stub, the protocol is not applied yet
+        let _ = config.protocol;
         Ok(Self::build(scheme, authority, base_path, connector))
     }
 
@@ -145,7 +151,7 @@ where
         parts.uri = target;
         // the client pool speaks HTTP/1.1 upstream whatever the client used
         parts.version = Version::HTTP_11;
-        strip_hop_by_hop(&mut parts.headers);
+        strip_hop_by_hop(&mut parts.headers, false);
         if let Some(PeerAddr(peer)) = parts.extensions.get::<PeerAddr>() {
             append_forwarded_for(&mut parts.headers, peer.ip());
         }
@@ -154,7 +160,7 @@ where
             Ok(match fut.await {
                 Ok(res) => {
                     let mut res = res.map(BodyExt::boxed);
-                    strip_hop_by_hop(res.headers_mut());
+                    strip_hop_by_hop(res.headers_mut(), false);
                     res
                 }
                 Err(e) => {

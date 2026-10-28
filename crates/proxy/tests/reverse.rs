@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use dvarapala_proxy::{ReverseProxy, serve};
+use dvarapala_proxy::{Http2Limits, ReverseProxy, serve};
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -55,7 +55,7 @@ async fn proxy(upstream: &str) -> (SocketAddr, oneshot::Sender<()>) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (tx, rx) = oneshot::channel::<()>();
-    tokio::spawn(serve(l, p, async {
+    tokio::spawn(serve(l, Http2Limits::default(), p, async {
         let _ = rx.await;
     }));
     (addr, tx)
@@ -115,7 +115,7 @@ async fn shutdown_stops_accepting() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let (tx, rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(serve(l, p, async {
+    let server = tokio::spawn(serve(l, Http2Limits::default(), p, async {
         let _ = rx.await;
     }));
     let (status, _) = send(addr, Request::get("/").body(Full::default()).unwrap()).await;
