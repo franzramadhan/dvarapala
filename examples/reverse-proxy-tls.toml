@@ -1,0 +1,38 @@
+# Reverse proxy with TLS on both sides.
+#
+# Use case: a public HTTPS endpoint in front of a web app or API. dvarapala
+# terminates TLS, so the rate limit and detection see every request in the
+# clear, then opens a new verified TLS connection to the upstream. Bounded
+# handshakes keep a TLS flood (the most expensive thing a client can ask
+# for) from eating the CPU before any request is read.
+#
+# Reload the certificate after a renewal with SIGHUP; a bad pair keeps the
+# old one. Placeholders: <cert dir>, app.example.
+
+listen = "0.0.0.0:443"
+upstream = "https://app.example:8443"
+# Clients arrive through a load balancer in this block: trust its
+# X-Forwarded-For, key everyone else by their own address.
+trusted_proxies = ["192.0.2.0/24"]
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[tls]
+cert = "/etc/dvarapala/<cert dir>/fullchain.pem"
+key = "/etc/dvarapala/<cert dir>/privkey.pem"
+handshake_timeout = "5s"
+max_handshakes = 512
+
+# The upstream uses a private CA: trust it instead of the system roots.
+# Verification cannot be turned off.
+[upstream_tls]
+ca_file = "/etc/dvarapala/upstream-ca.pem"
+server_name = "app.example"

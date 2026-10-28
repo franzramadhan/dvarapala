@@ -405,8 +405,16 @@ mod tests {
     }
 
     #[test]
-    fn example_config_loads() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dvarapala.toml");
-        load(Some(&path)).unwrap();
+    fn example_configs_load() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let mut n = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                load(Some(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                n += 1;
+            }
+        }
+        assert!(n >= 4, "{n} examples");
     }
 }
