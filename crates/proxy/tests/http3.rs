@@ -83,6 +83,7 @@ async fn rate_limit_applies() {
         scoring: None,
         now: Instant::now,
         cluster: None,
+        block: None,
     })
     .unwrap();
     let p = proxy(|_| {}, Some(limiter)).await;

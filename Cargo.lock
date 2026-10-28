@@ -78,6 +78,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
 name = "async-lock"
 version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -119,6 +125,36 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "aya"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c3ddce05d8c79a5ae5dc826ad299483be3910c21602599b43a5890f7e71c40f"
+dependencies = [
+ "assert_matches",
+ "aya-obj",
+ "bitflags",
+ "hashbrown 0.17.1",
+ "libc",
+ "log",
+ "object",
+ "once_cell",
+ "scopeguard",
+ "thiserror",
+]
+
+[[package]]
+name = "aya-obj"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aa1014c9d2c82e2c80f8b64661aa12c350a1f3b0d53771a803b01f00454356d"
+dependencies = [
+ "bytes",
+ "log",
+ "object",
+ "thiserror",
+]
 
 [[package]]
 name = "base64"
@@ -344,6 +380,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "criterion"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,6 +547,7 @@ dependencies = [
  "dvarapala-l7",
  "dvarapala-proxy",
  "dvarapala-store",
+ "dvarapala-xdp",
  "figment",
  "http-body-util",
  "hyper",
@@ -621,6 +667,25 @@ dependencies = [
  "tokio-postgres-rustls",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "dvarapala-xdp"
+version = "0.5.0"
+dependencies = [
+ "aya",
+ "dvarapala-engine",
+ "dvarapala-xdp-common",
+ "libc",
+ "metrics",
+ "tracing",
+]
+
+[[package]]
+name = "dvarapala-xdp-common"
+version = "0.5.0"
+dependencies = [
+ "aya",
 ]
 
 [[package]]
@@ -957,6 +1022,10 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "hmac"
@@ -1528,6 +1597,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7216bd11cbda54ccabcab84d523dc93b858ec75ecfb3a7d89513fa22464da396"
 dependencies = [
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+dependencies = [
+ "crc32fast",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "memchr",
 ]
 
 [[package]]

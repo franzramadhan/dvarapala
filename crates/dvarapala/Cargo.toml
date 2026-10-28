@@ -19,6 +19,8 @@ http3 = ["tls", "dvarapala-proxy/http3"]
 # Shared state across replicas (RFC 0010), each backend opt-in.
 redis = ["dvarapala-store/redis"]
 postgres = ["dvarapala-store/postgres"]
+# XDP fast path (RFC 0011), Linux only.
+xdp = ["dvarapala-xdp/load"]
 
 [dependencies]
 dvarapala-engine.workspace = true
@@ -26,13 +28,14 @@ dvarapala-l4.workspace = true
 dvarapala-l7.workspace = true
 dvarapala-proxy.workspace = true
 dvarapala-store.workspace = true
+dvarapala-xdp.workspace = true
 figment.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 metrics-exporter-prometheus.workspace = true
 serde.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tower-layer.workspace = true
 tower-service.workspace = true
 tracing.workspace = true

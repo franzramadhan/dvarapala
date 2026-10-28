@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig, GuardDetection, State,
-    TrustedProxies, Verdict, client_key,
+    BlockSink, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig, GuardDetection,
+    State, TrustedProxies, Verdict, client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode, Version};
@@ -33,6 +33,8 @@ pub struct RateLimitConfig {
     pub now: fn() -> Instant,
     /// RFC 0010 shared state; `None` keeps every limit local.
     pub cluster: Option<Arc<Mutex<Cluster>>>,
+    /// RFC 0011: heavy hitters in enforce mode go to the XDP block list.
+    pub block: Option<BlockSink>,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the

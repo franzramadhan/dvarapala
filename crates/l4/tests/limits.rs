@@ -5,10 +5,11 @@
 mod counters;
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use counters::{counter, record};
-use dvarapala_engine::ConnsConfig;
+use dvarapala_engine::{BlockSink, Cidr, ConnsConfig, Limit};
 use dvarapala_l4::{Conn, L4Config, Listener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -105,6 +106,40 @@ async fn off_accepts_everything() {
     for s in streams {
         served(rx.recv().await.unwrap(), s).await;
     }
+}
+
+/// RFC 0011: a client over the accept rate is reported to the block sink
+#[tokio::test]
+#[ignore = "rfc 0011"]
+async fn accept_rate_refusals_reach_the_block_sink() {
+    let seen: Arc<Mutex<Vec<Cidr>>> = Arc::default();
+    let s = seen.clone();
+    let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = tcp.local_addr().unwrap();
+    let config = L4Config {
+        conns: ConnsConfig {
+            accept: Some(Limit::new(1, 1).unwrap()),
+            ..ConnsConfig::default()
+        },
+        ..L4Config::default()
+    };
+    let l = Listener::new(tcp, config)
+        .unwrap()
+        .with_block(BlockSink::new(move |c| s.lock().unwrap().push(c)));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = l.accept().await {
+            let _ = tx.send(conn);
+        }
+    });
+    let streams = connect_n(addr, 3).await;
+    let _first = rx.recv().await.unwrap();
+    for s in streams.into_iter().skip(1) {
+        assert!(closed(s).await);
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen.iter().all(|c| *c == "127.0.0.1/32".parse().unwrap()));
 }
 
 async fn connect_n(addr: SocketAddr, n: usize) -> Vec<TcpStream> {

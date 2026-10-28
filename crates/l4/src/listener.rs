@@ -2,6 +2,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use dvarapala_engine::BlockSink;
 use tokio::net::TcpListener;
 
 use crate::conn::Conn;
@@ -41,6 +42,13 @@ impl Listener {
             };
             return Ok((Conn::new(io, guard), addr));
         }
+    }
+
+    /// Reports clients over the accept rate to `sink` (RFC 0011). They
+    /// completed a handshake, so the address is not spoofed.
+    pub fn with_block(self, sink: BlockSink) -> Self {
+        let _ = sink;
+        todo!("rfc 0011")
     }
 
     pub fn config(&self) -> &L4Config {

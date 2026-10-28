@@ -1,6 +1,7 @@
 use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 /// An address block such as `192.0.2.0/24` or `2001:db8::/32`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,6 +72,14 @@ impl Cidr {
         }
     }
 
+    pub fn addr(&self) -> IpAddr {
+        todo!("rfc 0011")
+    }
+
+    pub fn prefix(&self) -> u8 {
+        todo!("rfc 0011")
+    }
+
     pub fn contains(&self, ip: IpAddr) -> bool {
         match (self.addr, ip.to_canonical()) {
             (IpAddr::V4(net), IpAddr::V4(ip)) => {
@@ -87,6 +96,28 @@ impl Cidr {
             }
             _ => false,
         }
+    }
+}
+
+/// Where L4 and L7 report sources to block earlier, at the XDP fast path
+/// (RFC 0011). Called from the request path: it must not block.
+#[derive(Clone)]
+pub struct BlockSink(Arc<dyn Fn(Cidr) + Send + Sync>);
+
+impl BlockSink {
+    pub fn new(f: impl Fn(Cidr) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    pub fn block(&self, net: Cidr) {
+        let _ = (&self.0, net);
+        todo!("rfc 0011")
+    }
+}
+
+impl fmt::Debug for BlockSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("BlockSink")
     }
 }
 
