@@ -61,7 +61,6 @@ fn n(x: &Xdp, a: Action, r: Reason) -> u64 {
 
 // case 3
 #[test]
-#[ignore = "rfc 0011"]
 fn other_port_passes_untouched() {
     if !enabled() {
         return;
@@ -76,7 +75,6 @@ fn other_port_passes_untouched() {
 
 // case 4
 #[test]
-#[ignore = "rfc 0011"]
 fn allow_wins_over_block() {
     if !enabled() {
         return;
@@ -94,7 +92,6 @@ fn allow_wins_over_block() {
 
 // case 5
 #[test]
-#[ignore = "rfc 0011"]
 fn block_drops_in_enforce() {
     if !enabled() {
         return;
@@ -111,7 +108,6 @@ fn block_drops_in_enforce() {
 
 // case 6
 #[test]
-#[ignore = "rfc 0011"]
 fn syn_rate_drops_past_the_burst() {
     if !enabled() {
         return;
@@ -126,7 +122,6 @@ fn syn_rate_drops_past_the_burst() {
 
 // case 7
 #[test]
-#[ignore = "rfc 0011"]
 fn observe_passes_and_counts() {
     if !enabled() {
         return;
@@ -145,7 +140,6 @@ fn observe_passes_and_counts() {
 
 // case 8
 #[test]
-#[ignore = "rfc 0011"]
 fn dynamic_block_expires() {
     if !enabled() {
         return;
@@ -175,7 +169,6 @@ fn attached(iface: &str) -> bool {
 
 /// The child of case 12: attaches to `lo` and waits to be killed.
 #[test]
-#[ignore = "rfc 0011"]
 fn child_attaches_and_waits() {
     if std::env::var_os("DVARAPALA_XDP_CHILD").is_none() {
         return;
@@ -188,7 +181,6 @@ fn child_attaches_and_waits() {
 
 // case 12
 #[test]
-#[ignore = "rfc 0011"]
 fn killed_process_detaches() {
     if !enabled() {
         return;

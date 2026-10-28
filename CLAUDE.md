@@ -15,7 +15,9 @@ C ABI). The design and the milestones are in
 | `crates/l7` | `tower` layers: rate limit, rules, challenges |
 | `crates/proxy` | reverse and forward proxy core |
 | `crates/store` | memory and Redis state backends |
-| `crates/xdp` | `aya` eBPF programs (Linux only, optional) |
+| `crates/xdp` | XDP loader (`aya`, Linux only, `load` feature) and block list |
+| `crates/xdp-common` | `no_std` packet parser and map layouts, shared with the program |
+| `crates/xdp-ebpf` | the XDP program, its own workspace (nightly, `bpf-linker`); the object is checked in |
 | `crates/ffi` | C ABI for non-Rust embedders |
 | `crates/node` | N-API addon over the C ABI for `sdk/js` |
 | `sdk/` | Go, Python and JavaScript packages over the C ABI (RFC 0008) |

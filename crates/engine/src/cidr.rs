@@ -73,11 +73,11 @@ impl Cidr {
     }
 
     pub fn addr(&self) -> IpAddr {
-        todo!("rfc 0011")
+        self.addr
     }
 
     pub fn prefix(&self) -> u8 {
-        todo!("rfc 0011")
+        self.prefix
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
@@ -110,8 +110,7 @@ impl BlockSink {
     }
 
     pub fn block(&self, net: Cidr) {
-        let _ = (&self.0, net);
-        todo!("rfc 0011")
+        (self.0)(net)
     }
 }
 

@@ -1,0 +1,29 @@
+[package]
+name = "dvarapala-xdp-ebpf"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+aya-ebpf = "0.2.1"
+dvarapala-xdp-common = { path = "../xdp-common" }
+
+[[bin]]
+name = "dvarapala-xdp"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+debug = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.dev]
+panic = "abort"
+
+# Its own workspace: the BPF target needs nightly, build-std and
+# bpf-linker, which the main workspace must not inherit.
+[workspace]
+members = ["."]
