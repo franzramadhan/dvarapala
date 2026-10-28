@@ -2,7 +2,6 @@
 //! optional scorer.
 
 use std::hash::{BuildHasher, RandomState};
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -81,51 +80,16 @@ impl std::fmt::Debug for Scoring {
     }
 }
 
-/// The detector plus what the layer needs to report on it.
+/// Metrics and logs for the detector's closed windows.
+#[derive(Default)]
 pub(crate) struct Watch {
-    detector: Detector,
     attack_since: Option<Instant>,
 }
 
-/// What the detector says about one request.
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct Check {
-    pub attack: bool,
-    /// the client's prefix was a heavy hitter in the last closed window
-    pub heavy: bool,
-}
-
 impl Watch {
-    pub(crate) fn new(detector: Detector) -> Self {
-        Self {
-            detector,
-            attack_since: None,
-        }
-    }
-
-    pub(crate) fn check(&mut self, ip: IpAddr, now: Instant) -> Check {
-        if let Some(r) = self.detector.observe(ip, now) {
-            self.report(&r, now);
-        }
-        let attack = self.detector.state() == State::Attack;
-        Check {
-            attack,
-            heavy: attack && self.detector.is_heavy(ip),
-        }
-    }
-
     /// Metrics for every closed window, one log line per attack start and end.
     // runs under the layer's lock; transitions are rare, gauges are atomics
-    pub(crate) fn window(&self) -> Duration {
-        self.detector.window()
-    }
-
-    /// Rate z-score and normalized entropy of the last closed window.
-    pub(crate) fn instance(&self) -> (f64, f64) {
-        (self.detector.zscore(), self.detector.entropy())
-    }
-
-    fn report(&mut self, r: &WindowReport, now: Instant) {
+    pub(crate) fn report(&mut self, r: &WindowReport, detector: &Detector, now: Instant) {
         metrics::gauge!("dvarapala_detection_state").set(f64::from(r.to.code()));
         metrics::gauge!("dvarapala_detection_rate_zscore").set(r.zscore);
         metrics::gauge!("dvarapala_detection_source_entropy").set(r.entropy);
@@ -141,8 +105,7 @@ impl Watch {
         .increment(1);
         if r.to == State::Attack && self.attack_since.is_none() {
             self.attack_since = Some(now);
-            let top: Vec<String> = self
-                .detector
+            let top: Vec<String> = detector
                 .heavy()
                 .iter()
                 .take(8)
