@@ -133,8 +133,13 @@ comma, colon, parentheses or a new sentence.
 - `gh stack add <branch>` for the next layer, `gh stack submit` to open
   the PRs, `gh stack sync` after a lower layer changes (cascade rebase and
   push).
-- Merge with `gh stack merge <top PR> --squash`: all layers up to that PR
-  land on `main` in one all-or-nothing step, each as its own squash
+- Fuzz targets go in the layer that implements the code they call: CI
+  fuzzes every target, so a target over `todo!()` stubs fails the tests
+  layer.
+- Mark the PRs ready (`gh pr ready`), then merge as soon as every PR in the
+  stack has all required checks green, without waiting for a manual
+  approval: `gh stack merge <top PR> --squash --yes`. All layers up to that
+  PR land on `main` in one all-or-nothing step, each as its own squash
   commit.
 - After the merge: `git switch main && git pull --ff-only && gh stack sync
   --prune`.
