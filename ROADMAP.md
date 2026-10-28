@@ -14,5 +14,5 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0007](rfc/0007-forward-proxy.md) | Forward proxy with per-destination egress rate shaping | implemented | v0.5.0 |
 | [0008](rfc/0008-sdk.md) | SDKs for Go, Python and JavaScript over a C ABI | implemented | v0.5.0 |
 | [0009](rfc/0009-l4-limits.md) | L4 connection limits per client and in total, accept rate, header, idle and body timeouts | implemented | v0.5.0 |
-| [0010](rfc/0010-shared-state.md) | Shared state for clusters: per-client limit, egress budget and heavy hitters across replicas via Redis or PostgreSQL | accepted | unplanned |
-| [0011](rfc/0011-xdp.md) | XDP fast path: block list, per-source packet and SYN rates at the driver | accepted | unplanned |
+| [0010](rfc/0010-shared-state.md) | Shared state for clusters: per-client limit, egress budget and heavy hitters across replicas via Redis or PostgreSQL | implemented | v0.6.0 |
+| [0011](rfc/0011-xdp.md) | XDP fast path: block list, per-source packet and SYN rates at the driver | implemented | v0.6.0 |

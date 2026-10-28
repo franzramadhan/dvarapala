@@ -24,6 +24,7 @@ Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 git clone https://github.com/franzramadhan/dvarapala
 cd dvarapala
 cargo build --release
+# optional: --features http3,ml,redis,postgres,xdp
 ```
 
 ## First run
@@ -76,8 +77,10 @@ mode = "enforce"
   tune it.
 - [Configuration](configuration.html): every key, default and metric.
 - [Examples](examples.html): TLS, gRPC, WebSocket, HTTP/3, connection
-  limits and forward proxy deployments.
+  limits, forward proxy, cluster and XDP deployments.
 - [Forward proxy](forward-proxy.html): hold outbound calls to each
   provider's rate.
 - [SDKs](sdk.html): the same protection inside a Go, Python or JavaScript
   service.
+- [Clusters](clusters.html): replicas behind one load balancer sharing
+  their limits.

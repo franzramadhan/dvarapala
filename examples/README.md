@@ -13,6 +13,8 @@ the values differ from the defaults. Every key is described in
 | [http3.toml](http3.toml) | HTTP/3 next to HTTPS, Retry under load (build with `--features http3`) |
 | [l4-limits.toml](l4-limits.toml) | Public endpoint without a load balancer: tight connection caps, accept rate, slowloris timeouts |
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
+| [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
+| [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and
 addresses are placeholders (`app.example`, `<cert dir>`, `192.0.2.0/24`).

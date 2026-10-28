@@ -18,6 +18,7 @@ nav:
   - { title: Protection layers, url: /docs/protection.html }
   - { title: Forward proxy, url: /docs/forward-proxy.html }
   - { title: SDKs, url: /docs/sdk.html }
+  - { title: Clusters, url: /docs/clusters.html }
   - { title: Configuration, url: /docs/configuration.html }
   - { title: Examples, url: /docs/examples.html }
   - { title: Roadmap, url: /docs/roadmap.html }
