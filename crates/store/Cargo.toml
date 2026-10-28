@@ -26,4 +26,5 @@ rustls-native-certs = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }
 
 [dev-dependencies]
+tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "io-util"] }

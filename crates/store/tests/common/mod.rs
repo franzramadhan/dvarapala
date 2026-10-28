@@ -121,6 +121,11 @@ impl Drop for Replica {
 }
 
 pub fn replica<S: Store>(store: S, cluster: &str, cfg: ClusterConfig) -> Replica {
+    // the sync task's logs (the store error) in a failed test's output
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_ansi(false)
+        .try_init();
     let c = Arc::new(Mutex::new(Cluster::new(cfg)));
     let (task, status) = spawn(
         store,
