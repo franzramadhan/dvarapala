@@ -160,6 +160,15 @@ jobs:
           curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_grpc_local_responses_total{status="unavailable"} 1'
           kill -TERM "$pid"
           wait "$pid"
+      # RFC 0006 case 17: HTTP/3 adds under 2 MB. Last: it rebuilds the binary.
+      - name: http3 size budget
+        run: |
+          set -euo pipefail
+          base=$(stat -c %s target/release/dvarapala)
+          cargo build --locked --release -p dvarapala --features http3
+          h3=$(stat -c %s target/release/dvarapala)
+          echo "binary: ${base} bytes, with http3: ${h3} bytes"
+          [ $((h3 - base)) -lt 2097152 ] || { echo "::error::http3 adds $((h3 - base)) bytes, budget 2097152"; exit 1; }
 
   # RFC 0008 cases 9, 10, 17: the Go package over the static library
   go:

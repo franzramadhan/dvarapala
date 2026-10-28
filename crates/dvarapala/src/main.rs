@@ -1,5 +1,7 @@
 mod config;
 mod metrics;
+#[cfg(feature = "http3")]
+mod quic;
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -16,7 +18,7 @@ use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
-    ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig,
+    AltSvc, ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig,
     UpstreamConfig, UpstreamProtocol, serve,
 };
 use hyper::body::Incoming;
@@ -78,6 +80,9 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         server_name: cfg.upstream_tls.server_name.clone(),
     };
     if cfg.mode == config::ProxyMode::Forward {
+        if cfg.quic.listen.is_some() {
+            return Err("quic.listen works in reverse mode only".into());
+        }
         // RFC 0007: the callers are our own services, no per-client limiter
         let (clients, destinations) = cfg.forward.parts()?;
         let names: Vec<String> = destinations.iter().map(|d| d.name.clone()).collect();
@@ -96,6 +101,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let target = cfg.reverse_upstream()?;
+    let quic = cfg.quic.plan(&cfg.tls)?;
     #[cfg(not(feature = "tls"))]
     no_tls(&cfg.tls, target)?;
     let upstream = UpstreamConfig {
@@ -131,10 +137,25 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         None
     };
     let listener = bind(&cfg).await?;
+    #[cfg(feature = "http3")]
+    let h3 = match (&quic, &tls) {
+        (Some(q), Some(t)) => Some(quic::start(q, t, target, &upstream, limiter.clone())?),
+        _ => None,
+    };
+    // the plan refuses quic.listen without the http3 feature
+    #[cfg(not(feature = "http3"))]
+    let h3: Option<std::future::Pending<()>> = None;
     tracing::info!(listen = %cfg.listen, upstream = %target, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
-    match limiter {
-        Some(l) => listen(listener, tls, h2, l.layer(proxy)).await,
-        None => listen(listener, tls, h2, proxy).await,
+    let alt_svc = quic.and_then(|q| q.alt_svc);
+    let tcp = async {
+        match limiter {
+            Some(l) => listen_tcp(listener, tls, h2, l.layer(proxy), alt_svc).await,
+            None => listen_tcp(listener, tls, h2, proxy, alt_svc).await,
+        }
+    };
+    match h3 {
+        Some(h3) => drop(tokio::join!(tcp, h3)),
+        None => tcp.await,
     }
     tracing::info!("stopped");
     Ok(())
@@ -276,6 +297,26 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
 fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
     no_tls(t, "")?;
     Ok(None)
+}
+
+/// [`listen`], with `Alt-Svc` on every response when HTTP/3 is on.
+async fn listen_tcp<S>(
+    listener: Listener,
+    tls: Option<Tls>,
+    h2: Http2Limits,
+    svc: S,
+    alt_svc: Option<u16>,
+) where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    match alt_svc {
+        Some(port) => listen(listener, tls, h2, AltSvc::new(svc, port)).await,
+        None => listen(listener, tls, h2, svc).await,
+    }
 }
 
 /// Serves `svc`, with TLS when `tls` is set.

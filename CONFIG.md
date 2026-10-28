@@ -88,6 +88,25 @@ file keeps the old one. ALPN offers `h2` and `http/1.1`.
 | `handshake_timeout` | duration | `"10s"` | Handshakes slower than this are dropped |
 | `max_handshakes` | integer | `1024` | Handshakes in progress at once; new connections over it are closed. At least 1 |
 
+## `[quic]`
+
+HTTP/3 over QUIC ([RFC 0006](rfc/0006-http3.md)), experimental, in builds
+with the `http3` feature (off by default). Set `listen` to open a UDP
+socket next to the TCP listener, reverse mode only. It needs `[tls]`: the
+same certificate (reloaded by `SIGHUP` too), TLS 1.3 only, ALPN `h3`, no
+0-RTT. The handshake timeout is `tls.handshake_timeout`. HTTP/3 requests go
+through the same rate limiter, detection and upstream as TCP ones.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `listen` | `ip:port` | unset | UDP address for HTTP/3; unset turns QUIC off. Usually the TCP port, over UDP |
+| `advertise` | bool | `true` | `Alt-Svc: h3=":<port>"; ma=86400` on TCP responses, so clients find HTTP/3 |
+| `retry` | `"under_load"`, `"always"` or `"never"` | `"under_load"` | When a new client must prove its address with a Retry first (one more round trip). `never` is for labs: spoofed Initials then cost handshakes |
+| `retry_threshold` | integer | `256` | Handshakes in progress before `under_load` starts sending Retry |
+| `max_connections` | integer | `10000` | Open connections, handshakes included; over it, new ones are refused before any crypto. At least 1 |
+| `max_streams` | integer | `100` | Concurrent requests per connection; more wait for credit. At least 1 |
+| `idle_timeout` | duration | `"30s"` | Idle connections are closed. Above 0 |
+
 ## `[upstream_tls]`
 
 Verification of `https://` upstreams. There is no switch to turn
