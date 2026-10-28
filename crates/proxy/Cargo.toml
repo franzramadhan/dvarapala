@@ -22,7 +22,7 @@ http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "client", "server"] }
 hyper-util = { workspace = true, features = ["client-legacy", "http1", "http2", "server-auto", "server-graceful", "tokio"] }
 metrics.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tower-service.workspace = true
 tracing.workspace = true
 hyper-rustls = { workspace = true, optional = true }
@@ -36,6 +36,8 @@ criterion.workspace = true
 # RFC 0005: rate limit in front of the upgrade (case 7)
 dvarapala-engine.workspace = true
 futures-util.workspace = true
+# RFC 0005 case 13: getrusage in the tunnels bench
+libc.workspace = true
 tokio-tungstenite.workspace = true
 tower-layer.workspace = true
 rcgen.workspace = true
@@ -45,3 +47,7 @@ tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", 
 name = "handshake"
 harness = false
 required-features = ["tls"]
+
+[[bench]]
+name = "tunnels"
+harness = false

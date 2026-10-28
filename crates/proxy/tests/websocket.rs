@@ -16,7 +16,6 @@ use ws::{connect, counter, echo, eventually, limiter, proxy, record, refused, up
 
 /// RFC 0005 case 1
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn text_and_binary_echo() {
     record();
     let (up, _) = upstream().await;
@@ -28,7 +27,6 @@ async fn text_and_binary_echo() {
 
 /// RFC 0005 case 4
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn refused_upgrade_is_a_normal_response() {
     record();
     let (up, _) = upstream().await;
@@ -52,7 +50,6 @@ async fn refused_upgrade_is_a_normal_response() {
 
 /// RFC 0005 case 6
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn empty_protocols_strip_the_upgrade() {
     record();
     let (up, seen) = upstream().await;
@@ -82,7 +79,6 @@ async fn empty_protocols_strip_the_upgrade() {
 
 /// RFC 0005 case 7
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn rate_limited_upgrade_never_reaches_the_upstream() {
     record();
     let (up, seen) = upstream().await;
@@ -97,7 +93,6 @@ async fn rate_limited_upgrade_never_reaches_the_upstream() {
 
 /// RFC 0005 case 8
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn third_tunnel_over_the_limit_is_503() {
     record();
     let (up, seen) = upstream().await;
@@ -118,7 +113,6 @@ async fn third_tunnel_over_the_limit_is_503() {
 
 /// RFC 0005 case 12
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn megabyte_each_way_is_counted() {
     record();
     let (up, _) = upstream().await;

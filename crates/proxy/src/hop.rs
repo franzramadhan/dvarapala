@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use http::header::{CONNECTION, HeaderMap, HeaderName, HeaderValue, TE};
+use http::header::{CONNECTION, HeaderMap, HeaderName, HeaderValue, TE, UPGRADE};
 
 /// RFC 9110 section 7.6.1, plus the legacy `proxy-connection`.
 const HOP_BY_HOP: [&str; 9] = [
@@ -52,9 +52,23 @@ pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap, keep_trailers: bool) {
 /// The entry of `allowed` that an HTTP/1.1 upgrade request asks for:
 /// `Connection` lists `upgrade` and `Upgrade` names that protocol
 /// (RFC 0005). Other requests and protocols get `None`.
-#[allow(dead_code)] // called from reverse.rs once implemented
-pub(crate) fn allowed_upgrade<'a>(_headers: &HeaderMap, _allowed: &'a [String]) -> Option<&'a str> {
-    todo!("rfc 0005")
+pub fn allowed_upgrade<'a>(headers: &HeaderMap, allowed: &'a [String]) -> Option<&'a str> {
+    if !tokens(headers, CONNECTION).any(|t| t.eq_ignore_ascii_case("upgrade")) {
+        return None;
+    }
+    tokens(headers, UPGRADE)
+        .find_map(|t| allowed.iter().find(|a| a.eq_ignore_ascii_case(t)))
+        .map(String::as_str)
+}
+
+/// The comma-separated tokens of every `name` header.
+fn tokens(headers: &HeaderMap, name: HeaderName) -> impl Iterator<Item = &str> {
+    headers
+        .get_all(name)
+        .into_iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
 }
 
 /// Appends `peer` to `X-Forwarded-For`, keeping earlier hops.
@@ -125,7 +139,6 @@ mod tests {
 
     /// RFC 0005 case 5, plus the allow list
     #[test]
-    #[ignore = "rfc 0005"]
     fn only_allowed_upgrades_pass() {
         let ws = ["websocket".to_owned()];
         let mut h = HeaderMap::new();
