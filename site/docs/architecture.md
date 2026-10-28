@@ -13,8 +13,11 @@ carry out what it decides.
   client
     |
     v
-  listener   TCP or TLS (ALPN h2, http/1.1), bounded handshakes
+  l4         connection caps, accept rate, timeouts -> close
     |
+    v
+  listener   TCP or TLS (ALPN h2, http/1.1), bounded handshakes;
+    |        or QUIC (HTTP/3, Retry under load)
     v
   identity   peer address, or X-Forwarded-For from a trusted proxy
     |
@@ -39,12 +42,15 @@ Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 | Crate | Role |
 |---|---|
 | `engine` | Verdicts, token buckets, detection sketches. No I/O, no async runtime, so it can embed anywhere |
+| `l4` | Listener wrapper: connection caps, accept rate, header, idle and body timeouts |
 | `l7` | `tower` layers that run the engine on each request |
-| `proxy` | Server loop, TLS, HTTP/2 limits, upstream client, WebSocket tunnels |
+| `proxy` | Server loop, TLS, HTTP/2 limits, HTTP/3 over QUIC, reverse and forward proxy, WebSocket and `CONNECT` tunnels |
+| `ffi` | C ABI (`dvarapala.h`) over the engine, for the SDKs |
+| `node` | N-API addon over the C ABI for the JavaScript SDK |
 | `dvarapala` | The binary: config, metrics endpoint, signals |
 
-Dependencies point inward: the binary depends on the rest, `engine` on no
-other workspace crate. More crates (`l4`, `store`, `xdp`, `ffi`) arrive
+Dependencies point inward: the binary and `ffi` depend on the rest,
+`engine` on no other workspace crate. More crates (`store`, `xdp`) arrive
 with the RFC that needs them.
 
 ## Modes
@@ -52,9 +58,9 @@ with the RFC that needs them.
 | Mode | Entry point | Status |
 |---|---|---|
 | Reverse proxy | `dvarapala serve --config <file>` | shipped |
-| Forward proxy | egress rate shaping toward third-party APIs | RFC 0007, draft |
-| Embedded (Rust) | `tower::Layer` and a listener wrapper | planned |
-| Embedded (other) | C ABI for Go, Python, Node | planned |
+| Forward proxy | `mode = "forward"`: egress rate shaping toward third-party APIs, see [Forward proxy](forward-proxy.html) | shipped |
+| Embedded (Rust) | `tower::Layer` and a listener wrapper | shipped |
+| Embedded (other) | C ABI with Go, Python and JavaScript packages, see [SDKs](sdk.html) | shipped |
 
 ## Failure policy
 
@@ -65,6 +71,7 @@ it. Shutdown drains in-flight requests and open tunnels for up to 30 s.
 ## Stack
 
 Rust for a small footprint without a GC and memory safety at the trust
-boundary: `tokio`, `hyper`, `tower`, `rustls`, and `metrics` with the
+boundary: `tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3` (feature
+`http3`), and `metrics` with the
 Prometheus exporter. The idle binary has an RSS budget that CI checks on
 every change.

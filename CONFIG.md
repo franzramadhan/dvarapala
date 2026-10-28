@@ -8,6 +8,10 @@ error. The log level comes from `RUST_LOG` (default `info`).
 
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
+The SDKs ([RFC 0008](rfc/0008-sdk.md), [sdk/](sdk/README.md)) take the same
+names and defaults for the keys that apply in process: `rate_limit.*`,
+`detection.*`, `trusted_proxies` and the connection keys of `[l4]`.
+
 Durations are strings: `"<n>ms"`, `"<n>s"`, `"<n>m"` or `"<n>h"`, for
 example `"500ms"`, `"10s"` or `"24h"`.
 

@@ -6,6 +6,23 @@ Each layer is optional. This page says what each one stops, how it
 answers, and which keys to look at first. The full list of keys is in
 [Configuration](configuration.html).
 
+## Connection limits
+
+Checked on every accepted connection, before TLS or any HTTP is read: a
+cap on open connections in total (`max_connections`) and per client
+(`max_per_client`), and a token bucket on new connections per client
+(`accept_rate`, `accept_burst`). A refused connection is closed at once,
+with no response. Timeouts cut connections that hold a slot without
+sending anything useful: `header_timeout` for each request head,
+`idle_timeout` between requests, and `min_body_rate` for bodies that
+trickle in (`408`).
+
+A client here is the peer address, grouped by `prefix_v4` / `prefix_v6`;
+`X-Forwarded-For` does not apply. Behind a load balancer, list it in
+`exempt`.
+
+Keys: [`[l4]`](configuration.html#l4).
+
 ## Rate limit
 
 A token bucket per client: `rate` tokens per second, up to `burst`. An
@@ -53,6 +70,23 @@ how long each may take, so a handshake flood costs bounded CPU.
 
 Keys: [`[tls]`](configuration.html#tls),
 [`[upstream_tls]`](configuration.html#upstream_tls).
+
+## HTTP/3 over QUIC
+
+An optional UDP listener (builds with the `http3` feature, off by
+default) that serves HTTP/3 into the same rate limit, detection and
+upstream. A spoofed-source flood of QUIC Initials must not cost
+handshakes: once `retry_threshold` handshakes are in progress, new
+clients must first echo a Retry token (one extra round trip, no state on
+the server). `retry = "always"` asks every new client. Over
+`max_connections`, new connections are refused before any crypto; each
+connection gets `max_streams` concurrent requests. 0-RTT is off, so no
+request is processed before the handshake ends. TCP responses advertise
+the listener with `Alt-Svc`.
+
+Volumetric UDP floods still need filtering at the network edge.
+
+Keys: [`[quic]`](configuration.html#quic).
 
 ## HTTP/2
 

@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-28 | #44 | unplanned |
+| implemented | 2026-10-28 | #44 | v0.5.0 |
 
 > Limit connections before any HTTP is parsed: a cap on open connections
 > per client and in total, a token bucket on new connections per client,
@@ -178,7 +178,7 @@ Found while building, folded back from the PRs:
 
 ## Rollout
 
-- **Rollout:** `max_per_client` 256 and the timeouts are on by default,
+- **Rollout:** v0.5.0. `max_per_client` 256 and the timeouts are on by default,
   generous for normal traffic; the release notes call out the new
   defaults. Deployments behind a load balancer set `exempt`.
 - **Off switch:** `l4.enabled = false` (timeouts stay, at the old 30 s

@@ -1,0 +1,32 @@
+# Connection limits and timeouts tuned for a public endpoint (RFC 0009).
+#
+# Use case: an API on the open internet without a load balancer in front,
+# hit by connection floods and slowloris clients. The limits apply before
+# any TLS or HTTP work: a refused connection is closed with nothing read.
+#
+# Why these values: no client needs more than 64 connections at once or
+# 20 new ones per second; the whole box holds 20000. Request heads must
+# arrive within 10 s and bodies keep up at least 1 KB/s, so a client
+# cannot hold a slot by trickling bytes. The health checker is exempt.
+
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[detection]
+mode = "observe"
+
+[l4]
+max_connections = 20000
+max_per_client = 64
+accept_rate = 20
+accept_burst = 40
+# A client is a /32 or a /64: one host, one budget.
+prefix_v4 = 32
+prefix_v6 = 64
+exempt = ["192.0.2.10/32"]
+header_timeout = "10s"
+idle_timeout = "30s"
+min_body_rate = 1024

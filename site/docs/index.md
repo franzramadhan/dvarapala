@@ -75,4 +75,9 @@ mode = "enforce"
 - [Protection layers](protection.html): what each layer does and when to
   tune it.
 - [Configuration](configuration.html): every key, default and metric.
-- [Examples](examples.html): TLS, gRPC and WebSocket deployments.
+- [Examples](examples.html): TLS, gRPC, WebSocket, HTTP/3, connection
+  limits and forward proxy deployments.
+- [Forward proxy](forward-proxy.html): hold outbound calls to each
+  provider's rate.
+- [SDKs](sdk.html): the same protection inside a Go, Python or JavaScript
+  service.
