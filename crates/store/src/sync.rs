@@ -68,7 +68,6 @@ async fn run<S: Store>(
 ) {
     let lock = || cluster.lock().unwrap_or_else(PoisonError::into_inner);
     let window = lock().window();
-    let up = metrics::gauge!("dvarapala_store_up");
     let mut delay = Duration::ZERO;
     let mut down_logged = false;
     loop {
@@ -96,7 +95,8 @@ async fn run<S: Store>(
                 let replicas = reply.replicas;
                 lock().apply(reply, Instant::now(), unix_ms());
                 metrics::gauge!("dvarapala_store_replicas").set(f64::from(replicas));
-                up.set(1.0);
+                // looked up per round: the recorder may come after spawn
+                metrics::gauge!("dvarapala_store_up").set(1.0);
                 status.up.store(true, Ordering::Release);
                 status.rounds.fetch_add(1, Ordering::AcqRel);
                 if down_logged {
@@ -108,7 +108,7 @@ async fn run<S: Store>(
             }
             Err(error) => {
                 metrics::counter!("dvarapala_store_sync_errors_total").increment(1);
-                up.set(0.0);
+                metrics::gauge!("dvarapala_store_up").set(0.0);
                 status.up.store(false, Ordering::Release);
                 status.failures.fetch_add(1, Ordering::AcqRel);
                 if !down_logged {
