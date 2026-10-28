@@ -110,7 +110,6 @@ async fn off_accepts_everything() {
 
 /// RFC 0011: a client over the accept rate is reported to the block sink
 #[tokio::test]
-#[ignore = "rfc 0011"]
 async fn accept_rate_refusals_reach_the_block_sink() {
     let seen: Arc<Mutex<Vec<Cidr>>> = Arc::default();
     let s = seen.clone();

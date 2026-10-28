@@ -2,7 +2,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use dvarapala_engine::BlockSink;
+use dvarapala_engine::{BlockSink, Cidr};
 use tokio::net::TcpListener;
 
 use crate::conn::Conn;
@@ -15,6 +15,7 @@ pub struct Listener {
     tcp: TcpListener,
     limits: Option<Arc<Limits>>,
     config: L4Config,
+    block: Option<BlockSink>,
 }
 
 impl Listener {
@@ -24,7 +25,15 @@ impl Listener {
             tcp,
             limits,
             config,
+            block: None,
         })
+    }
+
+    /// Reports clients over the accept rate to `sink` (RFC 0011). They
+    /// completed a handshake, so the address is not spoofed.
+    pub fn with_block(mut self, sink: BlockSink) -> Self {
+        self.block = Some(sink);
+        self
     }
 
     /// The next connection within the limits; refused ones are closed and
@@ -37,18 +46,22 @@ impl Listener {
                 // a refused stream is dropped here, closed unread
                 Some(l) => match l.admit(addr.ip()) {
                     Ok(g) => Some(g),
-                    Err(_) => continue,
+                    Err(reason) => {
+                        if let (Some(b), "rate") = (&self.block, reason) {
+                            let c = &self.config.conns;
+                            let prefix = if addr.is_ipv4() {
+                                c.prefix_v4
+                            } else {
+                                c.prefix_v6
+                            };
+                            b.block(Cidr::of(addr.ip(), prefix));
+                        }
+                        continue;
+                    }
                 },
             };
             return Ok((Conn::new(io, guard), addr));
         }
-    }
-
-    /// Reports clients over the accept rate to `sink` (RFC 0011). They
-    /// completed a handshake, so the address is not spoofed.
-    pub fn with_block(self, sink: BlockSink) -> Self {
-        let _ = sink;
-        todo!("rfc 0011")
     }
 
     pub fn config(&self) -> &L4Config {
@@ -67,6 +80,7 @@ impl From<TcpListener> for Listener {
             tcp,
             limits: None,
             config: L4Config::timeouts_only(),
+            block: None,
         }
     }
 }
