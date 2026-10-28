@@ -36,6 +36,28 @@ tar xzf dvarapala-v<version>-<target>.tar.gz
 ./dvarapala --version
 ```
 
+Or as a container image, for `linux/amd64` and `linux/arm64`. It is
+`FROM scratch` with the static binary, runs as UID 10001 and listens on
+port 8080. With no config file, every key comes from the environment:
+
+```sh
+docker run --rm -p 8080:8080 \
+  -e DVARAPALA__UPSTREAM=http://app.example:8081 \
+  ghcr.io/franzramadhan/dvarapala:<version>
+```
+
+To use a file, mount it and pass it to `serve`:
+
+```sh
+docker run --rm -p 8080:8080 -v ./dvarapala.toml:/etc/dvarapala.toml:ro \
+  ghcr.io/franzramadhan/dvarapala:<version> serve --config /etc/dvarapala.toml
+```
+
+Inside a container, set `[metrics] listen = "0.0.0.0:9090"` to scrape
+metrics from outside it (the default is loopback). The image has no CA
+bundle: for an `https://` upstream, mount one and set
+`upstream_tls.ca_file`.
+
 Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 
 ```sh

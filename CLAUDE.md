@@ -25,6 +25,7 @@ C ABI). The design and the milestones are in
 | `rfc/` | one RFC per feature, from `0000-template.md` |
 | `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/`, and `install.sh` (served at `/install.sh`) |
 | `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release |
+| `Dockerfile` | the release image: `FROM scratch` plus the musl binary from `dist/<arch>/` (built in `release.yml`) |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
 crates ahead of time.
@@ -127,8 +128,11 @@ comma, colon, parentheses or a new sentence.
   Jekyll, then a GitHub Pages deploy.
 - `.github/workflows/release.yml` runs on `v*` tags only: checks the tag
   matches the workspace version and is on `main`, builds the per-target
-  binaries, and publishes a GitHub release with `SHA256SUMS` and the notes
-  from `CHANGELOG.md`. Merges to `main` publish nothing.
+  binaries, pushes the container image `ghcr.io/franzramadhan/dvarapala`
+  (`<version>` and `<major>.<minor>`, linux/amd64 and linux/arm64, built
+  by `Dockerfile` from the musl binaries), and publishes a GitHub release
+  with `SHA256SUMS` and the notes from `CHANGELOG.md`. Merges to `main`
+  publish nothing.
 - `.github/workflows/title-check.yml` checks every PR title (it becomes the
   squash commit): `type(scope): subject`, types `feat fix docs ci test
   refactor perf build chore release rfc`, an optional scope from the list in
