@@ -19,6 +19,7 @@ Top-level keys go above the first `[section]` in the file.
 |---|---|---|---|
 | `listen` | address | `"0.0.0.0:8080"` | Proxy listen address |
 | `upstream` | URL | required | Upstream base URL, `http://` or `https://` |
+| `upstream_protocol` | `"http1"`, `"http2"` or `"auto"` | `"http1"` | Protocol to the upstream ([RFC 0004](rfc/0004-http2-grpc.md)): `http2` is h2c with prior knowledge for `http://` and ALPN `h2` for `https://` (an upstream that cannot speak it gets 502); `auto` lets ALPN choose for `https://` and keeps HTTP/1.1 for `http://` |
 | `trusted_proxies` | list of CIDRs | `[]` | Peers allowed to set `X-Forwarded-For`; others are keyed by their own address |
 
 ## `[metrics]`
@@ -96,16 +97,46 @@ verification off.
 | `ca_file` | path | system roots | PEM CA bundle to trust instead of the system roots |
 | `server_name` | string | upstream host | Name to send in SNI and verify the certificate against |
 
+## `[http2]`
+
+HTTP/2 listener limits ([RFC 0004](rfc/0004-http2-grpc.md)), applied to
+every HTTP/2 client connection, cleartext (h2c) or TLS.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_concurrent_streams` | integer | `100` | Streams open at once per connection; more are refused with `REFUSED_STREAM`. At least 1 |
+| `max_pending_reset_streams` | integer | `20` | Streams the client resets before they are served; over it, `GOAWAY` (rapid reset) |
+| `max_local_error_resets` | integer | `1024` | Streams the server resets for client errors before it closes the connection |
+| `max_header_list_size` | integer | `16384` | Bytes of headers per request, CONTINUATION frames included |
+| `keepalive_interval` | duration | `"30s"` | PING interval; `"0s"` turns keepalive off |
+| `keepalive_timeout` | duration | `"10s"` | Close the connection when a PING is not answered in time |
+
+## gRPC
+
+Requests with `content-type: application/grpc` or `application/grpc+<codec>`
+get local errors in gRPC form: HTTP 200 with `grpc-status` and
+`grpc-message` in a trailers-only response.
+
+| Cause | `grpc-status` |
+|---|---|
+| Rate limit or model score (`Throttle`) | `8` RESOURCE_EXHAUSTED, with `retry-after` and `grpc-retry-pushback-ms` |
+| Detection `Drop` | `7` PERMISSION_DENIED |
+| Upstream unreachable | `14` UNAVAILABLE |
+
+Use `upstream_protocol = "http2"` for gRPC upstreams.
+
 ## Metrics
 
 Served on `metrics.listen` at `/metrics`.
 
 | Metric | Description |
 |---|---|
-| `dvarapala_requests_total{verdict}` | Requests by verdict |
+| `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`) |
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream connect or response failures |
+| `dvarapala_grpc_local_responses_total{status}` | gRPC errors answered locally: `resource_exhausted`, `permission_denied`, `unavailable` |
+| `dvarapala_http2_goaway_total{reason}` | HTTP/2 connections closed with `GOAWAY`: `flood` (rapid reset, error resets, header floods), `protocol` (other protocol errors) |
 | `dvarapala_detection_state` | 0 `Normal`, 1 `Suspect`, 2 `Attack`, 3 `Cooldown` |
 | `dvarapala_detection_rate_zscore` | Current window z-score |
 | `dvarapala_detection_source_entropy` | Current window entropy, normalized to `[0, 1]` |

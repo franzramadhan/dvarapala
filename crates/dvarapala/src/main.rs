@@ -13,10 +13,10 @@ use std::time::Instant;
 use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
 use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
-use dvarapala_proxy::UpstreamConfig;
-#[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
-use dvarapala_proxy::{Http2Limits, ProxyBody, ReverseProxy, serve};
+use dvarapala_proxy::{
+    Http2Limits, ProxyBody, ReverseProxy, UpstreamConfig, UpstreamProtocol, serve,
+};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use tokio::net::TcpListener;
@@ -67,22 +67,22 @@ fn main() -> ExitCode {
 #[tokio::main]
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
-    #[cfg(feature = "tls")]
-    let proxy = ReverseProxy::<Incoming>::with_config(
-        &cfg.upstream,
-        &UpstreamConfig {
-            tls: UpstreamTls {
-                ca_file: cfg.upstream_tls.ca_file.clone(),
-                server_name: cfg.upstream_tls.server_name.clone(),
-            },
-            ..UpstreamConfig::default()
-        },
-    )?;
     #[cfg(not(feature = "tls"))]
-    let proxy = {
-        no_tls(&cfg.tls, &cfg.upstream)?;
-        ReverseProxy::<Incoming>::new(&cfg.upstream)?
+    no_tls(&cfg.tls, &cfg.upstream)?;
+    let upstream = UpstreamConfig {
+        protocol: match cfg.upstream_protocol {
+            config::UpstreamProtocol::Http1 => UpstreamProtocol::Http1,
+            config::UpstreamProtocol::Http2 => UpstreamProtocol::Http2,
+            config::UpstreamProtocol::Auto => UpstreamProtocol::Auto,
+        },
+        #[cfg(feature = "tls")]
+        tls: UpstreamTls {
+            ca_file: cfg.upstream_tls.ca_file.clone(),
+            server_name: cfg.upstream_tls.server_name.clone(),
+        },
     };
+    let proxy = ReverseProxy::<Incoming>::with_config(&cfg.upstream, &upstream)?;
+    let h2 = http2(&cfg.http2)?;
     let tls = listener_tls(&cfg.tls)?;
     let limiter = if cfg.rate_limit.enabled {
         let trusted = cfg
@@ -111,10 +111,10 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     }
 
     let listener = TcpListener::bind(cfg.listen).await?;
-    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, tls = tls.is_some(), "proxy listening");
+    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, protocol = ?upstream.protocol, tls = tls.is_some(), "proxy listening");
     match limiter {
-        Some(l) => listen(listener, tls, l.layer(proxy)).await,
-        None => listen(listener, tls, proxy).await,
+        Some(l) => listen(listener, tls, h2, l.layer(proxy)).await,
+        None => listen(listener, tls, h2, proxy).await,
     }
     tracing::info!("stopped");
     Ok(())
@@ -141,6 +141,21 @@ fn detection(d: &config::Detection) -> Option<Detection> {
         },
         enforce: d.mode == config::Mode::Enforce,
         attack_rate_factor: d.attack_rate_factor,
+    })
+}
+
+/// `[http2]` as listener limits; a zero keepalive interval turns it off.
+fn http2(h: &config::Http2) -> Result<Http2Limits, String> {
+    if h.max_concurrent_streams == 0 {
+        return Err("http2.max_concurrent_streams must be at least 1".into());
+    }
+    Ok(Http2Limits {
+        max_concurrent_streams: h.max_concurrent_streams,
+        max_pending_reset_streams: h.max_pending_reset_streams,
+        max_local_error_resets: h.max_local_error_resets,
+        max_header_list_size: h.max_header_list_size,
+        keepalive_interval: (!h.keepalive_interval.is_zero()).then_some(h.keepalive_interval),
+        keepalive_timeout: h.keepalive_timeout,
     })
 }
 
@@ -220,7 +235,7 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
 }
 
 /// Serves `svc`, with TLS when `tls` is set.
-async fn listen<S>(listener: TcpListener, tls: Option<Tls>, svc: S)
+async fn listen<S>(listener: TcpListener, tls: Option<Tls>, h2: Http2Limits, svc: S)
 where
     S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
         + Clone
@@ -229,11 +244,9 @@ where
     S::Future: Send + 'static,
 {
     match tls {
-        None => serve(listener, Http2Limits::default(), svc, shutdown()).await,
+        None => serve(listener, h2, svc, shutdown()).await,
         #[cfg(feature = "tls")]
-        Some(tls) => {
-            dvarapala_proxy::serve_tls(listener, tls, Http2Limits::default(), svc, shutdown()).await
-        }
+        Some(tls) => dvarapala_proxy::serve_tls(listener, tls, h2, svc, shutdown()).await,
         #[cfg(not(feature = "tls"))]
         Some(never) => match never {},
     }
