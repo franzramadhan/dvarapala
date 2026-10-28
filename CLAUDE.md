@@ -19,6 +19,7 @@ C ABI). The design and the milestones are in
 | `crates/ffi` | C ABI for non-Rust embedders |
 | `crates/dvarapala` | the binary |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
+| `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/` |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
 crates ahead of time.
@@ -113,6 +114,9 @@ comma, colon, parentheses or a new sentence.
 - `.github/workflows/coverage.yml` runs on pushes to `main` that touch Rust
   code: `cargo llvm-cov`, then writes the test and coverage badge JSON to the
   orphan branch `badges`. Never merge `badges`.
+- `.github/workflows/pages.yml` runs on pushes to `main` that touch
+  `site/`, `CONFIG.md`, `ROADMAP.md` or `examples/`: `site/build.sh`, then
+  Jekyll, then a GitHub Pages deploy.
 - `.github/workflows/release.yml` runs on `v*` tags only: checks the tag
   matches the workspace version and is on `main`, builds the per-target
   binaries, and publishes a GitHub release with `SHA256SUMS` and the notes
@@ -155,6 +159,8 @@ comma, colon, parentheses or a new sentence.
 4. Set the released RFCs to `implemented` in `ROADMAP.md` and in each RFC.
    Check `README.md` (features, status) and `CONFIG.md` (every key, type,
    default and metric) match what ships.
+   Check the hand-written site pages (`site/index.html`, `site/docs/`)
+   too; the configuration, examples and roadmap pages are generated.
 5. Open the PR titled `release: v<version>`. `release-check` fails when the
    branch name, the `Cargo.toml` version and the `CHANGELOG.md` heading
    disagree.
