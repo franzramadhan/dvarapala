@@ -106,10 +106,27 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
   replicated to standbys and are emptied after a crash or failover. That
   is acceptable, since a counter reset is the same as a short store
   outage: replicas fall back to local limits for at most one window.
-- Schema: created at start with `CREATE ... IF NOT EXISTS` when
-  `store.migrate = true` (the default); set it to `false` to apply the
-  bundled SQL by hand and run with a role that has only `SELECT`,
-  `INSERT`, `UPDATE` and `DELETE` on the `dvarapala` schema.
+- Schema: numbered migrations in `crates/store/migrations/` (`0001.sql`,
+  `0002.sql`, ...), embedded in the binary with `include_str!`. A
+  `dvarapala.schema_version` table holds the last one applied. With
+  `store.migrate = true` (the default) the backend takes
+  `pg_advisory_lock`, applies the missing files in order, each in its own
+  transaction with its version bump, and releases the lock, so replicas
+  starting together migrate once. With `store.migrate = false` it only
+  checks the version and runs with a role that has `SELECT`, `INSERT`,
+  `UPDATE` and `DELETE` on the `dvarapala` schema.
+- `dvarapala store schema` prints the SQL to apply by hand, from the
+  version given with `--from <n>` (default 0) to the binary's, with the
+  `schema_version` updates included. It needs no config and no database,
+  so the output can go into a CloudNativePG
+  `bootstrap.initdb.postInitApplicationSQLRefs` ConfigMap or any
+  migration tool. Release assets include the same files.
+- Version mismatch: a database older than the binary with `migrate =
+  false`, or newer than the binary (a rollback), counts as a store
+  failure: `store unavailable` names both versions and local limits
+  apply. Since the tables only hold counters that expire within a
+  window, a migration may drop and recreate a table instead of
+  converting rows.
 - Connection: `store.url` is a libpq URL; TLS follows `sslmode`
   (`require`, `verify-ca`, `verify-full`) with rustls. With CloudNativePG,
   point it at the `<cluster>-rw` service or a `Pooler` in transaction
@@ -128,7 +145,9 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
 | `crates/store/src/memory.rs` | single-process backend, the default; also the test double |
 | `crates/store/src/redis.rs` | Redis backend: one pipeline per round, one connection, reconnect with backoff |
 | `crates/store/src/postgres.rs` | PostgreSQL backend: one transaction per round, schema creation, expiry sweep |
-| `crates/store/src/postgres.sql` | the schema, applied by `store.migrate` or by hand |
+| `crates/store/src/migrate.rs` | PostgreSQL migrations: the embedded list, version check, apply under an advisory lock, render for `store schema` |
+| `crates/store/migrations/NNNN.sql` | one file per schema version, never edited after release |
+| `crates/dvarapala/src/main.rs` | the `store schema [--from <n>]` subcommand |
 | `crates/store/src/sync.rs` | the background task that drains local deltas into the store and applies what comes back |
 | `crates/l7/src/rate_limit.rs` | consult the cluster overrides and the shared drop list before the local bucket |
 | `crates/proxy/src/forward/shaper.rs` | apply the replica split and shared pauses |
@@ -155,7 +174,7 @@ feature so the default binary does not grow, and each must pass
 | `store.sync_interval` | `"1s"` | How often each replica syncs; shorter is tighter and costs more store round trips |
 | `store.max_keys` | `10000` | Clients synced per interval at most, busiest first |
 | `store.timeout` | `"500ms"` | One sync round slower than this counts as a failure |
-| `store.migrate` | `true` | PostgreSQL only: create the schema and tables at start if missing |
+| `store.migrate` | `true` | PostgreSQL only: apply missing migrations at start; `false` only checks `schema_version` |
 
 ### Logs and metrics
 
@@ -191,8 +210,12 @@ PostgreSQL service in CI.
 | 13 | `backend = "redis"` or `"postgres"`, no `url` | start | config error naming `store.url` | unit (`config`) |
 | 14 | arbitrary bytes as a Redis reply | the backend parses it | no panic, an error | fuzz (`store_reply`) |
 | 15 | sync task on a busy proxy | bench | request latency p99 unchanged within noise, sync under 5 ms for 10 000 keys on loopback | bench (`store/benches`) |
-| 16 | PostgreSQL, empty database, `migrate = true` | start twice | schema created once, second start is a no-op | integration (`store/tests`) |
-| 17 | PostgreSQL, `migrate = false`, schema missing | start | `store unavailable` with the missing table named, local limits apply | integration (`store/tests`) |
+| 16 | PostgreSQL, empty database, `migrate = true` | two replicas start at once | every migration applied once, `schema_version` is the binary's | integration (`store/tests`) |
+| 17 | PostgreSQL, `migrate = false`, schema missing or older | start | `store unavailable` naming both versions, local limits apply | integration (`store/tests`) |
+| 20 | PostgreSQL at version 1, binary at version 2 | start with `migrate = true` | only `0002.sql` runs, version 2 | integration (`store/tests`) |
+| 21 | database newer than the binary | start | `store unavailable` naming both versions, no migration runs | integration (`store/tests`) |
+| 22 | `dvarapala store schema --from 1` | run without config | prints migrations after 1 with their version updates; applied by `psql` it gives the same schema as `migrate = true` | integration (`dvarapala`) |
+| 23 | released migration files | CI | a changed released file fails the build (checksum list in `migrate.rs`) | unit (`store::migrate`) |
 | 18 | PostgreSQL, rows past `expires_at` | sweep | deleted by one replica only, unexpired rows kept | integration (`store/tests`) |
 | 19 | PostgreSQL through PgBouncer in transaction mode | cases 5 and 9 | same results | integration (`store/tests`) |
 
