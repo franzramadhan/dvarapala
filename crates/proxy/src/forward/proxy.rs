@@ -70,7 +70,12 @@ where
             .map(|d| {
                 let s = Schedule::new(d.schedule)
                     .map_err(|e| ForwardError::Schedule(format!("{}: {e}", d.name)))?;
-                Ok(Shaper::new(d.name.clone(), s, d.max_concurrent))
+                Ok(Shaper::new(
+                    d.name.clone(),
+                    s,
+                    d.max_concurrent,
+                    config.cluster.clone(),
+                ))
             })
             .collect::<Result<_, ForwardError>>()?;
         #[cfg(feature = "tls")]

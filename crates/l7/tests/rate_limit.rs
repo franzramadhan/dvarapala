@@ -22,6 +22,7 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         detection: None,
         scoring: None,
         now: Instant::now,
+        cluster: None,
     })
     .unwrap()
 }

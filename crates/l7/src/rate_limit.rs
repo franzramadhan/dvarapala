@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    ClientKey, ClientStats, DetectError, Guard, GuardConfig, GuardDetection, TrustedProxies,
-    Verdict, client_key,
+    ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig, GuardDetection, State,
+    TrustedProxies, Verdict, client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode, Version};
@@ -31,6 +31,8 @@ pub struct RateLimitConfig {
     pub scoring: Option<Scoring>,
     /// The clock. `Instant::now` outside tests.
     pub now: fn() -> Instant,
+    /// RFC 0010 shared state; `None` keeps every limit local.
+    pub cluster: Option<Arc<Mutex<Cluster>>>,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the
@@ -50,6 +52,10 @@ struct Shared {
     scoring: Option<Scoring>,
     /// seeds the path hash of the distinct-paths feature
     paths: RandomState,
+    cluster: Option<Arc<Mutex<Cluster>>>,
+    /// how long a published heavy hitter stays listed; `None` publishes
+    /// none (observe mode or no detection)
+    heavy_ttl: Option<Duration>,
 }
 
 struct Inner {
@@ -62,6 +68,11 @@ struct Inner {
 impl RateLimitLayer {
     /// Fails on a detection config the engine rejects.
     pub fn new(config: RateLimitConfig) -> Result<Self, DetectError> {
+        let heavy_ttl = config
+            .detection
+            .as_ref()
+            .filter(|d| d.enforce)
+            .map(|d| d.detect.window * d.detect.cooldown_windows);
         let guard = Guard::new(GuardConfig {
             limit: config.limit,
             max_clients: config.max_clients,
@@ -81,6 +92,8 @@ impl RateLimitLayer {
                 now: config.now,
                 scoring: config.scoring,
                 paths: RandomState::new(),
+                cluster: config.cluster,
+                heavy_ttl,
             }),
         })
     }
@@ -145,7 +158,8 @@ where
             .scoring
             .as_ref()
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
-        match self.shared.take(key, info) {
+        let (verdict, scope) = self.shared.take(key, info);
+        match verdict {
             Verdict::Allow => {
                 count("allow", protocol);
                 ResponseFuture::Inner {
@@ -158,7 +172,7 @@ where
                     log_throttled(key);
                 }
                 ResponseFuture::Rejected {
-                    res: Some(reject(v, is_grpc(req.headers()), protocol)),
+                    res: Some(reject(v, is_grpc(req.headers()), protocol, scope)),
                 }
             }
         }
@@ -170,9 +184,16 @@ fn count(verdict: &'static str, protocol: &'static str) {
         .increment(1);
 }
 
+/// Who decided a rejection: this replica's bucket, or the cluster (RFC 0010).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Local,
+    Cluster,
+}
+
 /// The local answer to a rejected request (RFC 0004): trailers-only gRPC
 /// for gRPC clients, an HTTP status otherwise.
-fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str) -> Response<R> {
+fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str, scope: Scope) -> Response<R> {
     use GrpcStatus::{PermissionDenied, ResourceExhausted};
     let (label, code, grpc_status, retry_after) = match v {
         Verdict::Throttle { retry_after } => (
@@ -192,7 +213,16 @@ fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str) -> Respons
         // `Allow` never gets here; fail closed if it ever does
         Verdict::Drop | Verdict::Allow => ("drop", StatusCode::FORBIDDEN, PermissionDenied, None),
     };
-    count(label, protocol);
+    match scope {
+        Scope::Local => count(label, protocol),
+        Scope::Cluster => metrics::counter!(
+            "dvarapala_requests_total",
+            "verdict" => label,
+            "protocol" => protocol,
+            "scope" => "cluster"
+        )
+        .increment(1),
+    }
     if grpc {
         return grpc_response(grpc_status, retry_after);
     }
@@ -215,14 +245,31 @@ impl Shared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn take(&self, key: ClientKey, info: Option<ReqInfo>) -> Verdict {
+    fn cluster(&self) -> Option<std::sync::MutexGuard<'_, Cluster>> {
+        let c = self.cluster.as_ref()?;
+        Some(c.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    fn take(&self, key: ClientKey, info: Option<ReqInfo>) -> (Verdict, Scope) {
         let now = (self.now)();
+        // the cluster's verdict first: a listed heavy hitter or a client
+        // over its cluster count (RFC 0010); never waits on the store
+        if let Some(v) = self.cluster().and_then(|c| c.check(key, now)) {
+            return (v, Scope::Cluster);
+        }
+        let mut heavy = Vec::new();
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
             let Inner { guard, watch } = &mut *g;
             let d = guard.check(key, now);
             if let (Some(r), Some(det)) = (&d.report, guard.detector()) {
                 watch.report(r, det, now);
+                if self.heavy_ttl.is_some()
+                    && self.cluster.is_some()
+                    && det.state() == State::Attack
+                {
+                    heavy.extend(det.heavy().iter().map(|(c, _)| *c));
+                }
             }
             if d.would_drop {
                 log_would_drop(key);
@@ -244,7 +291,15 @@ impl Shared {
         if evicted > 0 {
             metrics::counter!("dvarapala_limiter_evictions_total").increment(evicted);
         }
-        verdict
+        if let Some(mut c) = self.cluster() {
+            if verdict == Verdict::Allow {
+                c.record(key);
+            }
+            if let (Some(ttl), false) = (self.heavy_ttl, heavy.is_empty()) {
+                c.publish_heavy(heavy, ttl);
+            }
+        }
+        (verdict, Scope::Local)
     }
 }
 
