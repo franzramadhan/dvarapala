@@ -97,6 +97,39 @@ and l7 crates are untouched.
 | 12 | 1 MB message each way | echo | bytes counted in both directions | integration |
 | 13 | 10000 idle tunnels | memory | per-tunnel memory reported, within the budget below | bench |
 
+## Implementation notes
+
+Found while building, folded back from the PRs:
+
+- A tunnel ends when either direction ends (two one-way copies, the first
+  to finish wins), not when both have: the upstream that closes after its
+  close frame would otherwise wait for the client's socket. `end` is the
+  side whose direction finished first (`client` or `upstream`); a write
+  error counts as the reading side's end.
+- The tunnel outlives its HTTP connection, so the server's graceful
+  shutdown does not see it. The server puts a drain handle (a
+  `tokio::sync::watch` receiver) on every request; tunnels close when it
+  fires, and the drain waits until every handle is dropped, within the
+  existing 30 s.
+- A place against `max_tunnels` is taken before the upgrade is forwarded
+  and given back when the upstream answers anything but `101`.
+- `hop::allowed_upgrade` is public (`dvarapala_proxy::allowed_upgrade`)
+  for the `upgrade_headers` fuzz target: `Connection` and `Upgrade` come
+  from the client.
+- `UpgradeConfig` hangs off `UpstreamConfig.upgrade`, so
+  `ReverseProxy::with_config` takes it; `ReverseProxy::new` uses the
+  defaults. With `upstream_protocol = "http2"` upgrades are stripped,
+  since the client pool speaks HTTP/2 only.
+- `upgrade.max_tunnels = 0` and `upgrade.idle_timeout = "0s"` are config
+  errors; `protocols = []` is the off switch. Durations now also take `m`
+  and `h` (`"24h"`).
+- Test 13 is the `tunnels` bench: it opens the tunnels straight to the
+  upstream, then through the proxy, and reports the difference in peak
+  RSS. 19 KB per idle tunnel at 4000 tunnels on macOS, under the 20 KB
+  budget (about 200 MB at the default `max_tunnels`). It is not run in CI.
+- The end-reason tests (cases 2, 3, 9 to 11) are a test binary of their
+  own, one test per `end` label, so parallel tests do not mix counters.
+
 ## Alternatives
 
 | Option | Why not |

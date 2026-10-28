@@ -15,7 +15,7 @@ use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
-    Http2Limits, ProxyBody, ReverseProxy, UpstreamConfig, UpstreamProtocol, serve,
+    Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig, UpstreamConfig, UpstreamProtocol, serve,
 };
 use hyper::body::Incoming;
 use hyper::{Request, Response};
@@ -75,7 +75,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             config::UpstreamProtocol::Http2 => UpstreamProtocol::Http2,
             config::UpstreamProtocol::Auto => UpstreamProtocol::Auto,
         },
-        upgrade: Default::default(),
+        upgrade: upgrade(&cfg.upgrade)?,
         #[cfg(feature = "tls")]
         tls: UpstreamTls {
             ca_file: cfg.upstream_tls.ca_file.clone(),
@@ -112,7 +112,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     }
 
     let listener = TcpListener::bind(cfg.listen).await?;
-    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, protocol = ?upstream.protocol, tls = tls.is_some(), "proxy listening");
+    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
     match limiter {
         Some(l) => listen(listener, tls, h2, l.layer(proxy)).await,
         None => listen(listener, tls, h2, proxy).await,
@@ -142,6 +142,19 @@ fn detection(d: &config::Detection) -> Option<Detection> {
         },
         enforce: d.mode == config::Mode::Enforce,
         attack_rate_factor: d.attack_rate_factor,
+    })
+}
+
+/// `[upgrade]` as tunnel limits; a zero lifetime turns that limit off.
+fn upgrade(u: &config::Upgrade) -> Result<UpgradeConfig, String> {
+    if u.max_tunnels == 0 || u.idle_timeout.is_zero() {
+        return Err("upgrade.max_tunnels and upgrade.idle_timeout must be above 0; protocols = [] turns upgrades off".into());
+    }
+    Ok(UpgradeConfig {
+        protocols: u.protocols.iter().map(|p| p.to_ascii_lowercase()).collect(),
+        max_tunnels: u.max_tunnels,
+        idle_timeout: u.idle_timeout,
+        max_lifetime: (!u.max_lifetime.is_zero()).then_some(u.max_lifetime),
     })
 }
 

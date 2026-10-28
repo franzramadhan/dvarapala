@@ -55,3 +55,11 @@ prefix_v6 = 64
 # max_header_list_size = 16384
 # keepalive_interval = "30s"
 # keepalive_timeout = "10s"
+
+# WebSocket upgrades (RFC 0005), on by default. Each tunnel holds about
+# 19 KB; protocols = [] turns upgrades off.
+# [upgrade]
+# protocols = ["websocket"]
+# max_tunnels = 10000
+# idle_timeout = "300s"
+# max_lifetime = "24h"
