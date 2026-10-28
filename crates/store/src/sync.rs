@@ -86,9 +86,14 @@ async fn run<S: Store>(
             batch: &batch,
         };
         let start = Instant::now();
-        let result = match tokio::time::timeout(cfg.timeout, store.round(&round)).await {
-            Ok(r) => r.map_err(|e| e.0),
-            Err(_) => Err(format!("round over {:?}", cfg.timeout)),
+        let connect = cfg.timeout * 10;
+        let result = match tokio::time::timeout(connect, store.connect()).await {
+            Err(_) => Err(format!("connect over {connect:?}")),
+            Ok(Err(e)) => Err(e.0),
+            Ok(Ok(())) => match tokio::time::timeout(cfg.timeout, store.round(&round)).await {
+                Ok(r) => r.map_err(|e| e.0),
+                Err(_) => Err(format!("round over {:?}", cfg.timeout)),
+            },
         };
         metrics::histogram!("dvarapala_store_sync_seconds").record(start.elapsed().as_secs_f64());
         match result {

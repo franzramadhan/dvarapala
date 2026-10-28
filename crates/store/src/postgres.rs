@@ -64,7 +64,7 @@ impl Postgres {
         })
     }
 
-    async fn connect(&mut self) -> Result<&mut Client, Error> {
+    async fn client(&mut self) -> Result<&mut Client, Error> {
         if self.client.as_ref().is_some_and(Client::is_closed) {
             self.client = None;
         }
@@ -119,11 +119,15 @@ fn tls(ca: Option<&[u8]>) -> Result<ClientConfig, Error> {
 }
 
 impl Store for Postgres {
+    async fn connect(&mut self) -> Result<(), Error> {
+        self.client().await.map(drop)
+    }
+
     async fn round(&mut self, r: &Round<'_>) -> Result<Reply, Error> {
         let sweep = self.rounds.is_multiple_of(SWEEP_EVERY);
         let timeout = self.timeout.as_millis().max(1);
         let result = async {
-            let client = self.connect().await?;
+            let client = self.client().await?;
             let tx = client.transaction().await.map_err(pg)?;
             // a stuck round must not hold row locks past the timeout
             tx.batch_execute(&format!("SET LOCAL statement_timeout = {timeout}"))
@@ -289,7 +293,7 @@ async fn sweep(tx: &Transaction<'_>) -> Result<(), Error> {
 impl Postgres {
     /// Sweeps now, whatever the round count (tests).
     pub async fn sweep_now(&mut self) -> Result<(), Error> {
-        let client = self.connect().await?;
+        let client = self.client().await?;
         let tx = client.transaction().await.map_err(pg)?;
         sweep(&tx).await?;
         tx.commit().await.map_err(pg)
