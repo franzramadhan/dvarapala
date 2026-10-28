@@ -17,7 +17,7 @@ load = ["dep:aya", "dep:dvarapala-xdp-common", "dep:libc", "dep:metrics", "dep:t
 dvarapala-engine.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-aya = { version = "0.15.0", default-features = false, optional = true }
+aya = { version = "0.16.0", default-features = false, optional = true }
 dvarapala-xdp-common = { workspace = true, features = ["aya"], optional = true }
 libc = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }

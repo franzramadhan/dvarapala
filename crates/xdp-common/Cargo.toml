@@ -13,4 +13,4 @@ publish.workspace = true
 aya = ["dep:aya"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
-aya = { version = "0.15.0", default-features = false, optional = true }
+aya = { version = "0.16.0", default-features = false, optional = true }
