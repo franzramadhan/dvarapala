@@ -3,6 +3,7 @@
 
 mod bucket;
 mod cidr;
+mod cluster;
 mod conns;
 mod detect;
 mod guard;
@@ -14,6 +15,7 @@ mod verdict;
 
 pub use bucket::{Bucket, Limit, LimitError};
 pub use cidr::{Cidr, CidrError, TrustedProxies};
+pub use cluster::{Batch, Cluster, ClusterConfig, Reply, overshoot, split};
 pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use guard::{Decision, Guard, GuardConfig, GuardDetection};

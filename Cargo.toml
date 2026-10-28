@@ -16,6 +16,7 @@ dvarapala-ffi = { path = "crates/ffi" }
 dvarapala-l4 = { path = "crates/l4" }
 dvarapala-l7 = { path = "crates/l7" }
 dvarapala-proxy = { path = "crates/proxy" }
+dvarapala-store = { path = "crates/store" }
 
 bytes = "1.12.1"
 figment = { version = "0.10.19", default-features = false, features = ["toml", "env"] }
