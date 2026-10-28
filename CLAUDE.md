@@ -86,6 +86,8 @@ in tests and examples.
 - Scan the full history before making anything public:
   `betterleaks git . --redact`.
 - A leaked secret is rotated first, then removed from history.
+- No agent session links (`claude.ai/code/session_...`) in PR bodies,
+  comments or issues. The `title` check fails a PR body that has one.
 - Vulnerabilities are reported privately (`SECURITY.md`). Never discuss an
   unfixed one in a public issue, PR or commit message.
 
