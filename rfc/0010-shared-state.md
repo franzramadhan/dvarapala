@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-28 | #N | unplanned |
+| draft | 2026-10-28 | #71 | unplanned |
 
 > A `store` crate and an optional Redis backend, so several dvarapala
 > replicas behind one load balancer enforce one per-client limit, one
