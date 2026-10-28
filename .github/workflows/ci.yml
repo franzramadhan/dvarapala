@@ -72,7 +72,7 @@ jobs:
         ports: ["6379:6379"]
         options: --health-cmd "redis-cli ping" --health-interval 2s --health-retries 15
       postgres:
-        image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 # 17.11-alpine
+        image: postgres@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4 # 17.11-alpine
         # no password: the service is reachable from this job only
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
