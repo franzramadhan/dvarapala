@@ -23,10 +23,14 @@ Docs: **[dvarapala.franzramadhan.dev](https://dvarapala.franzramadhan.dev)**
 | **Forward proxy** | Holds your outbound calls to each third-party API's agreed rate and concurrency | [`examples/forward-proxy.toml`](examples/forward-proxy.toml) |
 | **In process** | The same limits inside a Go, Python or JavaScript service, over a C ABI | [`sdk/`](sdk/README.md) |
 
+Any of the proxy modes scales out: replicas behind one load balancer share
+their limits through Redis or PostgreSQL ([`examples/cluster.toml`](examples/cluster.toml)).
+
 ## What it protects
 
 | Layer | Protection | RFC |
 |---|---|---|
+| XDP | Optional eBPF program on Linux (feature `xdp`): block list, per-source packet, SYN and UDP rates in the NIC driver, dynamic blocks fed by L4 and L7 | [RFC 0011](rfc/0011-xdp.md) |
 | L4 | Open connections per client and in total, accept rate per client, header, idle and slow-body timeouts, before any TLS or HTTP | [RFC 0009](rfc/0009-l4-limits.md) |
 | TLS | rustls with ALPN, `SIGHUP` certificate reload, bounded handshakes, verified `https://` upstreams | [RFC 0003](rfc/0003-tls.md) |
 | QUIC | Optional HTTP/3 listener (feature `http3`): Retry under load, connection and stream limits, no 0-RTT, `Alt-Svc` on TCP | [RFC 0006](rfc/0006-http3.md) |
@@ -36,6 +40,7 @@ Docs: **[dvarapala.franzramadhan.dev](https://dvarapala.franzramadhan.dev)**
 | WebSocket | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
 | Egress | Per-destination rate, concurrency and bounded queue, provider `Retry-After` pauses, `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
 | Embedding | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
+| Cluster | One per-client limit, egress budget and heavy hitter list across replicas, synced in the background through Redis or PostgreSQL (features `redis`, `postgres`) | [RFC 0010](rfc/0010-shared-state.md) |
 
 Every layer is optional and configurable. Every verdict is a Prometheus
 metric on a separate listener and a structured log line, so you can watch
@@ -59,6 +64,8 @@ Or build from source (toolchain pinned in `rust-toolchain.toml`):
 cargo build --release                    # reverse and forward proxy, TLS
 cargo build --release --features http3   # plus HTTP/3 over QUIC
 cargo build --release --features ml      # plus the XGBoost scorer
+cargo build --release --features redis,postgres  # plus shared state backends
+cargo build --release --features xdp     # plus the XDP fast path (Linux)
 ./target/release/dvarapala serve --config examples/dvarapala.toml
 ```
 
@@ -73,11 +80,15 @@ Everything else has a default: 20 requests per second per client (burst
 40), detection in `observe` mode, metrics on `127.0.0.1:9090`. Every key
 is in [CONFIG.md](CONFIG.md); environment variables override the file
 (`DVARAPALA__RATE_LIMIT__RATE=5`). More deployments, from TLS and gRPC to
-HTTP/3 and connection limits, are in [examples/](examples/README.md).
+HTTP/3, connection limits, clusters and XDP, are in [examples/](examples/README.md).
 
 ## Architecture
 
 ```
+  packets ------> XDP       block list, per-source packet and SYN rates  --> drop
+                            (optional, Linux, in the NIC driver)
+                    |
+                    v
   connections --> L4        caps per client and in total, accept rate,   --> close
                             header, idle and body timeouts
                     |
@@ -103,11 +114,15 @@ and does no I/O, so the binary and the SDKs share the same logic.
 | `l4` | Listener wrapper: connection limits and timeouts |
 | `l7` | `tower` layers: rate limit, detection |
 | `proxy` | Reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels |
+| `store` | Shared state backends: memory, Redis, PostgreSQL |
+| `xdp` | XDP loader (`aya`) and the checked-in eBPF object |
+| `xdp-common` | `no_std` packet parser and map layouts shared with the program |
+| `xdp-ebpf` | The eBPF program, its own workspace on a pinned nightly |
 | `ffi` | C ABI (`dvarapala.h`) for the SDKs |
 | `node` | N-API addon for the JavaScript SDK |
 | `dvarapala` | The binary: config, metrics, signals |
 
-Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3`. The idle
+Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`, `tokio-postgres` and `aya`. The idle
 binary has a 10 MB RSS budget that CI checks on every change. Rust crates
 embed as a git dependency; they are not on crates.io.
 
@@ -117,9 +132,7 @@ embed as a git dependency; they are not on crates.io.
 Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 Every feature lands through an RFC: see [ROADMAP.md](ROADMAP.md) and
-[rfc/](rfc/). Accepted: shared state across replicas through Redis or PostgreSQL
-([RFC 0010](rfc/0010-shared-state.md)) and an XDP fast path for packet
-floods ([RFC 0011](rfc/0011-xdp.md)). Request rules and challenges,
+[rfc/](rfc/). Request rules and challenges,
 sketched in [RFC 0001](rfc/0001-foundation.md), have no RFC yet.
 Contributor and agent rules are in [CLAUDE.md](CLAUDE.md).
 

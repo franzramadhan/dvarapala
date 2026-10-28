@@ -6,6 +6,22 @@ Each layer is optional. This page says what each one stops, how it
 answers, and which keys to look at first. The full list of keys is in
 [Configuration](configuration.html).
 
+## XDP fast path
+
+An optional eBPF program (builds with the `xdp` feature, Linux only) on
+the network interface, before the kernel builds a socket buffer. For
+packets to the TCP `listen` port and the UDP `quic.listen` port: `allow`
+passes, `block` drops, then per-source rates for all packets (`pps`), TCP
+SYNs (`syn_pps`) and UDP (`udp_pps`). Every other packet passes untouched.
+
+With `mode = "enforce"`, clients refused by the `[l4]` accept rate and
+heavy hitters dropped by detection get a dynamic block for `block_ttl`.
+Both completed a TCP handshake, so a spoofed source cannot get a victim
+blocked. Keep kernel SYN cookies on for the backlog. In `observe` mode it
+counts `would_drop` and passes everything.
+
+Keys: [`[xdp]`](configuration.html#xdp).
+
 ## Connection limits
 
 Checked on every accepted connection, before TLS or any HTTP is read: a
@@ -61,6 +77,17 @@ that would pass; a score above `threshold` gets `429`.
 
 Keys: [`[detection]`](configuration.html#detection),
 [`[ml]`](configuration.html#ml).
+
+## Across replicas
+
+With a `[store]` (Redis or PostgreSQL, features `redis` and `postgres`),
+replicas behind one load balancer hold one per-client limit instead of
+one each, drop the heavy hitters any replica finds in `enforce` mode, and
+in forward mode split each destination's budget. The request path never
+waits for the store; a lost store falls back to local limits and logs
+it. See [Clusters](clusters.html).
+
+Keys: [`[store]`](configuration.html#store).
 
 ## TLS
 

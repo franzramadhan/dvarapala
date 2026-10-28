@@ -1,0 +1,35 @@
+# Packet floods dropped in the NIC driver before the kernel spends work on
+# them (RFC 0011).
+#
+# Use case: a Linux host on the open internet, hit by SYN floods and
+# floods from a few sources that L4 alone pays too much for. Build with
+# `--features xdp` and run with CAP_BPF and CAP_NET_ADMIN.
+#
+# Why these values: start in observe mode and watch
+# dvarapala_xdp_packets_total{action="would_drop"} against real traffic.
+# 100 SYNs per second per /32 is far above any real client. The load
+# balancer and the health checker are allowed. Clients refused by the
+# [l4] accept rate and heavy hitters that detection drops get a dynamic
+# block for 10 minutes once both run in enforce mode.
+
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[detection]
+mode = "observe"
+
+[l4]
+accept_rate = 20
+accept_burst = 40
+
+[xdp]
+interface = "eth0"
+mode = "observe"
+attach = "auto"
+allow = ["192.0.2.10/32"]
+syn_pps = 100
+burst = 200
+block_ttl = "10m"

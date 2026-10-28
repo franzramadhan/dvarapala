@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-28 | #71 | unplanned |
+| implemented | 2026-10-28 | #71 | v0.6.0 |
 
 > A `store` crate with optional Redis and PostgreSQL backends, so several
 > dvarapala replicas behind one load balancer enforce one per-client
@@ -300,7 +300,7 @@ Found while building:
 
 ## Rollout
 
-- **Rollout:** unplanned. Default `memory`, so upgrading changes nothing.
+- **Rollout:** v0.6.0. Default `memory`, so upgrading changes nothing.
   The `redis` and `postgres` cargo features are off by default; release
   binaries may ship with them once the footprint job measures them.
 - **Off switch:** `store.backend = "memory"`, or stop the store: replicas
