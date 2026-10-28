@@ -160,6 +160,11 @@ comma, colon, parentheses or a new sentence.
 
 ### Release flow
 
+Agents: the `release` skill (`.claude/skills/release/`) runs these steps
+with the docs checklist; the `rfc-stack` skill implements an accepted RFC
+as a stack.
+
+
 1. Branch `release/v<version>` from `main`.
 2. Bump `version` under `[workspace.package]` in `Cargo.toml`.
 3. `git cliff --tag v<version> -o CHANGELOG.md` (config: `cliff.toml`).
