@@ -23,7 +23,8 @@ C ABI). The design and the milestones are in
 | `sdk/` | Go, Python and JavaScript packages over the C ABI (RFC 0008) |
 | `crates/dvarapala` | the binary |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
-| `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/` |
+| `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/`, and `install.sh` (served at `/install.sh`) |
+| `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
 crates ahead of time.

@@ -88,7 +88,11 @@ grep -rnP "[\x{2013}\x{2014}]" README.md CONFIG.md site examples rfc CHANGELOG.m
 5. Check the Pages deploy (`pages.yml`) and the live site at
    `https://dvarapala.franzramadhan.dev`: the new cards, pages and the
    roadmap statuses.
-6. Delete the local release branch.
+6. Install channels: `franzramadhan/homebrew-tap` picks up the release
+   within the hour (`gh workflow run update -R franzramadhan/homebrew-tap`
+   to run it now), then check `Formula/dvarapala.rb` names the version.
+   `site/install.sh` follows `releases/latest` with no change.
+7. Delete the local release branch.
 
 ## 6. After the release
 

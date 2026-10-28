@@ -8,9 +8,27 @@ it may pass. This page takes you from a download to a running proxy.
 
 ## Install
 
-Each [release](https://github.com/franzramadhan/dvarapala/releases) has a
-static binary per platform (`x86_64` and `aarch64`, Linux musl and macOS)
-and a `SHA256SUMS` file. Check the tarball before you unpack it:
+With Homebrew, on macOS or Linux:
+
+```sh
+brew install franzramadhan/tap/dvarapala
+```
+
+Or with the install script, which downloads the latest release for your
+platform, checks it against the release's `SHA256SUMS`, and installs it to
+`/usr/local/bin` (when writable) or `~/.local/bin`:
+
+```sh
+curl -fsSL https://dvarapala.franzramadhan.dev/install.sh | sh
+```
+
+`DVARAPALA_VERSION=v<version>` pins a release, `DVARAPALA_INSTALL=<dir>`
+picks the directory. Read [the script](https://dvarapala.franzramadhan.dev/install.sh)
+first if you prefer.
+
+Or by hand: each [release](https://github.com/franzramadhan/dvarapala/releases)
+has a static binary per platform (`x86_64` and `aarch64`, Linux musl and
+macOS) and a `SHA256SUMS` file. Check the tarball before you unpack it:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing

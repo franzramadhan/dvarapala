@@ -101,11 +101,12 @@ listen = "127.0.0.1:9090"</pre>
       <div>
         <h2>Install</h2>
         <p class="sub">Binaries for Linux (musl, static) and macOS, x86_64 and aarch64, with <code>SHA256SUMS</code>.</p>
-        <h3 class="label">From a release</h3>
-<pre><span class="c"># download your platform's tarball and SHA256SUMS</span>
-shasum -a 256 -c SHA256SUMS --ignore-missing
-tar xzf dvarapala-v*-x86_64-unknown-linux-musl.tar.gz
-./dvarapala serve --config dvarapala.toml</pre>
+        <h3 class="label">Homebrew</h3>
+<pre>brew install franzramadhan/tap/dvarapala</pre>
+        <h3 class="label">Install script</h3>
+<pre><span class="c"># checks SHA256SUMS; /usr/local/bin or ~/.local/bin</span>
+curl -fsSL https://dvarapala.franzramadhan.dev/install.sh | sh
+dvarapala serve --config dvarapala.toml</pre>
         <p><a class="btn" href="https://github.com/franzramadhan/dvarapala/releases/latest">Latest release</a></p>
       </div>
       <div>
