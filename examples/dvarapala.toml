@@ -2,6 +2,8 @@
 # Every key can be overridden by DVARAPALA__<SECTION>__<KEY>, for example
 # DVARAPALA__RATE_LIMIT__RATE=5.
 
+# "forward" runs an egress forward proxy instead, see forward-proxy.toml.
+# mode = "reverse"
 listen = "0.0.0.0:8080"
 upstream = "http://127.0.0.1:8081"
 # "http2" for gRPC upstreams (h2c, or ALPN h2 over https://); "auto" lets

@@ -1,0 +1,45 @@
+# Egress rate compliance (RFC 0007): our services call third-party APIs
+# through this proxy, which keeps each provider's agreed rate and
+# concurrency for all callers together. Callers set HTTP_PROXY (or their
+# client's proxy setting) to the listen address.
+#
+# Why these values: provider-a allows 50 requests per second with 20 in
+# flight, so we queue up to 3 s instead of failing fast; provider-b is a
+# slow batch API with 1 request per second and no queue: callers get a
+# 429 at once and retry on their own schedule.
+
+mode = "forward"
+# Only reachable from the services' network: the proxy can reach listed
+# destinations only, but it is still an exit to them.
+listen = "0.0.0.0:3128"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[forward]
+clients = ["192.0.2.0/24"]
+# Clients send https:// URLs as CONNECT tunnels: one slot per tunnel. Turn
+# it off to require absolute-form requests, which are shaped per request.
+connect = true
+
+[[forward.destinations]]
+name = "provider-a"
+origin = "https://api.provider-a.example"
+rate = 50
+burst = 10
+max_concurrent = 20
+max_queue = 500
+max_wait = "3s"
+# Honor the provider's Retry-After for at most a minute.
+max_pause = "60s"
+
+[[forward.destinations]]
+name = "provider-b"
+origin = "https://batch.provider-b.example"
+rate = 1
+max_queue = 0
+
+# CONNECT tunnels use the [upgrade] limits.
+[upgrade]
+max_tunnels = 1000
+idle_timeout = "60s"

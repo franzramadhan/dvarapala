@@ -10,15 +10,20 @@ use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Deserializer, de};
 
+mod forward;
 mod protocols;
+pub use forward::{Forward, ProxyMode};
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub mode: ProxyMode,
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
-    pub upstream: String,
+    /// Required in reverse mode, ignored in forward mode.
+    pub upstream: Option<String>,
     #[serde(default)]
     pub upstream_protocol: UpstreamProtocol,
     #[serde(default)]
@@ -39,6 +44,17 @@ pub struct Config {
     pub http2: Http2,
     #[serde(default)]
     pub upgrade: Upgrade,
+    #[serde(default)]
+    pub forward: Forward,
+}
+
+impl Config {
+    /// `upstream`, required in reverse mode.
+    pub fn reverse_upstream(&self) -> Result<&str, String> {
+        self.upstream
+            .as_deref()
+            .ok_or_else(|| "upstream is required with mode = \"reverse\"".into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -249,10 +265,53 @@ mod tests {
     fn missing_upstream_names_the_key() {
         Jail::expect_with(|j| {
             j.create_file("d.toml", "listen = \"127.0.0.1:8080\"\n")?;
-            let e = load(Some(Path::new("d.toml"))).unwrap_err().to_string();
+            let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            let e = c.reverse_upstream().unwrap_err();
             assert!(e.contains("upstream"), "{e}");
             Ok(())
         });
+    }
+
+    /// RFC 0007 configuration table.
+    #[test]
+    fn forward_section() {
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "mode = \"forward\"\n[[forward.destinations]]\norigin = \"https://api.provider-a.example\"\nrate = 50\n[[forward.destinations]]\nname = \"b\"\norigin = \"http://192.0.2.1:8080\"\nrate = 0.5\nburst = 3\nmax_concurrent = 2\nmax_queue = 0\nmax_wait = \"500ms\"\nmax_pause = \"0s\"\n",
+            )?;
+            let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            assert_eq!(c.mode, ProxyMode::Forward);
+            assert!(c.forward.connect);
+            let (clients, ds) = c.forward.parts()?;
+            assert_eq!(clients.len(), 2);
+            assert_eq!(ds[0].name, "api.provider-a.example");
+            assert_eq!(
+                (
+                    ds[0].schedule.rate,
+                    ds[0].schedule.burst,
+                    ds[0].schedule.max_queue
+                ),
+                (50.0, 1, 100)
+            );
+            assert_eq!(ds[0].schedule.max_wait, Duration::from_secs(2));
+            assert_eq!(ds[0].schedule.max_pause, Duration::from_secs(60));
+            assert_eq!(ds[0].max_concurrent, 0);
+            assert_eq!(ds[1].name, "b");
+            assert_eq!((ds[1].schedule.rate, ds[1].max_concurrent), (0.5, 2));
+            assert_eq!(ds[1].schedule.max_pause, Duration::ZERO);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn forward_needs_a_destination() {
+        assert!(
+            Forward::default()
+                .parts()
+                .unwrap_err()
+                .contains("forward.destinations")
+        );
     }
 
     #[test]

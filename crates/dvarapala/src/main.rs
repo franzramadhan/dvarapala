@@ -15,7 +15,8 @@ use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
-    Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig, UpstreamConfig, UpstreamProtocol, serve,
+    ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig,
+    UpstreamConfig, UpstreamProtocol, serve,
 };
 use hyper::body::Incoming;
 use hyper::{Request, Response};
@@ -67,24 +68,46 @@ fn main() -> ExitCode {
 #[tokio::main]
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
+    let h2 = http2(&cfg.http2)?;
+    let tls = listener_tls(&cfg.tls)?;
+    let tunnels = upgrade(&cfg.upgrade)?;
+    #[cfg(feature = "tls")]
+    let upstream_tls = UpstreamTls {
+        ca_file: cfg.upstream_tls.ca_file.clone(),
+        server_name: cfg.upstream_tls.server_name.clone(),
+    };
+    if cfg.mode == config::ProxyMode::Forward {
+        // RFC 0007: the callers are our own services, no per-client limiter
+        let (clients, destinations) = cfg.forward.parts()?;
+        let names: Vec<String> = destinations.iter().map(|d| d.name.clone()).collect();
+        let proxy = ForwardProxy::<Incoming>::new(&ForwardConfig {
+            clients,
+            connect: cfg.forward.connect,
+            destinations,
+            tunnels,
+            #[cfg(feature = "tls")]
+            tls: upstream_tls,
+        })?;
+        let listener = bind(&cfg).await?;
+        tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
+        listen(listener, tls, h2, proxy).await;
+        tracing::info!("stopped");
+        return Ok(());
+    }
+    let target = cfg.reverse_upstream()?;
     #[cfg(not(feature = "tls"))]
-    no_tls(&cfg.tls, &cfg.upstream)?;
+    no_tls(&cfg.tls, target)?;
     let upstream = UpstreamConfig {
         protocol: match cfg.upstream_protocol {
             config::UpstreamProtocol::Http1 => UpstreamProtocol::Http1,
             config::UpstreamProtocol::Http2 => UpstreamProtocol::Http2,
             config::UpstreamProtocol::Auto => UpstreamProtocol::Auto,
         },
-        upgrade: upgrade(&cfg.upgrade)?,
+        upgrade: tunnels,
         #[cfg(feature = "tls")]
-        tls: UpstreamTls {
-            ca_file: cfg.upstream_tls.ca_file.clone(),
-            server_name: cfg.upstream_tls.server_name.clone(),
-        },
+        tls: upstream_tls,
     };
-    let proxy = ReverseProxy::<Incoming>::with_config(&cfg.upstream, &upstream)?;
-    let h2 = http2(&cfg.http2)?;
-    let tls = listener_tls(&cfg.tls)?;
+    let proxy = ReverseProxy::<Incoming>::with_config(target, &upstream)?;
     let limiter = if cfg.rate_limit.enabled {
         let trusted = cfg
             .trusted_proxies
@@ -106,19 +129,23 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         }
         None
     };
-    if !cfg.metrics.listen.is_empty() {
-        let addr = cfg.metrics.listen.parse()?;
-        metrics::serve(addr, metrics::install()?).await?;
-    }
-
-    let listener = TcpListener::bind(cfg.listen).await?;
-    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
+    let listener = bind(&cfg).await?;
+    tracing::info!(listen = %cfg.listen, upstream = %target, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
     match limiter {
         Some(l) => listen(listener, tls, h2, l.layer(proxy)).await,
         None => listen(listener, tls, h2, proxy).await,
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// Starts the metrics endpoint when set, then binds the proxy listener.
+async fn bind(cfg: &config::Config) -> Result<TcpListener, Box<dyn Error>> {
+    if !cfg.metrics.listen.is_empty() {
+        let addr = cfg.metrics.listen.parse()?;
+        metrics::serve(addr, metrics::install()?).await?;
+    }
+    Ok(TcpListener::bind(cfg.listen).await?)
 }
 
 fn detection(d: &config::Detection) -> Option<Detection> {
