@@ -1,6 +1,8 @@
-//! Reverse proxy to one upstream, and the server that runs a service on a
-//! TCP listener with graceful shutdown.
+//! Reverse proxy to one upstream, forward proxy to listed destinations
+//! (RFC 0007), and the server that runs a service on a TCP listener with
+//! graceful shutdown.
 
+mod forward;
 mod hop;
 mod http2;
 mod reverse;
@@ -11,6 +13,7 @@ mod tunnels;
 mod upgrade;
 mod upstream;
 
+pub use forward::{Destination, ForwardConfig, ForwardError, ForwardProxy, Routes};
 pub use hop::allowed_upgrade;
 pub use http2::Http2Limits;
 pub use reverse::{ProxyBody, ReverseProxy, UpstreamError};
