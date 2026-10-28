@@ -242,8 +242,9 @@ local limits and syncs in the background every `sync_interval`.
 - Per-client limit: each replica adds the requests it allowed per client
   to a cluster count for the window (10 sync intervals). A client over
   `rate x window + burst` in the cluster is throttled on every replica
-  until the window ends. Overshoot is at most `replicas x rate x
-  (sync_interval + timeout)` per window.
+  until the window ends. Overshoot is at most `replicas x rate x 2 x
+  (sync_interval + timeout)` per window: a count reaches the other
+  replicas within two sync periods.
 - Forward mode: each destination's `rate`, `burst` and `max_concurrent`
   are divided by the live replica count, and a provider `Retry-After`
   seen by one replica pauses the destination on all.

@@ -52,8 +52,10 @@ gateway outage.
   `store.max_keys` clients per sync, busiest first, in one round trip).
   When a client's cluster count for the window is over
   `rate x window + burst`, every replica throttles it locally until the
-  window ends. Overshoot is at most `N x rate x (sync_interval +
-  timeout)` per window: a sync period is the interval plus the round.
+  window ends. Overshoot is at most `N x rate x 2 x (sync_interval +
+  timeout)` per window: a count reaches the other replicas within two
+  sync periods (the writer's round, then the reader's), each the
+  interval plus the round.
 - **Forward proxy:** a destination's rate, burst and `max_concurrent` are
   divided by the live replica count on every sync, so the cluster never
   sends above the agreement (fail closed toward the provider). A provider
@@ -208,7 +210,7 @@ PostgreSQL service in CI.
 |---|---|---|---|---|
 | 1 | `backend = "memory"` | start | no store task, no socket, behavior and metrics as before | unit (`dvarapala::store`) |
 | 2 | window counts from 3 replicas over the limit | merge | the client is throttled until the window ends | unit (`engine::cluster`) |
-| 3 | rate 20, 4 replicas, interval 1 s | overshoot bound | at most 80 extra requests per window | unit (`engine::cluster`) |
+| 3 | rate 20, 4 replicas, a period of 1 s | overshoot bound | at most 80 extra requests per period | unit (`engine::cluster`) |
 | 4 | destination rate 50, 2 then 3 live replicas | split | 25, then 16.67 per replica; burst and `max_concurrent` rounded down, at least 1 | unit (`engine::cluster`) |
 | 5 | two proxies on one store, one client round robin, rate 10 | 100 requests in 1 s | at most `10 + burst + overshoot` reach the upstream | integration (`store/tests`) |
 | 6 | two forward proxies on one store, destination rate 10 | callers on both send 100 rps | the test upstream sees at most 10 rps plus burst | integration (`store/tests`) |
