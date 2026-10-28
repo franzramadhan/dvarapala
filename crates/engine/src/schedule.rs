@@ -58,13 +58,34 @@ impl std::error::Error for ScheduleError {}
 #[derive(Debug, Clone)]
 pub struct Schedule {
     config: ScheduleConfig,
-    _todo: (),
+    /// time between sends
+    interval: Duration,
+    /// how far ahead of `tat` a send may go: `interval * (burst - 1)`
+    tolerance: Duration,
+    /// theoretical arrival time of the next send
+    tat: Option<Instant>,
+    paused_until: Option<Instant>,
 }
 
 impl Schedule {
     pub fn new(config: ScheduleConfig) -> Result<Self, ScheduleError> {
-        let _ = config;
-        todo!("rfc 0007")
+        if !(0.001..=f64::MAX).contains(&config.rate) {
+            return Err(ScheduleError(format!(
+                "rate must be at least 0.001, got {}",
+                config.rate
+            )));
+        }
+        if config.burst == 0 {
+            return Err(ScheduleError("burst must be at least 1".into()));
+        }
+        let interval = Duration::from_nanos((1e9 / config.rate).ceil() as u64);
+        Ok(Self {
+            config,
+            interval,
+            tolerance: interval * (config.burst - 1),
+            tat: None,
+            paused_until: None,
+        })
     }
 
     pub fn config(&self) -> &ScheduleConfig {
@@ -74,15 +95,33 @@ impl Schedule {
     /// The slot for one request at `now`, with `waiting` requests already
     /// waiting. `Now` and `Wait` take the slot; `Refuse` takes nothing.
     pub fn reserve(&mut self, now: Instant, waiting: usize) -> Slot {
-        let _ = (now, waiting);
-        todo!("rfc 0007")
+        let tat = self.tat.map_or(now, |t| t.max(now));
+        let mut at = tat.checked_sub(self.tolerance).map_or(now, |t| t.max(now));
+        if let Some(p) = self.paused_until {
+            at = at.max(p);
+        }
+        let wait = at - now;
+        let slot = if wait.is_zero() {
+            Slot::Now
+        } else if wait <= self.config.max_wait && waiting < self.config.max_queue {
+            Slot::Wait(wait)
+        } else {
+            return Slot::Refuse(wait);
+        };
+        // only a pause puts `at` past `tat`: the burst starts again there
+        self.tat = Some(tat.max(at) + self.interval);
+        slot
     }
 
     /// Holds every send until `now + retry_after`, capped by `max_pause`.
     /// Returns whether the pause applied.
     pub fn pause(&mut self, now: Instant, retry_after: Duration) -> bool {
-        let _ = (now, retry_after);
-        todo!("rfc 0007")
+        let d = retry_after.min(self.config.max_pause);
+        let Some(until) = now.checked_add(d).filter(|_| !d.is_zero()) else {
+            return false;
+        };
+        self.paused_until = Some(self.paused_until.map_or(until, |p| p.max(until)));
+        true
     }
 }
 
@@ -118,7 +157,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0007"]
     fn rejects_bad_config() {
         let bad = |rate, burst| {
             Schedule::new(ScheduleConfig {
@@ -137,7 +175,6 @@ mod tests {
 
     /// RFC 0007 case 1
     #[test]
-    #[ignore = "rfc 0007"]
     fn spaces_sends_at_the_rate() {
         let mut s = schedule(10.0, 1, 100, Duration::from_secs(2));
         let t = Instant::now();
@@ -152,7 +189,6 @@ mod tests {
 
     /// RFC 0007 case 2
     #[test]
-    #[ignore = "rfc 0007"]
     fn burst_goes_at_once() {
         let mut s = schedule(10.0, 5, 100, Duration::from_secs(2));
         let t = Instant::now();
@@ -162,7 +198,6 @@ mod tests {
 
     /// RFC 0007 case 3
     #[test]
-    #[ignore = "rfc 0007"]
     fn slots_past_max_wait_are_refused() {
         let mut s = schedule(10.0, 1, 100, 300 * MS);
         let t = Instant::now();
@@ -183,7 +218,6 @@ mod tests {
 
     /// RFC 0007 case 4
     #[test]
-    #[ignore = "rfc 0007"]
     fn full_queue_refuses() {
         let mut s = schedule(10.0, 1, 2, Duration::from_secs(2));
         let slots = burst_at(&mut s, Instant::now(), 5);
@@ -194,7 +228,6 @@ mod tests {
 
     /// RFC 0007 case 5
     #[test]
-    #[ignore = "rfc 0007"]
     fn pause_is_capped_by_max_pause() {
         let mut s = Schedule::new(ScheduleConfig {
             rate: 100.0,
@@ -223,7 +256,6 @@ mod tests {
     /// RFC 0007 case 6, with a seeded generator instead of proptest: never
     /// more than `burst + rate * t` sends in any window of length `t`.
     #[test]
-    #[ignore = "rfc 0007"]
     fn never_exceeds_the_rate() {
         let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
         let mut next = move || {
