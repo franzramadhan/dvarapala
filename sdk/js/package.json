@@ -1,6 +1,6 @@
 {
   "name": "dvarapala",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "In-process rate limit, flood detection and connection limits from the dvarapala gateway (RFC 0008)",
   "license": "MIT",
   "repository": "github:franzramadhan/dvarapala",
