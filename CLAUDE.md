@@ -159,13 +159,23 @@ comma, colon, parentheses or a new sentence.
 2. Bump `version` under `[workspace.package]` in `Cargo.toml`.
 3. `git cliff --tag v<version> -o CHANGELOG.md` (config: `cliff.toml`).
 4. Set the released RFCs to `implemented` in `ROADMAP.md` and in each RFC.
-   Check `README.md` (features, status) and `CONFIG.md` (every key, type,
-   default and metric) match what ships.
-   Check the hand-written site pages (`site/index.html`, `site/docs/`)
-   too; the configuration, examples and roadmap pages are generated.
-5. Open the PR titled `release: v<version>`. `release-check` fails when the
-   branch name, the `Cargo.toml` version and the `CHANGELOG.md` heading
-   disagree.
+   Bring the docs up to date with what ships, in this PR:
+   - `CONFIG.md`: every key, type, default and metric (the site's
+     configuration page is generated from it).
+   - `README.md`: features and status.
+   - The site's hand-written pages: a feature card per released RFC in
+     `site/index.html` (tagged `RFC NNNN`), `site/docs/protection.md` for
+     new protections, `site/docs/architecture.md` for new modes or crates,
+     `site/docs/index.md` when getting started changes, and a new
+     `site/docs/*.md` page (plus `nav` in `site/_config.yml`) for a new
+     surface such as the forward proxy or the SDKs.
+   - `examples/`: a config for each new mode or deployment.
+   `release-check` fails when an `implemented` RFC is not referenced as
+   `RFC NNNN` in `README.md`, `CONFIG.md` and `site/index.html`. Merging
+   the release PR changes `ROADMAP.md`, which redeploys the site.
+5. Open the PR titled `release: v<version>`. `release-check` also fails
+   when the branch name, the `Cargo.toml` version and the `CHANGELOG.md`
+   heading disagree.
 6. Squash-merge to `main`, then tag the merge commit:
    `git tag -s v<version> -m v<version> && git push origin v<version>`.
 7. `release.yml` builds and publishes the release.

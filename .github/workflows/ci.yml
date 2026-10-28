@@ -217,3 +217,15 @@ jobs:
           [ "$TITLE" = "release: v$want" ] || { echo "::error::PR title must be 'release: v$want'"; fail=1; }
           grep -q "^## \[$want\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$want]' section, run git cliff"; fail=1; }
           exit "$fail"
+      - name: Implemented RFCs are documented
+        # every RFC marked implemented in ROADMAP.md is referenced as
+        # "RFC NNNN" in README.md, CONFIG.md and the site's landing page;
+        # the site's config, examples and roadmap pages are generated
+        run: |
+          fail=0
+          for n in $(sed -n 's/^| \[\([0-9]\{4\}\)\](.*| implemented |.*/\1/p' ROADMAP.md); do
+            for f in README.md CONFIG.md site/index.html; do
+              grep -q "RFC $n" "$f" || { echo "::error file=$f::RFC $n is implemented but not referenced in $f"; fail=1; }
+            done
+          done
+          exit "$fail"
