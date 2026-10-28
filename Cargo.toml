@@ -12,6 +12,7 @@ publish = false
 
 [workspace.dependencies]
 dvarapala-engine = { path = "crates/engine" }
+dvarapala-l4 = { path = "crates/l4" }
 dvarapala-l7 = { path = "crates/l7" }
 dvarapala-proxy = { path = "crates/proxy" }
 

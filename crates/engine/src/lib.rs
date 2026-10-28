@@ -3,6 +3,7 @@
 
 mod bucket;
 mod cidr;
+mod conns;
 mod detect;
 mod key;
 mod schedule;
@@ -12,6 +13,7 @@ mod verdict;
 
 pub use bucket::{Bucket, Limit, LimitError};
 pub use cidr::{Cidr, CidrError, TrustedProxies};
+pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use key::{ClientKey, client_key};
 pub use schedule::{Schedule, ScheduleConfig, ScheduleError, Slot};
