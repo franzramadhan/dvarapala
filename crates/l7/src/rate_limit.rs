@@ -9,20 +9,20 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    ClientKey, ClientStats, DetectError, Detector, Limit, Table, TrustedProxies, Verdict,
-    client_key,
+    ClientKey, ClientStats, DetectError, Guard, GuardConfig, GuardDetection, TrustedProxies,
+    Verdict, client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode, Version};
 use tower_layer::Layer;
 use tower_service::Service;
 
-use crate::detection::{Check, ReqInfo, Watch};
+use crate::detection::{ReqInfo, Watch};
 use crate::{Detection, GrpcStatus, PeerAddr, Scoring, grpc_response, is_grpc};
 
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
-    pub limit: Limit,
+    pub limit: dvarapala_engine::Limit,
     pub max_clients: NonZeroUsize,
     pub trusted: TrustedProxies,
     /// RFC 0002 adaptive detection; `None` turns it off.
@@ -45,10 +45,6 @@ struct Shared {
     // ponytail: one lock for the table and the detector; shard by key hash
     // if it shows up in profiles under load
     state: Mutex<Inner>,
-    limit: Limit,
-    /// `limit` with the refill scaled by `attack_rate_factor`
-    attack_limit: Limit,
-    enforce: bool,
     trusted: TrustedProxies,
     now: fn() -> Instant,
     scoring: Option<Scoring>,
@@ -59,38 +55,28 @@ struct Shared {
 struct Inner {
     /// stats are boxed and only filled in when scoring is on, so the table
     /// grows by one pointer per client otherwise
-    table: Table<ClientKey, Option<Box<ClientStats>>>,
-    watch: Option<Watch>,
+    guard: Guard<Option<Box<ClientStats>>>,
+    watch: Watch,
 }
 
 impl RateLimitLayer {
     /// Fails on a detection config the engine rejects.
     pub fn new(config: RateLimitConfig) -> Result<Self, DetectError> {
-        let (watch, enforce, attack_limit) = match config.detection {
-            Some(Detection {
-                mut detect,
-                enforce,
-                attack_rate_factor: f,
-            }) => {
-                if !(f > 0.0 && f <= 1.0) {
-                    return Err(DetectError("attack_rate_factor must be in (0, 1]".into()));
-                }
-                // a heavy hitter sent more than one client may in a window
-                detect.heavy_min = config.limit.allowance(detect.window).ceil() as u32;
-                let w = Watch::new(Detector::new(detect)?);
-                (Some(w), enforce, config.limit.scaled(f))
-            }
-            None => (None, false, config.limit),
-        };
+        let guard = Guard::new(GuardConfig {
+            limit: config.limit,
+            max_clients: config.max_clients,
+            detection: config.detection.map(|d| GuardDetection {
+                detect: d.detect,
+                enforce: d.enforce,
+                attack_rate_factor: d.attack_rate_factor,
+            }),
+        })?;
         Ok(Self {
             shared: Arc::new(Shared {
                 state: Mutex::new(Inner {
-                    table: Table::new(config.max_clients),
-                    watch,
+                    guard,
+                    watch: Watch::default(),
                 }),
-                limit: config.limit,
-                attack_limit,
-                enforce,
                 trusted: config.trusted,
                 now: config.now,
                 scoring: config.scoring,
@@ -101,7 +87,7 @@ impl RateLimitLayer {
 
     /// Clients currently in the table.
     pub fn clients(&self) -> usize {
-        self.shared.lock().table.len()
+        self.shared.lock().guard.clients()
     }
 }
 
@@ -233,35 +219,26 @@ impl Shared {
         let now = (self.now)();
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
-            let check = match g.watch.as_mut() {
-                Some(w) => w.check(key.into(), now),
-                None => Check::default(),
-            };
-            if check.heavy && !self.enforce {
+            let Inner { guard, watch } = &mut *g;
+            let d = guard.check(key, now);
+            if let (Some(r), Some(det)) = (&d.report, guard.detector()) {
+                watch.report(r, det, now);
+            }
+            if d.would_drop {
                 log_would_drop(key);
             }
-            let g = &mut *g;
-            let before = g.table.evictions();
-            let mut v = if check.heavy && self.enforce {
-                Verdict::Drop
-            } else if check.attack && self.enforce {
-                g.table.take(key, &self.attack_limit, now)
-            } else {
-                g.table.take(key, &self.limit, now)
-            };
+            let mut v = d.verdict;
             if let (Some(s), Some(info), Verdict::Allow) = (&self.scoring, info, v) {
-                let (window, instance) = g
-                    .watch
-                    .as_ref()
-                    .map_or((Duration::from_secs(1), (0.0, 0.0)), |w| {
-                        (w.window(), w.instance())
-                    });
-                if let Some(slot) = g.table.get_mut(&key) {
+                let window = guard.window();
+                let instance = guard
+                    .detector()
+                    .map_or((0.0, 0.0), |det| (det.zscore(), det.entropy()));
+                if let Some(slot) = guard.get_mut(&key) {
                     let stats = slot.get_or_insert_with(Box::default);
                     v = s.judge(stats, info, now, window, instance);
                 }
             }
-            (v, g.table.len(), g.table.evictions() - before)
+            (v, guard.clients(), d.evicted)
         };
         metrics::gauge!("dvarapala_limiter_clients").set(clients as f64);
         if evicted > 0 {
@@ -318,7 +295,7 @@ pub struct StatusRecorder(Arc<Shared>, ClientKey);
 impl StatusRecorder {
     fn record(self, status: StatusCode) {
         let mut g = self.0.lock();
-        if let Some(Some(stats)) = g.table.get_mut(&self.1) {
+        if let Some(Some(stats)) = g.guard.get_mut(&self.1) {
             stats.record_status(status.as_u16());
         }
     }
