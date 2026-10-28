@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-27 | #20 | v0.4.0 |
+| implemented | 2026-10-27 | #20 | v0.4.0 |
 
 > Pass WebSocket upgrades through to the upstream, with the upgrade
 > request rate limited like any other and the open tunnels bounded in
