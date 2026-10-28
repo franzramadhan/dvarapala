@@ -4,6 +4,9 @@
 
 listen = "0.0.0.0:8080"
 upstream = "http://127.0.0.1:8081"
+# "http2" for gRPC upstreams (h2c, or ALPN h2 over https://); "auto" lets
+# ALPN choose for https://. Top-level key: keep it above the first section.
+# upstream_protocol = "http1"
 
 # Only peers in these blocks may set X-Forwarded-For. Top-level key: keep it
 # above the first [section].
@@ -42,3 +45,13 @@ prefix_v6 = 64
 # [upstream_tls]
 # ca_file = "/etc/dvarapala/upstream-ca.pem"
 # server_name = "app.internal"
+
+# HTTP/2 listener limits (RFC 0004), on by default. Each bounds what one
+# client connection can hold or burn.
+# [http2]
+# max_concurrent_streams = 100
+# max_pending_reset_streams = 20
+# max_local_error_resets = 1024
+# max_header_list_size = 16384
+# keepalive_interval = "30s"
+# keepalive_timeout = "10s"

@@ -135,6 +135,22 @@ jobs:
           curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_tls_handshakes_total{result="ok"} 1'
           kill -TERM "$pid"
           wait "$pid"
+      # RFC 0004: HTTP/2 upstream, a gRPC client gets UNAVAILABLE in gRPC form
+      - name: grpc smoke over h2c
+        env:
+          DVARAPALA__UPSTREAM_PROTOCOL: http2
+        run: |
+          set -euo pipefail
+          ./target/release/dvarapala serve --config examples/dvarapala.toml &
+          pid=$!
+          for _ in $(seq 50); do curl -fs -o /dev/null http://127.0.0.1:9090/metrics && break; sleep 0.1; done
+          headers=$(curl -s -D - -o /dev/null --http2-prior-knowledge -X POST \
+            -H 'content-type: application/grpc' -H 'te: trailers' \
+            http://127.0.0.1:8080/test.Echo/Unary)
+          grep -qi '^grpc-status: 14' <<<"$headers" || { echo "::error::expected grpc-status 14, got: $headers"; exit 1; }
+          curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_grpc_local_responses_total{status="unavailable"} 1'
+          kill -TERM "$pid"
+          wait "$pid"
 
   # RustSec advisories, licenses, duplicate crates, sources (deny.toml)
   deny:

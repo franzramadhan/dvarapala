@@ -124,6 +124,44 @@ open and cancel streams faster than the limiter sees them.
 | 18 | keepalive on, client stops answering PING | `keepalive_timeout` passes | connection closed | integration |
 | 19 | arbitrary `content-type` values | gRPC detection | never panics, only `application/grpc` and `application/grpc+*` match | unit (`grpc`) |
 
+## Implementation notes
+
+Found while building, folded back from the PRs:
+
+- The gRPC helpers (`is_grpc`, `grpc_response`) live in
+  `crates/l7/src/grpc.rs`, not `crates/proxy`: the rate limit layer needs
+  them and `l7` must not depend on `proxy`. The proxy uses the same
+  function for `14` on a dead upstream.
+- A trailers-only response is a HEADERS frame with `grpc-status` and an
+  empty body, so local gRPC errors need no trailer support in the layer.
+  `Challenge` also maps to `8`, without pushback.
+- `upstream_protocol = "auto"` keeps `te: trailers` too, since ALPN may
+  pick HTTP/2 after the headers are built.
+- The gRPC tests (cases 8 to 10) frame messages by hand (5-byte prefix)
+  instead of using `tonic`: same wire behavior, no codegen and no new
+  dev-dependencies.
+- Cases 15 to 18 write raw HTTP/2 frames: a compliant client never breaks
+  the limits. Cases 16 and 17 already held on hyper's defaults, so they ran
+  from the first commit as guards for those defaults.
+- `dvarapala_http2_goaway_total{reason}` has `flood` (h2 sent `GOAWAY`
+  with `ENHANCE_YOUR_CALM`: rapid reset, error resets, CONTINUATION or
+  header floods) and `protocol` (any other error h2 detected). h2 does not
+  expose which limit fired, so `rapid_reset` and `error_resets` are one
+  label. A keepalive timeout closes the connection without an error, so it
+  is not counted; the `http2 connection closed` log line covers the
+  counted cases only.
+- `dvarapala_requests_total` gained the `protocol` label next to
+  `verdict`, instead of a second counter.
+- `ReverseProxy::with_config(upstream, &UpstreamConfig)` replaces
+  `with_tls`; `serve` and `serve_tls` take `Http2Limits`.
+  `http2.max_concurrent_streams = 0` is a config error.
+- `keepalive_interval = "0s"` turns keepalive off (durations keep their
+  unit).
+- Also tested beyond the table: `http2` and `auto` over TLS, against an
+  upstream that offers ALPN `h2` and one that does not.
+- The `footprint` job runs a gRPC request over h2c against a dead
+  upstream and checks `grpc-status: 14` and the counter.
+
 ## Alternatives
 
 | Option | Why not |
@@ -150,7 +188,7 @@ open and cancel streams faster than the limiter sees them.
 
 ## Rollout
 
-- **Rollout:** v0.3.0. `upstream_protocol` defaults to `http1`, so upgrades
+- **Rollout:** v0.4.0. `upstream_protocol` defaults to `http1`, so upgrades
   change nothing upstream. The `http2.*` limits apply to the existing
   HTTP/2 listener at once; their defaults sit above normal browser and
   gRPC usage.

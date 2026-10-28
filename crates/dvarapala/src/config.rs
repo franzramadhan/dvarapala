@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use dvarapala_engine::DetectConfig;
+use dvarapala_proxy::Http2Limits;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
@@ -17,6 +18,8 @@ pub struct Config {
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
     pub upstream: String,
+    #[serde(default)]
+    pub upstream_protocol: UpstreamProtocol,
     #[serde(default)]
     pub metrics: Metrics,
     #[serde(default)]
@@ -31,6 +34,47 @@ pub struct Config {
     pub tls: Tls,
     #[serde(default)]
     pub upstream_tls: UpstreamTls,
+    #[serde(default)]
+    pub http2: Http2,
+}
+
+/// RFC 0004 protocol to the upstream.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpstreamProtocol {
+    #[default]
+    Http1,
+    Http2,
+    Auto,
+}
+
+/// RFC 0004 HTTP/2 listener limits. Defaults come from [`Http2Limits`].
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Http2 {
+    pub max_concurrent_streams: u32,
+    pub max_pending_reset_streams: usize,
+    pub max_local_error_resets: usize,
+    pub max_header_list_size: u32,
+    /// `"0s"` turns keepalive off.
+    #[serde(deserialize_with = "duration")]
+    pub keepalive_interval: Duration,
+    #[serde(deserialize_with = "duration")]
+    pub keepalive_timeout: Duration,
+}
+
+impl Default for Http2 {
+    fn default() -> Self {
+        let d = Http2Limits::default();
+        Self {
+            max_concurrent_streams: d.max_concurrent_streams,
+            max_pending_reset_streams: d.max_pending_reset_streams,
+            max_local_error_resets: d.max_local_error_resets,
+            max_header_list_size: d.max_header_list_size,
+            keepalive_interval: d.keepalive_interval.unwrap_or_default(),
+            keepalive_timeout: d.keepalive_timeout,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -381,6 +425,52 @@ mod tests {
             ..Tls::default()
         };
         assert!(t.paths().unwrap_err().contains("tls.cert"));
+    }
+
+    #[test]
+    fn http2_defaults_match_the_rfc() {
+        Jail::expect_with(|j| {
+            j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
+            let c = load(None).map_err(|e| e.to_string())?;
+            assert_eq!(c.upstream_protocol, UpstreamProtocol::Http1);
+            let h = &c.http2;
+            assert_eq!(
+                (h.max_concurrent_streams, h.max_pending_reset_streams),
+                (100, 20)
+            );
+            assert_eq!(
+                (h.max_local_error_resets, h.max_header_list_size),
+                (1024, 16384)
+            );
+            assert_eq!(h.keepalive_interval, Duration::from_secs(30));
+            assert_eq!(h.keepalive_timeout, Duration::from_secs(10));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn http2_from_file_and_env() {
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"http://127.0.0.1:8081\"\nupstream_protocol = \"http2\"\n[http2]\nkeepalive_interval = \"0s\"\n",
+            )?;
+            j.set_env("DVARAPALA__HTTP2__MAX_CONCURRENT_STREAMS", "8");
+            let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            assert_eq!(c.upstream_protocol, UpstreamProtocol::Http2);
+            assert_eq!(c.http2.keepalive_interval, Duration::ZERO);
+            assert_eq!(c.http2.max_concurrent_streams, 8);
+            Ok(())
+        });
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"http://127.0.0.1:8081\"\nupstream_protocol = \"h2\"\n",
+            )?;
+            let e = load(Some(Path::new("d.toml"))).unwrap_err().to_string();
+            assert!(e.contains("h2"), "{e}");
+            Ok(())
+        });
     }
 
     #[test]
