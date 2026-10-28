@@ -439,6 +439,7 @@ dependencies = [
  "bytes",
  "criterion",
  "dvarapala-engine",
+ "dvarapala-l4",
  "dvarapala-l7",
  "futures-util",
  "h2",
