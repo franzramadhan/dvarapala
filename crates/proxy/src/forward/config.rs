@@ -1,6 +1,7 @@
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
-use dvarapala_engine::{Cidr, ScheduleConfig};
+use dvarapala_engine::{Cidr, Cluster, ScheduleConfig};
 
 use crate::UpgradeConfig;
 
@@ -29,6 +30,9 @@ pub struct ForwardConfig {
     /// Verification of `https://` destinations (RFC 0003).
     #[cfg(feature = "tls")]
     pub tls: crate::tls::UpstreamTls,
+    /// RFC 0010: budgets split by live replicas and pauses shared; `None`
+    /// keeps each destination's budget to this process.
+    pub cluster: Option<Arc<Mutex<Cluster>>>,
 }
 
 impl Default for ForwardConfig {
@@ -43,6 +47,7 @@ impl Default for ForwardConfig {
             tunnels: UpgradeConfig::default(),
             #[cfg(feature = "tls")]
             tls: crate::tls::UpstreamTls::default(),
+            cluster: None,
         }
     }
 }

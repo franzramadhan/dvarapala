@@ -5,11 +5,13 @@ use std::cell::Cell;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use dvarapala_engine::{DetectConfig, Features, Limit, Scorer, TrustedProxies};
+use dvarapala_engine::{
+    Cluster, ClusterConfig, DetectConfig, Features, Limit, Reply, Scorer, TrustedProxies,
+};
 use dvarapala_l7::{Detection, PeerAddr, RateLimitConfig, RateLimitLayer, Scoring};
 use http::{Request, Response, StatusCode};
 use http_body_util::Empty;
@@ -38,6 +40,15 @@ fn inner() -> impl Service<Request<Body>, Response = Response<Body>, Error = Inf
 /// rate 4/s, burst 1. Detection alarms after one window of warmup and
 /// enters `Attack` on the first anomalous window.
 fn layer(enforce: bool, prefix_v4: u8, scoring: Option<Scoring>) -> RateLimitLayer {
+    layer_in(enforce, prefix_v4, scoring, None)
+}
+
+fn layer_in(
+    enforce: bool,
+    prefix_v4: u8,
+    scoring: Option<Scoring>,
+    cluster: Option<Arc<Mutex<Cluster>>>,
+) -> RateLimitLayer {
     RateLimitLayer::new(RateLimitConfig {
         limit: Limit::new(4, 1).unwrap(),
         max_clients: NonZeroUsize::new(4096).unwrap(),
@@ -54,6 +65,7 @@ fn layer(enforce: bool, prefix_v4: u8, scoring: Option<Scoring>) -> RateLimitLay
         }),
         scoring,
         now,
+        cluster,
     })
     .unwrap()
 }
@@ -183,4 +195,58 @@ async fn response_status_feeds_the_features() {
         send(&mut svc, "198.51.100.1").await,
         StatusCode::TOO_MANY_REQUESTS
     );
+}
+
+fn cluster() -> Arc<Mutex<Cluster>> {
+    Arc::new(Mutex::new(Cluster::new(ClusterConfig {
+        limit: Some(Limit::new(4, 1).unwrap()),
+        window: Duration::from_secs(10),
+        max_keys: 100,
+        max_clients: 100,
+    })))
+}
+
+// RFC 0010: the cluster's verdict comes before the local bucket, allowed
+// requests are counted for the next sync
+#[tokio::test]
+async fn cluster_verdicts_come_first() {
+    let c = cluster();
+    let mut svc = layer_in(false, 32, None, Some(c.clone())).layer(inner());
+    at(0);
+    assert_eq!(send(&mut svc, "192.0.2.20").await, StatusCode::OK);
+    let batch = c.lock().unwrap().drain(0);
+    assert_eq!(batch.counts.len(), 1);
+    assert_eq!(batch.counts[0].1, 1);
+    let key = batch.counts[0].0;
+    c.lock().unwrap().apply(
+        Reply {
+            replicas: 2,
+            totals: vec![(key, 1_000)],
+            heavy: vec![("198.51.100.0/24".parse().unwrap(), Duration::from_secs(30))],
+            ..Reply::default()
+        },
+        now(),
+        0,
+    );
+    at(5000);
+    assert_eq!(
+        send(&mut svc, "192.0.2.20").await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(send(&mut svc, "198.51.100.1").await, StatusCode::FORBIDDEN);
+    assert_eq!(send(&mut svc, "203.0.113.1").await, StatusCode::OK);
+}
+
+// RFC 0010 case 8: heavy hitters are published in enforce mode only
+#[tokio::test]
+async fn heavy_hitters_are_published_while_enforcing() {
+    for enforce in [false, true] {
+        let c = cluster();
+        let mut svc = layer_in(enforce, 32, None, Some(c.clone())).layer(inner());
+        flood(&mut svc).await;
+        send(&mut svc, "203.0.113.1").await;
+        let heavy = c.lock().unwrap().drain(0).heavy;
+        let listed = heavy.iter().any(|(n, _)| n.to_string() == "192.0.2.10/32");
+        assert_eq!(listed, enforce, "enforce = {enforce}");
+    }
 }

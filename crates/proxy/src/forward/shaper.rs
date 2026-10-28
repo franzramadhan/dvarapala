@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use dvarapala_engine::{Schedule, Slot};
+use dvarapala_engine::{Cluster, Schedule, ScheduleConfig, Slot, split};
 use metrics::Gauge;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -18,6 +18,17 @@ pub(crate) struct Shaper {
     in_flight: Gauge,
     /// unix second of the last "egress refused" log
     logged: AtomicU64,
+    shared: Option<Shared>,
+}
+
+/// The destination's share of a cluster budget (RFC 0010).
+struct Shared {
+    cluster: Arc<Mutex<Cluster>>,
+    /// the whole cluster's budget
+    schedule: ScheduleConfig,
+    max_concurrent: usize,
+    /// replicas the budget is split by, and the places handed out
+    split: Mutex<(u32, usize)>,
 }
 
 /// A request or tunnel allowed to go; dropping it frees its place.
@@ -44,8 +55,19 @@ impl Drop for Waiter<'_> {
 }
 
 impl Shaper {
-    pub(crate) fn new(name: String, schedule: Schedule, max_concurrent: usize) -> Self {
+    pub(crate) fn new(
+        name: String,
+        schedule: Schedule,
+        max_concurrent: usize,
+        cluster: Option<Arc<Mutex<Cluster>>>,
+    ) -> Self {
         let label = name.clone();
+        let shared = cluster.map(|cluster| Shared {
+            cluster,
+            schedule: *schedule.config(),
+            max_concurrent,
+            split: Mutex::new((1, max_concurrent)),
+        });
         Self {
             name,
             schedule: Mutex::new(schedule),
@@ -54,6 +76,39 @@ impl Shaper {
             queue: metrics::gauge!("dvarapala_egress_queue", "destination" => label.clone()),
             in_flight: metrics::gauge!("dvarapala_egress_in_flight", "destination" => label),
             logged: AtomicU64::new(0),
+            shared,
+        }
+    }
+
+    /// Follows the cluster: the budget split by live replicas (fail
+    /// closed toward the provider) and pauses seen on other replicas.
+    fn follow(&self, now: Instant) {
+        let Some(sh) = &self.shared else { return };
+        let (replicas, pause) = {
+            let c = sh.cluster.lock().unwrap_or_else(|e| e.into_inner());
+            (c.replicas(), c.pause(&self.name, now))
+        };
+        let mut split_now = sh.split.lock().unwrap_or_else(|e| e.into_inner());
+        let (share, places) = split(&sh.schedule, sh.max_concurrent, replicas);
+        if split_now.0 != replicas {
+            // a share of a valid budget is valid
+            let _ = self.lock().reconfigure(share);
+            split_now.0 = replicas;
+        }
+        if let Some(sem) = &self.places
+            && split_now.1 != places
+        {
+            if places > split_now.1 {
+                sem.add_permits(places - split_now.1);
+                split_now.1 = places;
+            } else {
+                // only free places can go; the rest go on a later request
+                split_now.1 -= sem.forget_permits(split_now.1 - places);
+            }
+        }
+        drop(split_now);
+        if let Some(d) = pause {
+            self.lock().pause(now, d);
         }
     }
 
@@ -61,6 +116,7 @@ impl Shaper {
     /// until the next slot. Counts the outcome.
     pub(crate) async fn admit(&self) -> Result<Pass, Duration> {
         let start = Instant::now();
+        self.follow(start);
         let max_wait = self.lock().config().max_wait;
         let slot = {
             let mut s = self.lock();
@@ -112,6 +168,10 @@ impl Shaper {
 
     /// Holds every send for `retry_after`, capped by `max_pause`.
     pub(crate) fn pause(&self, retry_after: Duration) {
+        if let Some(sh) = &self.shared {
+            let mut c = sh.cluster.lock().unwrap_or_else(|e| e.into_inner());
+            c.publish_pause(&self.name, retry_after.min(self.lock().config().max_pause));
+        }
         if self.lock().pause(Instant::now(), retry_after) {
             metrics::counter!("dvarapala_egress_provider_pauses_total", "destination" => self.name.clone())
                 .increment(1);
@@ -146,4 +206,87 @@ pub(crate) fn count(destination: &str, result: &'static str) {
         "result" => result
     )
     .increment(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use dvarapala_engine::{ClusterConfig, Reply};
+
+    use super::*;
+
+    fn shaper(cluster: &Arc<Mutex<Cluster>>) -> Shaper {
+        let s = Schedule::new(ScheduleConfig {
+            rate: 10.0,
+            burst: 4,
+            max_queue: 0,
+            ..ScheduleConfig::default()
+        })
+        .unwrap();
+        Shaper::new("api".into(), s, 4, Some(cluster.clone()))
+    }
+
+    fn cluster(replicas: u32, pauses: Vec<(String, Duration)>) -> Arc<Mutex<Cluster>> {
+        let mut c = Cluster::new(ClusterConfig {
+            limit: None,
+            window: Duration::from_secs(1),
+            max_keys: 10,
+            max_clients: 10,
+        });
+        c.apply(
+            Reply {
+                replicas,
+                pauses,
+                ..Reply::default()
+            },
+            Instant::now(),
+            0,
+        );
+        Arc::new(Mutex::new(c))
+    }
+
+    // RFC 0010 case 4 in the proxy: the budget follows the replica count
+    #[tokio::test]
+    async fn budget_is_split_by_live_replicas() {
+        let c = cluster(2, vec![]);
+        let s = shaper(&c);
+        let passes: Vec<_> = (0..3).map(|_| s.admit()).collect();
+        let mut ok = Vec::new();
+        for p in passes {
+            if let Ok(p) = p.await {
+                ok.push(p);
+            }
+        }
+        // burst 4 / 2 replicas: two go at once, and two places of four
+        assert_eq!(ok.len(), 2);
+        assert_eq!(s.lock().config().rate, 5.0);
+        assert_eq!(s.places.as_ref().unwrap().available_permits(), 0);
+        drop(ok);
+        // back to one replica: the whole budget again
+        c.lock().unwrap().apply(
+            Reply {
+                replicas: 1,
+                ..Reply::default()
+            },
+            Instant::now(),
+            0,
+        );
+        s.follow(Instant::now());
+        assert_eq!(s.lock().config().rate, 10.0);
+        assert_eq!(s.places.as_ref().unwrap().available_permits(), 4);
+    }
+
+    // RFC 0010 case 7: pauses go both ways
+    #[tokio::test]
+    async fn pauses_are_shared() {
+        let c = cluster(1, vec![("api".into(), Duration::from_secs(2))]);
+        let s = shaper(&c);
+        assert!(s.admit().await.is_err(), "paused by another replica");
+        let c = cluster(1, vec![]);
+        let s = shaper(&c);
+        s.pause(Duration::from_secs(3));
+        assert_eq!(
+            c.lock().unwrap().drain(0).pauses,
+            vec![("api".into(), Duration::from_secs(3))]
+        );
+    }
 }

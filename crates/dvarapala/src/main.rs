@@ -93,6 +93,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             tunnels,
             #[cfg(feature = "tls")]
             tls: upstream_tls,
+            cluster: None,
         })?;
         let listener = bind(&cfg).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
@@ -129,6 +130,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             detection: detection(&cfg.detection),
             scoring: scoring(&cfg.ml)?,
             now: Instant::now,
+            cluster: None,
         })?)
     } else {
         if cfg.detection.enabled || cfg.ml.model.is_some() {

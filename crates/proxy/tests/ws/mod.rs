@@ -149,6 +149,7 @@ pub fn limiter() -> RateLimitLayer {
         detection: None,
         scoring: None,
         now: Instant::now,
+        cluster: None,
     })
     .unwrap()
 }
