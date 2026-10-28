@@ -31,7 +31,7 @@ jobs:
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
           printf '%s\n' "$files"
           rust=false
-          if grep -qE '^(crates/|fuzz/|examples/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
+          if grep -qE '^(crates/|fuzz/|examples/|sdk/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
           printf 'rust=%s\n' "$rust" >> "$GITHUB_OUTPUT"
 
   # betterleaks over the PR's commits only. Pinned by version and sha256
@@ -160,6 +160,27 @@ jobs:
           curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_grpc_local_responses_total{status="unavailable"} 1'
           kill -TERM "$pid"
           wait "$pid"
+
+  # RFC 0008 cases 9, 10, 17: the Go package over the static library
+  go:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo build --locked --release -p dvarapala-ffi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdk/go/go.mod
+          cache: false
+      - working-directory: sdk/go
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::gofmt"; exit 1; }
+          go vet ./...
+          go test -race -count=1 ./...
 
   # RustSec advisories, licenses, duplicate crates, sources (deny.toml)
   deny:
