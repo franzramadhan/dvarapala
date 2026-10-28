@@ -8,10 +8,38 @@
 Anti-DDoS gateway with L4 to L7 protection. Named after the Dvarapala, the
 guardian statues that stand at Javanese temple gates.
 
-Runs as:
+Runs as a standalone reverse proxy today. A forward proxy mode and
+embedding (Rust crate, C ABI) are planned.
 
-- a standalone binary (reverse proxy or forward proxy)
-- an embedded library through a Go SDK
+## Features
+
+Shipped in the latest release (see [CHANGELOG.md](CHANGELOG.md)):
+
+- Token bucket rate limit per client, bounded client table, trusted proxy
+  `X-Forwarded-For` handling ([RFC 0001](rfc/0001-foundation.md))
+- Adaptive detection: heavy hitters, rate baseline, source entropy, optional
+  XGBoost tree model; `observe` or `enforce` ([RFC 0002](rfc/0002-adaptive-detection.md))
+- TLS listener with ALPN (`h2`, `http/1.1`), `SIGHUP` certificate reload,
+  bounded handshakes, `https://` upstreams ([RFC 0003](rfc/0003-tls.md))
+- Cleartext HTTP/1.1 and h2c inbound, HTTP/1.1 to the upstream
+- Prometheus metrics on a separate listener
+
+Next: HTTP/2 upstreams and gRPC ([RFC 0004](rfc/0004-http2-grpc.md)),
+WebSocket ([RFC 0005](rfc/0005-websocket.md)). See [ROADMAP.md](ROADMAP.md).
+
+## Quick start
+
+Download a binary from the
+[releases](https://github.com/franzramadhan/dvarapala/releases) page (check
+it against `SHA256SUMS`), or build one:
+
+```sh
+cargo build --release
+./target/release/dvarapala serve --config examples/dvarapala.toml
+```
+
+Every key and default is in [CONFIG.md](CONFIG.md). Environment variables
+override the file: `DVARAPALA__RATE_LIMIT__RATE=5`.
 
 ## Architecture
 
@@ -50,12 +78,12 @@ One engine, three entry points. The protection logic lives in a single
 `engine` package that decides a verdict for a connection or request. The
 binary and the SDK are thin wrappers around it.
 
-| Mode            | Entry point                                      |
-|-----------------|--------------------------------------------------|
-| Reverse proxy   | `dvarapala serve --mode reverse --upstream ...`  |
-| Forward proxy   | `dvarapala serve --mode forward` (HTTP CONNECT)  |
-| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper       |
-| Embedded (other)| C ABI (`cdylib` + generated header) for Go, Python, Node, etc. |
+| Mode            | Entry point                                      | Status  |
+|-----------------|--------------------------------------------------|---------|
+| Reverse proxy   | `dvarapala serve --config <file>`                | shipped |
+| Forward proxy   | HTTP CONNECT                                     | planned |
+| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper       | planned |
+| Embedded (other)| C ABI (`cdylib` + generated header) for Go, Python, Node, etc. | planned |
 
 ### Stack
 
@@ -72,18 +100,15 @@ trust boundary.
 | C bindings  | `cbindgen`                    |
 | Metrics     | `metrics` + Prometheus exporter |
 
-### Layout (planned, cargo workspace)
+### Layout (cargo workspace)
 
 ```
 crates/
   engine/       verdict engine, rules, limiters (no I/O, no tokio)
-  l4/           listener wrapper, conn limits, timeouts
-  l7/           tower layers: rate limit, rules, challenges
-  proxy/        reverse and forward proxy core
-  store/        memory and redis backends
-  xdp/          aya eBPF programs (linux only, optional)
-  ffi/          C ABI for non-Rust embedders
+  l7/           tower layers: rate limit, detection
+  proxy/        reverse proxy core, TLS
   dvarapala/    binary
+  l4/ store/ xdp/ ffi/   planned: added with the RFC that needs them
 ```
 
 `engine` stays free of I/O and async runtime so it can embed anywhere,
@@ -91,7 +116,8 @@ including through the C ABI.
 
 ## Status
 
-Design stage, 0.x is alpha. Features land through RFCs: see
+0.x is alpha: config keys and metrics may change between minor versions.
+Features land through RFCs: see
 [ROADMAP.md](ROADMAP.md) and [rfc/](rfc/). Contributor and agent rules are
 in [CLAUDE.md](CLAUDE.md).
 
