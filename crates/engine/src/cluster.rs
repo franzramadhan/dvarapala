@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, unused_mut, dead_code)]
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
@@ -67,59 +66,119 @@ pub struct Cluster {
 
 impl Cluster {
     pub fn new(cfg: ClusterConfig) -> Self {
-        todo!("rfc 0010")
+        Self {
+            cfg,
+            deltas: HashMap::new(),
+            dropped: 0,
+            throttled: HashMap::new(),
+            blocked: Vec::new(),
+            heavy_out: Vec::new(),
+            pauses_out: Vec::new(),
+            pauses: HashMap::new(),
+            replicas: 1,
+        }
     }
 
     /// The cluster's verdict for `key` at `now`, before the local bucket:
     /// `Drop` for a listed heavy hitter, `Throttle` for a client over the
     /// cluster count, `None` to go on.
     pub fn check(&self, key: ClientKey, now: Instant) -> Option<Verdict> {
-        todo!("rfc 0010")
+        let ip = IpAddr::from(key);
+        if self
+            .blocked
+            .iter()
+            .any(|(c, until)| *until > now && c.contains(ip))
+        {
+            return Some(Verdict::Drop);
+        }
+        let until = *self.throttled.get(&key)?;
+        (until > now).then(|| Verdict::Throttle {
+            retry_after: until - now,
+        })
     }
 
     /// Counts one allowed request from `key` for the next sync.
     pub fn record(&mut self, key: ClientKey) {
-        todo!("rfc 0010")
+        if let Some(n) = self.deltas.get_mut(&key) {
+            *n = n.saturating_add(1);
+        } else if self.deltas.len() < self.cfg.max_clients {
+            self.deltas.insert(key, 1);
+        } else {
+            self.dropped += 1;
+        }
     }
 
     /// Publishes the local detector's heavy hitters, listed for `ttl`.
     pub fn publish_heavy(&mut self, heavy: impl IntoIterator<Item = Cidr>, ttl: Duration) {
-        todo!("rfc 0010")
+        self.heavy_out.extend(heavy.into_iter().map(|c| (c, ttl)));
     }
 
     /// Publishes a provider pause seen on this replica.
     pub fn publish_pause(&mut self, destination: &str, retry_after: Duration) {
-        todo!("rfc 0010")
+        self.pauses_out.push((destination.to_owned(), retry_after));
     }
 
     /// How long `destination` stays paused by another replica, if at all.
     pub fn pause(&self, destination: &str, now: Instant) -> Option<Duration> {
-        todo!("rfc 0010")
+        let until = *self.pauses.get(destination)?;
+        (until > now).then(|| until - now)
     }
 
     /// Live replicas seen by the last good round, at least 1. Kept as is
     /// while the store is down, so the forward split stays safe.
     pub fn replicas(&self) -> u32 {
-        todo!("rfc 0010")
+        self.replicas
     }
 
     pub fn window(&self) -> Duration {
-        todo!("rfc 0010")
+        self.cfg.window
     }
 
     /// Takes everything waiting for the store; `unix_ms` is the wall clock.
     pub fn drain(&mut self, unix_ms: u64) -> Batch {
-        todo!("rfc 0010")
+        let mut counts: Vec<_> = self.deltas.drain().collect();
+        let mut dropped = std::mem::take(&mut self.dropped);
+        if counts.len() > self.cfg.max_keys {
+            counts.select_nth_unstable_by(self.cfg.max_keys, |a, b| b.1.cmp(&a.1));
+            dropped += (counts.len() - self.cfg.max_keys) as u64;
+            counts.truncate(self.cfg.max_keys);
+        }
+        counts.sort_unstable_by_key(|&(_, n)| std::cmp::Reverse(n));
+        let w = self.window_ms();
+        Batch {
+            window_start: unix_ms - unix_ms % w,
+            counts,
+            heavy: std::mem::take(&mut self.heavy_out),
+            pauses: std::mem::take(&mut self.pauses_out),
+            dropped,
+        }
     }
 
     /// Applies a good round: clients over the cluster allowance are
     /// throttled until their window ends, and the lists are replaced.
     pub fn apply(&mut self, reply: Reply, now: Instant, unix_ms: u64) {
-        todo!("rfc 0010")
+        self.throttled.retain(|_, until| *until > now);
+        if let Some(limit) = self.cfg.limit {
+            let allowance = limit.allowance(self.cfg.window);
+            let w = self.window_ms();
+            let left = Duration::from_millis(w - unix_ms % w);
+            for (key, total) in reply.totals {
+                if total as f64 > allowance {
+                    self.throttled.insert(key, now + left);
+                }
+            }
+        }
+        self.blocked = reply.heavy.into_iter().map(|(c, d)| (c, now + d)).collect();
+        self.pauses = reply
+            .pauses
+            .into_iter()
+            .map(|(n, d)| (n, now + d))
+            .collect();
+        self.replicas = reply.replicas.max(1);
     }
 
     fn window_ms(&self) -> u64 {
-        todo!("rfc 0010")
+        (self.cfg.window.as_millis() as u64).max(1)
     }
 }
 
@@ -131,14 +190,25 @@ pub fn split(
     max_concurrent: usize,
     replicas: u32,
 ) -> (ScheduleConfig, usize) {
-    todo!("rfc 0010")
+    let n = replicas.max(1);
+    let share = ScheduleConfig {
+        rate: (cfg.rate / f64::from(n)).max(0.001),
+        burst: (cfg.burst / n).max(1),
+        ..*cfg
+    };
+    let places = if max_concurrent == 0 {
+        0
+    } else {
+        (max_concurrent / n as usize).max(1)
+    };
+    (share, places)
 }
 
 /// Most requests a client can get through beyond the cluster allowance in
 /// one window: every replica allows up to a sync interval of full rate
 /// before the counts meet.
 pub fn overshoot(rate: f64, replicas: u32, sync_interval: Duration) -> f64 {
-    todo!("rfc 0010")
+    f64::from(replicas) * rate * sync_interval.as_secs_f64()
 }
 
 #[cfg(test)]
@@ -162,7 +232,6 @@ mod tests {
 
     // RFC 0010 case 2
     #[test]
-    #[ignore = "rfc 0010"]
     fn over_the_cluster_count_throttles_until_the_window_ends() {
         let mut c = cluster(10);
         let t = Instant::now();
@@ -190,14 +259,12 @@ mod tests {
 
     // RFC 0010 case 3
     #[test]
-    #[ignore = "rfc 0010"]
     fn overshoot_is_bounded_by_replicas_rate_and_interval() {
         assert_eq!(overshoot(20.0, 4, Duration::from_secs(1)), 80.0);
     }
 
     // RFC 0010 case 4
     #[test]
-    #[ignore = "rfc 0010"]
     fn destination_budget_is_split_by_live_replicas() {
         let cfg = ScheduleConfig {
             rate: 50.0,
@@ -214,7 +281,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn drain_keeps_the_busiest_and_counts_the_rest() {
         let mut c = cluster(2);
         for (k, n) in [(1, 1), (2, 5), (3, 3)] {
@@ -230,7 +296,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn record_is_bounded_by_max_clients() {
         let mut c = Cluster::new(ClusterConfig {
             max_clients: 1,
@@ -244,7 +309,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn heavy_hitters_and_pauses_round_trip() {
         let mut c = cluster(10);
         let t = Instant::now();
