@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-28 | #N | unplanned |
+| draft | 2026-10-28 | #44 | unplanned |
 
 > Limit connections before any HTTP is parsed: a cap on open connections
 > per client and in total, a token bucket on new connections per client,
