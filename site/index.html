@@ -117,7 +117,7 @@ cargo build --release
 ./target/release/dvarapala serve \
   --config examples/dvarapala.toml</pre>
         <h3 class="label">Container</h3>
-<pre><span class="c"># linux/amd64, linux/arm64; FROM scratch, UID 10001</span>
+<pre><span class="c"># linux/amd64, linux/arm64; FROM scratch, UID 10001; redis + postgres stores</span>
 docker run --rm -p 8080:8080 \
   -e DVARAPALA__UPSTREAM=http://app.example:8081 \
   ghcr.io/franzramadhan/dvarapala:&lt;version&gt;</pre>

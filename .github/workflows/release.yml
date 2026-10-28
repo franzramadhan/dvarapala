@@ -78,6 +78,39 @@ jobs:
           path: dist/*.tar.gz
           retention-days: 7
 
+  # The image's binaries: Linux musl with the shared-state stores (RFC 0010),
+  # since replicas behind one load balancer are the usual container setup.
+  # The release tarballs above stay without them.
+  image-binary:
+    needs: verify
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - run: rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}-image
+      - name: Build
+        run: |
+          cargo build --release --locked --target "$TARGET" -p dvarapala --features redis,postgres
+          mkdir -p dist
+          tar -czf "dist/image-${TARGET}.tar.gz" -C "target/${TARGET}/release" dvarapala
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.target }}
+          path: dist/*.tar.gz
+          retention-days: 7
+
   # RFC 0008: the libraries the SDKs load, per target. glibc, not musl:
   # Python and Node load a shared library, which a static musl build is not.
   sdk:
@@ -117,9 +150,9 @@ jobs:
           retention-days: 7
 
   # ghcr.io/<owner>/dvarapala:<version>, linux/amd64 and linux/arm64, from the
-  # musl binaries above (Dockerfile), so it builds both without emulation.
+  # image-binary builds (Dockerfile), so it builds both without emulation.
   image:
-    needs: binary
+    needs: image-binary
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -132,7 +165,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: dvarapala-*-linux-musl
+          pattern: image-*-linux-musl
           path: artifacts
           merge-multiple: true
       - name: Unpack per Docker arch
@@ -140,7 +173,7 @@ jobs:
           for pair in amd64:x86_64 arm64:aarch64; do
             arch=${pair%%:*}
             mkdir -p "dist/$arch"
-            tar -xzf artifacts/dvarapala-*-"${pair#*:}"-unknown-linux-musl.tar.gz -C "dist/$arch"
+            tar -xzf "artifacts/image-${pair#*:}-unknown-linux-musl.tar.gz" -C "dist/$arch"
           done
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0

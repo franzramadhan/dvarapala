@@ -81,7 +81,8 @@ picks the directory. Tarballs are also on the
 [releases](https://github.com/franzramadhan/dvarapala/releases) page.
 
 Container image (`linux/amd64`, `linux/arm64`), `FROM scratch` with the
-static binary, running as UID 10001 on port 8080:
+static binary built with the Redis and PostgreSQL stores (`[store]`, RFC 0010),
+running as UID 10001 on port 8080:
 
 ```sh
 docker run --rm -p 8080:8080 \
@@ -93,7 +94,8 @@ Pass a config with `-v ./dvarapala.toml:/etc/dvarapala.toml:ro` and
 `serve --config /etc/dvarapala.toml`, or set every key as an environment
 variable. Set `DVARAPALA__METRICS__LISTEN=0.0.0.0:9090` to scrape metrics
 from outside the container. The image has no CA bundle: for an `https://`
-upstream, mount one and set `upstream_tls.ca_file`.
+upstream, mount one and set `upstream_tls.ca_file`; for a TLS store
+(`rediss://`, PostgreSQL), set `store.ca_file`.
 
 <details>
 <summary><b>Build from source</b></summary>
