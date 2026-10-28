@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use dvarapala_l4::{BodyRate, MinBodyRate, is_too_slow};
 use dvarapala_l7::{GrpcStatus, PeerAddr, grpc_response, is_grpc};
 use http::header::{CONNECTION, HeaderValue, UPGRADE};
 use http::uri::{Authority, Scheme};
@@ -58,7 +59,7 @@ pub struct ReverseProxy<B> {
     base_path: String,
     protocol: UpstreamProtocol,
     tunnels: Arc<Tunnels>,
-    client: Client<Connector, B>,
+    client: Client<Connector, MinBodyRate<B>>,
 }
 
 #[cfg(feature = "tls")]
@@ -188,6 +189,8 @@ where
         if let Some(PeerAddr(peer)) = parts.extensions.get::<PeerAddr>() {
             append_forwarded_for(&mut parts.headers, peer.ip());
         }
+        let rate = parts.extensions.get::<BodyRate>().map_or(0, |r| r.0);
+        let body = MinBodyRate::new(body, rate);
         let fut = self.client.request(Request::from_parts(parts, body));
         Box::pin(async move {
             Ok(match fut.await {
@@ -204,6 +207,7 @@ where
                     }
                     res
                 }
+                Err(e) if is_too_slow(&e) => status(StatusCode::REQUEST_TIMEOUT),
                 Err(e) => {
                     metrics::counter!("dvarapala_upstream_errors_total").increment(1);
                     tracing::warn!(error = %e, "upstream request failed");

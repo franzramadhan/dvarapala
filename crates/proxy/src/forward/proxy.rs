@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dvarapala_engine::{Cidr, Schedule};
+use dvarapala_l4::{BodyRate, MinBodyRate, is_too_slow};
 use dvarapala_l7::PeerAddr;
 use http::header::{HOST, HeaderValue, RETRY_AFTER};
 use http::{Method, Request, Response, StatusCode, Version};
@@ -35,7 +36,7 @@ type Connector = HttpConnector;
 /// proxy, TLS included; `CONNECT` opens a tunnel per slot.
 pub struct ForwardProxy<B> {
     inner: Arc<Inner>,
-    client: Client<Connector, B>,
+    client: Client<Connector, MinBodyRate<B>>,
 }
 
 struct Inner {
@@ -119,7 +120,7 @@ where
 
 async fn handle<B>(
     inner: Arc<Inner>,
-    client: Client<Connector, B>,
+    client: Client<Connector, MinBodyRate<B>>,
     req: Request<B>,
 ) -> Response<ProxyBody>
 where
@@ -156,6 +157,8 @@ where
     parts.version = Version::HTTP_11;
     // no X-Forwarded-For: the callers are our own services
     strip_hop_by_hop(&mut parts.headers, true);
+    let rate = parts.extensions.get::<BodyRate>().map_or(0, |r| r.0);
+    let body = MinBodyRate::new(body, rate);
     match client.request(Request::from_parts(parts, body)).await {
         Ok(res) => {
             let paused = matches!(
@@ -180,6 +183,7 @@ where
             strip_hop_by_hop(res.headers_mut(), false);
             res
         }
+        Err(e) if is_too_slow(&e) => status(StatusCode::REQUEST_TIMEOUT),
         Err(e) => {
             metrics::counter!("dvarapala_upstream_errors_total").increment(1);
             tracing::warn!(destination = %shaper.name, error = %e, "egress request failed");

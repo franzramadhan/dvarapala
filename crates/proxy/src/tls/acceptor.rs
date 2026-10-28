@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use rustls::{HandshakeKind, ServerConfig};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
@@ -96,7 +96,10 @@ impl Tls {
 
     /// The handshake, bounded in concurrency and time. `None` closes the
     /// connection.
-    pub(crate) async fn accept(&self, tcp: TcpStream) -> Option<TlsStream<TcpStream>> {
+    pub(crate) async fn accept<IO>(&self, tcp: IO) -> Option<TlsStream<IO>>
+    where
+        IO: AsyncRead + AsyncWrite + Unpin,
+    {
         let Ok(_slot) = self.0.handshakes.clone().try_acquire_owned() else {
             count("rejected");
             limit_reached();
