@@ -11,3 +11,4 @@ lcov.info
 *.key
 *.p12
 *.pfx
+/crates/xdp-ebpf/target/

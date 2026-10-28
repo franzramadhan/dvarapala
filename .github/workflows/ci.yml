@@ -107,8 +107,45 @@ jobs:
             exit 1
           fi
       - run: cargo fmt --all --check
+      # the BPF program is its own workspace
+      - run: rustfmt --check --edition 2024 crates/xdp-ebpf/src/main.rs
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --locked --workspace --all-features
+      # RFC 0011 cases 3 to 8 and 12: the XDP program in the kernel, as root
+      - name: xdp kernel tests
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo -E
+          DVARAPALA_TEST_XDP: "1"
+        run: cargo test --locked -p dvarapala-xdp --features load --test program
+      # RFC 0011 case 13: the checked-in object is what the source builds.
+      # The nightly comes from crates/xdp-ebpf/rust-toolchain.toml; its
+      # LLVM must match bpf-linker's. Pinned by version and the sha256 of
+      # the release asset (GitHub's digest; the release has no checksums.txt).
+      - name: xdp object
+        env:
+          BPF_LINKER_VERSION: "0.12.0"
+          BPF_LINKER_SHA256: 6789717c8cb6a2a5d920f3b6bfac2bd7efc00f6228ecd149108a99699a75c679
+        run: |
+          set -euo pipefail
+          name=bpf-linker-x86_64-unknown-linux-musl.tar.zst
+          curl --proto '=https' --tlsv1.2 -fsSL -o "/tmp/$name" \
+            "https://github.com/aya-rs/bpf-linker/releases/download/v${BPF_LINKER_VERSION}/$name"
+          echo "$BPF_LINKER_SHA256  /tmp/$name" | sha256sum -c -
+          mkdir -p ~/.local/bin
+          tar --zstd -xf "/tmp/$name" -C ~/.local/bin bpf-linker
+          export PATH="$HOME/.local/bin:$PATH"
+          (cd crates/xdp-ebpf && CARGO_TARGET_DIR=/tmp/xdp-ebpf cargo build --locked --release)
+          cmp /tmp/xdp-ebpf/bpfel-unknown-none/release/dvarapala-xdp crates/xdp/dvarapala-xdp.o || {
+            echo "::error::crates/xdp/dvarapala-xdp.o is stale, rebuild it from crates/xdp-ebpf"
+            exit 1
+          }
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xdp-object
+          path: /tmp/xdp-ebpf/bpfel-unknown-none/release/dvarapala-xdp
+          if-no-files-found: ignore
+          retention-days: 14
       # the binary without default features (no tls) must still build,
       # lint clean and refuse tls config
       - run: cargo clippy --locked -p dvarapala --all-targets --no-default-features -- -D warnings
@@ -187,7 +224,8 @@ jobs:
           curl -fs http://127.0.0.1:9090/metrics | grep -q '^dvarapala_grpc_local_responses_total{status="unavailable"} 1'
           kill -TERM "$pid"
           wait "$pid"
-      # RFC 0006 case 17: HTTP/3 adds under 2 MB. Last: it rebuilds the binary.
+      # RFC 0006 case 17: HTTP/3 adds under 2 MB. After the smoke tests: it
+      # rebuilds the binary.
       - name: http3 size budget
         run: |
           set -euo pipefail
@@ -196,6 +234,15 @@ jobs:
           h3=$(stat -c %s target/release/dvarapala)
           echo "binary: ${base} bytes, with http3: ${h3} bytes"
           [ $((h3 - base)) -lt 2097152 ] || { echo "::error::http3 adds $((h3 - base)) bytes, budget 2097152"; exit 1; }
+          echo "BASE_SIZE=$base" >> "$GITHUB_ENV"
+      # RFC 0011 case 14: the XDP loader adds under 1 MB
+      - name: xdp size budget
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p dvarapala --features xdp
+          xdp=$(stat -c %s target/release/dvarapala)
+          echo "binary: ${BASE_SIZE} bytes, with xdp: ${xdp} bytes"
+          [ $((xdp - BASE_SIZE)) -lt 1048576 ] || { echo "::error::xdp adds $((xdp - BASE_SIZE)) bytes, budget 1048576"; exit 1; }
 
   # RFC 0008 cases 9, 10, 17: the Go package over the static library
   go:
