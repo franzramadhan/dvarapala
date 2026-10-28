@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use crate::Packet;
 
 /// A packet rate as a GCRA: one packet per `interval` ns, up to
@@ -12,13 +11,31 @@ pub struct Rate {
 
 impl Rate {
     pub const fn new(pps: u32, burst: u32) -> Self {
-        panic!("rfc 0011")
+        if pps == 0 {
+            return Self {
+                interval: 0,
+                tolerance: 0,
+            };
+        }
+        let interval = 1_000_000_000 / pps as u64;
+        Self {
+            interval,
+            tolerance: interval * burst as u64,
+        }
     }
 
     /// Whether one more packet at `now` (ns) fits; `tat` is the source's
     /// theoretical arrival time, moved on only when it does.
     pub fn admit(self, tat: &mut u64, now: u64) -> bool {
-        todo!("rfc 0011")
+        if self.interval == 0 {
+            return true;
+        }
+        let next = if *tat > now { *tat } else { now } + self.interval;
+        if next - now > self.tolerance {
+            return false;
+        }
+        *tat = next;
+        true
     }
 }
 
@@ -42,13 +59,29 @@ pub struct Config {
 
 impl Config {
     pub fn protects(&self, p: &Packet) -> bool {
-        todo!("rfc 0011")
+        let port = match p.proto {
+            crate::Proto::Tcp { .. } => self.tcp_port,
+            crate::Proto::Udp => self.udp_port,
+        };
+        port != 0 && p.dst_port == port
     }
 
     /// The source address with host bits past `prefix_v4` / `prefix_v6`
     /// cleared: the key of the per-source rates.
     pub fn source(&self, p: &Packet) -> [u8; 16] {
-        todo!("rfc 0011")
+        let bits = if p.v4 {
+            96 + self.prefix_v4 as usize
+        } else {
+            self.prefix_v6 as usize
+        };
+        let mut a = p.src;
+        let mut i = 0;
+        while i < 16 {
+            let keep = bits.saturating_sub(i * 8).min(8);
+            a[i] &= !(0xffu16 >> keep) as u8;
+            i += 1;
+        }
+        a
     }
 }
 
@@ -90,7 +123,7 @@ pub const COUNTERS: u32 = (ACTIONS.len() * REASONS.len()) as u32;
 
 /// The `COUNTERS` index of one action and reason.
 pub const fn counter(a: Action, r: Reason) -> u32 {
-    panic!("rfc 0011")
+    a as u32 * REASONS.len() as u32 + r as u32
 }
 
 #[cfg(all(feature = "aya", target_os = "linux"))]
@@ -105,7 +138,6 @@ mod tests {
 
     // RFC 0011 case 6, the arithmetic: burst 200 at once, then the rate
     #[test]
-    #[ignore = "rfc 0011"]
     fn burst_then_rate() {
         let r = Rate::new(100, 200);
         let mut tat = 0;
@@ -119,7 +151,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn source_keeps_the_prefix() {
         let c = Config {
             prefix_v4: 24,
@@ -144,7 +175,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn counters_are_distinct() {
         let mut seen = [false; COUNTERS as usize];
         for (a, _) in ACTIONS {
