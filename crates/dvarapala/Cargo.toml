@@ -14,6 +14,8 @@ default = ["tls"]
 tls = ["dvarapala-proxy/tls"]
 # XGBoost scoring (RFC 0002), off by default to keep the binary small.
 ml = ["dvarapala-engine/ml"]
+# HTTP/3 listener over QUIC (RFC 0006), experimental.
+http3 = ["tls", "dvarapala-proxy/http3"]
 
 [dependencies]
 dvarapala-engine.workspace = true
