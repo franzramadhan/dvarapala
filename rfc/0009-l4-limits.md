@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-28 | #44 | unplanned |
+| accepted | 2026-10-28 | #44 | unplanned |
 
 > Limit connections before any HTTP is parsed: a cap on open connections
 > per client and in total, a token bucket on new connections per client,
@@ -53,6 +53,10 @@ connection limits to it.
 - Order on each connection: total cap, per-client cap and bucket, then TLS
   handshake (RFC 0003 limits), then HTTP with the timeouts and the L7
   chain. Cheapest check first.
+- Embedded use: the decision lives in the engine (`conns.rs`), so the
+  SDK of RFC 0008 exposes the same limits (`dv_conn_open` /
+  `dv_conn_close` and the `l4.*` keys). This RFC is implemented before
+  RFC 0008.
 - Applies in reverse and forward mode (RFC 0007), cleartext and TLS.
   WebSocket tunnels count as connections until they close.
 
