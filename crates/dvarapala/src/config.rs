@@ -13,14 +13,13 @@ use serde::{Deserialize, Deserializer, de};
 mod forward;
 mod l4;
 mod protocols;
-// rfc 0006: stubs until the wiring layer
-#[allow(dead_code)]
 mod quic;
 pub use forward::{Forward, ProxyMode};
 pub use l4::L4;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
-#[allow(unused_imports)]
-pub use quic::{Quic, QuicPlan, QuicRetry};
+pub use quic::Quic;
+#[cfg(feature = "http3")]
+pub use quic::{QuicPlan, QuicRetry};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]

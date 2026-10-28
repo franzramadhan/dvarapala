@@ -42,6 +42,17 @@ prefix_v6 = 64
 # handshake_timeout = "10s"
 # max_handshakes = 1024
 
+# HTTP/3 over QUIC (RFC 0006), experimental: needs a build with
+# --features http3 and [tls]. Usually the TCP port, over UDP.
+# [quic]
+# listen = "0.0.0.0:8443"
+# advertise = true
+# retry = "under_load"
+# retry_threshold = 256
+# max_connections = 10000
+# max_streams = 100
+# idle_timeout = "30s"
+
 # Verification of https:// upstreams. Default: the system roots and the
 # upstream host name. There is no switch to turn verification off.
 # [upstream_tls]

@@ -58,8 +58,30 @@ impl Quic {
     /// `None` when `quic.listen` is unset; an error without `[tls]`, without
     /// the `http3` feature, or on a bad value.
     pub fn plan(&self, tls: &Tls) -> Result<Option<QuicPlan>, String> {
-        let _ = tls;
-        todo!("rfc 0006")
+        let Some(listen) = self.listen else {
+            return Ok(None);
+        };
+        if tls.paths()?.is_none() {
+            return Err("quic.listen needs tls.cert and tls.key: QUIC is always TLS".into());
+        }
+        if !cfg!(feature = "http3") {
+            return Err("quic.listen needs a build with the http3 feature".into());
+        }
+        for (zero, key) in [
+            (self.max_connections == 0, "quic.max_connections"),
+            (self.max_streams == 0, "quic.max_streams"),
+            (self.idle_timeout.is_zero(), "quic.idle_timeout"),
+        ] {
+            if zero {
+                return Err(format!("{key} must be above 0"));
+            }
+        }
+        Ok(Some(QuicPlan {
+            quic: self.clone(),
+            listen,
+            handshake_timeout: tls.handshake_timeout,
+            alt_svc: self.advertise.then_some(listen.port()),
+        }))
     }
 }
 
@@ -86,14 +108,12 @@ mod tests {
 
     // case 5
     #[test]
-    #[ignore = "rfc 0006"]
     fn unset_listen_binds_nothing() {
         assert_eq!(Quic::default().plan(&tls()), Ok(None));
     }
 
     // case 14
     #[test]
-    #[ignore = "rfc 0006"]
     fn needs_tls() {
         assert!(on().plan(&Tls::default()).unwrap_err().contains("tls.cert"));
     }
@@ -101,7 +121,6 @@ mod tests {
     // cases 3 and 4
     #[cfg(feature = "http3")]
     #[test]
-    #[ignore = "rfc 0006"]
     fn advertise_sets_alt_svc() {
         let p = on().plan(&tls()).unwrap().unwrap();
         assert_eq!(p.alt_svc, Some(8443));
@@ -115,7 +134,6 @@ mod tests {
 
     #[cfg(feature = "http3")]
     #[test]
-    #[ignore = "rfc 0006"]
     fn bad_values_name_the_key() {
         for (q, key) in [
             (
@@ -147,7 +165,6 @@ mod tests {
     // case 15
     #[cfg(not(feature = "http3"))]
     #[test]
-    #[ignore = "rfc 0006"]
     fn needs_the_feature() {
         assert!(on().plan(&tls()).unwrap_err().contains("http3 feature"));
     }
