@@ -333,6 +333,7 @@ dependencies = [
  "serde",
  "tokio",
  "tower-layer",
+ "tower-service",
  "tracing",
  "tracing-subscriber",
 ]

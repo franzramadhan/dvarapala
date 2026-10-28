@@ -28,3 +28,17 @@ window = "1s"
 # a subnet, at the cost of dropping its neighbors too.
 prefix_v4 = 32
 prefix_v6 = 64
+
+# HTTPS on the listener (RFC 0003): set both to turn TLS on. SIGHUP reloads
+# the pair; a bad file keeps the old one.
+# [tls]
+# cert = "/etc/dvarapala/cert.pem"
+# key = "/etc/dvarapala/key.pem"
+# handshake_timeout = "10s"
+# max_handshakes = 1024
+
+# Verification of https:// upstreams. Default: the system roots and the
+# upstream host name. There is no switch to turn verification off.
+# [upstream_tls]
+# ca_file = "/etc/dvarapala/upstream-ca.pem"
+# server_name = "app.internal"

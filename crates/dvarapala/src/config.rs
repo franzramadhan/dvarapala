@@ -108,9 +108,13 @@ pub struct UpstreamTls {
 
 impl Tls {
     /// `(cert, key)` when TLS is on; an error when only one is set.
-    #[allow(dead_code)] // stub until the rfc 0003 wiring
     pub fn paths(&self) -> Result<Option<(&Path, &Path)>, String> {
-        todo!("rfc 0003")
+        match (&self.cert, &self.key) {
+            (Some(c), Some(k)) => Ok(Some((c, k))),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err("tls.key is required with tls.cert".into()),
+            (None, Some(_)) => Err("tls.cert is required with tls.key".into()),
+        }
     }
 }
 
@@ -334,7 +338,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn tls_defaults_match_the_rfc() {
         Jail::expect_with(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
@@ -349,7 +352,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn tls_from_file() {
         Jail::expect_with(|j| {
             j.create_file(
@@ -368,7 +370,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn tls_key_is_required_with_cert() {
         let t = Tls {
             cert: Some("c.pem".into()),

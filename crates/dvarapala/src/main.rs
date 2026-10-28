@@ -1,6 +1,7 @@
 mod config;
 mod metrics;
 
+use std::convert::Infallible;
 use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -11,11 +12,19 @@ use std::time::Instant;
 
 use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
 use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
-use dvarapala_proxy::{ReverseProxy, serve};
+#[cfg(feature = "tls")]
+use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
+use dvarapala_proxy::{ProxyBody, ReverseProxy, serve};
 use hyper::body::Incoming;
+use hyper::{Request, Response};
 use tokio::net::TcpListener;
 use tower_layer::Layer;
+use tower_service::Service;
 use tracing_subscriber::EnvFilter;
+
+/// Never built without the `tls` feature.
+#[cfg(not(feature = "tls"))]
+enum Tls {}
 
 const USAGE: &str = "usage: dvarapala serve [--config <file>]
 
@@ -56,7 +65,20 @@ fn main() -> ExitCode {
 #[tokio::main]
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
-    let proxy = ReverseProxy::<Incoming>::new(&cfg.upstream)?;
+    #[cfg(feature = "tls")]
+    let proxy = ReverseProxy::<Incoming>::with_tls(
+        &cfg.upstream,
+        &UpstreamTls {
+            ca_file: cfg.upstream_tls.ca_file.clone(),
+            server_name: cfg.upstream_tls.server_name.clone(),
+        },
+    )?;
+    #[cfg(not(feature = "tls"))]
+    let proxy = {
+        no_tls(&cfg.tls, &cfg.upstream)?;
+        ReverseProxy::<Incoming>::new(&cfg.upstream)?
+    };
+    let tls = listener_tls(&cfg.tls)?;
     let limiter = if cfg.rate_limit.enabled {
         let trusted = cfg
             .trusted_proxies
@@ -84,10 +106,10 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     }
 
     let listener = TcpListener::bind(cfg.listen).await?;
-    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, "proxy listening");
+    tracing::info!(listen = %cfg.listen, upstream = %cfg.upstream, tls = tls.is_some(), "proxy listening");
     match limiter {
-        Some(l) => serve(listener, l.layer(proxy), shutdown()).await,
-        None => serve(listener, proxy, shutdown()).await,
+        Some(l) => listen(listener, tls, l.layer(proxy)).await,
+        None => listen(listener, tls, proxy).await,
     }
     tracing::info!("stopped");
     Ok(())
@@ -143,9 +165,71 @@ fn scoring(m: &config::Ml) -> Result<Option<Scoring>, Box<dyn Error>> {
 /// A build without the `tls` feature refuses `[tls]` and `https://`
 /// instead of ignoring them.
 #[cfg(not(feature = "tls"))]
-#[allow(dead_code)] // stub until the rfc 0003 wiring
-fn no_tls(_tls: &config::Tls, _upstream: &str) -> Result<(), String> {
-    todo!("rfc 0003")
+fn no_tls(tls: &config::Tls, upstream: &str) -> Result<(), String> {
+    if tls.paths() != Ok(None) {
+        return Err("[tls] needs a build with the tls feature".into());
+    }
+    if upstream.starts_with("https://") {
+        return Err(format!(
+            "upstream {upstream:?}: https:// needs a build with the tls feature"
+        ));
+    }
+    Ok(())
+}
+
+/// The listener's TLS, when `[tls]` is set.
+#[cfg(feature = "tls")]
+fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
+    let Some((cert, key)) = t.paths()? else {
+        return Ok(None);
+    };
+    if t.max_handshakes == 0 {
+        return Err("tls.max_handshakes must be at least 1".into());
+    }
+    let tls = Tls::new(TlsConfig {
+        cert: cert.to_owned(),
+        key: key.to_owned(),
+        handshake_timeout: t.handshake_timeout,
+        max_handshakes: t.max_handshakes,
+    })
+    .map_err(|e| format!("tls: {e}"))?;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut hup = signal(SignalKind::hangup())?;
+        let tls = tls.clone();
+        tokio::spawn(async move {
+            while hup.recv().await.is_some() {
+                // reload logs the outcome and keeps the old pair on error
+                let _ = tls.reload();
+            }
+        });
+    }
+    Ok(Some(tls))
+}
+
+#[cfg(not(feature = "tls"))]
+fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
+    no_tls(t, "")?;
+    Ok(None)
+}
+
+/// Serves `svc`, with TLS when `tls` is set.
+async fn listen<S>(listener: TcpListener, tls: Option<Tls>, svc: S)
+where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    match tls {
+        None => serve(listener, svc, shutdown()).await,
+        #[cfg(feature = "tls")]
+        Some(tls) => dvarapala_proxy::serve_tls(listener, tls, svc, shutdown()).await,
+        #[cfg(not(feature = "tls"))]
+        Some(never) => match never {},
+    }
 }
 
 /// Resolves on Ctrl-C or SIGTERM.
@@ -169,7 +253,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn tls_needs_the_feature() {
         let on = config::Tls {
             cert: Some("c.pem".into()),
