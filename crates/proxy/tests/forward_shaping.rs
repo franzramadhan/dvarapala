@@ -12,7 +12,6 @@ use http::StatusCode;
 
 /// RFC 0007 case 11
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn upstream_never_sees_more_than_the_rate() {
     let (up, seen) = upstream(Behave::default()).await;
     let (rate, burst) = (20.0, 5);
@@ -58,7 +57,6 @@ async fn upstream_never_sees_more_than_the_rate() {
 
 /// RFC 0007 case 12
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn max_concurrent_makes_the_third_wait() {
     let (up, seen) = upstream(Behave {
         delay: Duration::from_millis(300),
@@ -91,7 +89,6 @@ async fn max_concurrent_makes_the_third_wait() {
 
 /// RFC 0007 case 14
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn connect_takes_a_slot_per_tunnel() {
     let (up, seen) = upstream(Behave::default()).await;
     let (p, _stop) = proxy(config(vec![Destination {

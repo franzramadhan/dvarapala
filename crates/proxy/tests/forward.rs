@@ -19,7 +19,6 @@ fn egress(destination: &str, result: &str) -> u64 {
 
 /// RFC 0007 case 7
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn absolute_form_goes_out_in_origin_form() {
     record();
     let (up, seen) = upstream(Behave::default()).await;
@@ -45,7 +44,6 @@ async fn absolute_form_goes_out_in_origin_form() {
 
 /// RFC 0007 case 9
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn unlisted_origin_is_denied() {
     record();
     let (up, seen) = upstream(Behave::default()).await;
@@ -69,7 +67,6 @@ async fn unlisted_origin_is_denied() {
 
 /// RFC 0007 case 9, `forward.connect = false`
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn connect_off_is_denied() {
     let (up, _) = upstream(Behave::default()).await;
     let (p, _stop) = proxy(ForwardConfig {
@@ -86,7 +83,6 @@ async fn connect_off_is_denied() {
 
 /// RFC 0007 case 10
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn client_outside_the_list_is_denied() {
     record();
     let (up, seen) = upstream(Behave::default()).await;
@@ -109,7 +105,6 @@ async fn client_outside_the_list_is_denied() {
 
 /// RFC 0007 case 13
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn provider_retry_after_pauses_the_destination() {
     record();
     let (up, seen) = upstream(Behave {

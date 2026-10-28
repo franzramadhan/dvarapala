@@ -155,12 +155,17 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`) |
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
-| `dvarapala_upstream_errors_total` | Upstream connect or response failures |
+| `dvarapala_upstream_errors_total` | Upstream (or forward destination) connect or response failures |
 | `dvarapala_grpc_local_responses_total{status}` | gRPC errors answered locally: `resource_exhausted`, `permission_denied`, `unavailable` |
-| `dvarapala_tunnels_open{protocol}` | Open tunnels; compare with `upgrade.max_tunnels` |
+| `dvarapala_tunnels_open{protocol}` | Open tunnels (`protocol="connect"` for forward mode `CONNECT`); compare with `upgrade.max_tunnels` |
 | `dvarapala_tunnels_total{protocol,end}` | Closed tunnels by `end`: `client` or `upstream` (that side closed first), `idle`, `lifetime`, `shutdown` |
 | `dvarapala_tunnel_bytes_total{direction}` | Bytes copied: `in` from clients, `out` from the upstream |
 | `dvarapala_tunnels_rejected_total` | Upgrades refused over `upgrade.max_tunnels`; logged as `tunnel limit reached` at most once a second |
+| `dvarapala_egress_requests_total{destination,result}` | Forward mode ([RFC 0007](rfc/0007-forward-proxy.md)): `sent`, `delayed` (sent after a wait), `refused` (local `429`, logged as `egress refused` at most once a second), `denied` (`403`; `destination="none"` when no destination is listed for the target) |
+| `dvarapala_egress_wait_seconds{destination}` | Histogram of the wait before a delayed send |
+| `dvarapala_egress_queue{destination}` | Requests waiting now; compare with `max_queue` |
+| `dvarapala_egress_in_flight{destination}` | Requests or `CONNECT` tunnels in flight; compare with `max_concurrent` |
+| `dvarapala_egress_provider_pauses_total{destination}` | Provider `429` or `503` with `Retry-After` that paused the destination |
 | `dvarapala_http2_goaway_total{reason}` | HTTP/2 connections closed with `GOAWAY`: `flood` (rapid reset, error resets, header floods), `protocol` (other protocol errors) |
 | `dvarapala_detection_state` | 0 `Normal`, 1 `Suspect`, 2 `Attack`, 3 `Cooldown` |
 | `dvarapala_detection_rate_zscore` | Current window z-score |
