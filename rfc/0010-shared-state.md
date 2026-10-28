@@ -42,7 +42,8 @@ gateway outage.
   `store.sync_interval` (default 1 s). Limits are therefore approximate,
   with a bounded overshoot (below), never a hard dependency.
 - **Replica count:** each replica writes a heartbeat that expires after
-  three intervals and reads how many are alive.
+  three intervals plus `store.timeout` (one slow round) and reads how
+  many are alive.
   `dvarapala_store_replicas` reports it.
 - **Per-client limit:** the local token bucket stays at the full rate
   (exact when the load balancer pins a client to one replica). On top,
@@ -51,7 +52,8 @@ gateway outage.
   `store.max_keys` clients per sync, busiest first, in one round trip).
   When a client's cluster count for the window is over
   `rate x window + burst`, every replica throttles it locally until the
-  window ends. Overshoot is at most `N x rate x sync_interval` per window.
+  window ends. Overshoot is at most `N x rate x (sync_interval +
+  timeout)` per window: a sync period is the interval plus the round.
 - **Forward proxy:** a destination's rate, burst and `max_concurrent` are
   divided by the live replica count on every sync, so the cluster never
   sends above the agreement (fail closed toward the provider). A provider
@@ -251,6 +253,9 @@ Found while building:
   not deadlock.
 - PostgreSQL errors carry the server message and SQLSTATE only, never the
   detail, which can hold row values. URL parse errors never echo the URL.
+- Heartbeats expire after `3 x sync_interval + timeout`, not three
+  intervals: under load in CI a round took over 200 ms and replicas lost
+  sight of each other between rounds.
 - The PostgreSQL round time in case 15 is mostly the Docker network on
   macOS; it is still well under the 500 ms default timeout.
 
