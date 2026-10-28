@@ -228,7 +228,7 @@ Served on `metrics.listen` at `/metrics`.
 
 | Metric | Description |
 |---|---|
-| `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`) |
+| `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`, `http3`) |
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream (or forward destination) connect or response failures |
@@ -257,3 +257,6 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_tls_handshakes_in_progress` | Handshakes running now |
 | `dvarapala_tls_resumed_total` | Resumed sessions |
 | `dvarapala_tls_cert_expiry_timestamp_seconds` | `notAfter` of the served certificate, Unix seconds |
+| `dvarapala_quic_handshakes_total{result}` | QUIC handshakes ([RFC 0006](rfc/0006-http3.md)) by `ok`, `failed`, `timeout`, `refused` (over `quic.max_connections`, before any crypto) |
+| `dvarapala_quic_retries_total` | Retry packets sent; `quic retry on` and `quic retry off` are logged when `under_load` starts and stops |
+| `dvarapala_quic_connections_open` | Established QUIC connections |
