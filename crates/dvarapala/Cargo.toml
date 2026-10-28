@@ -17,6 +17,7 @@ ml = ["dvarapala-engine/ml"]
 
 [dependencies]
 dvarapala-engine.workspace = true
+dvarapala-l4.workspace = true
 dvarapala-l7.workspace = true
 dvarapala-proxy.workspace = true
 figment.workspace = true

@@ -176,6 +176,38 @@ trusted network. Most clients send `https://` URLs through a proxy as
 tunnel, not per request. Hop-by-hop headers (`Proxy-Authorization`
 included) are removed and no `X-Forwarded-For` is added. A waiting request costs about 5.5 KB.
 
+## `[l4]`
+
+Connection limits and timeouts ([RFC 0009](rfc/0009-l4-limits.md)), checked
+on every accepted connection before TLS or HTTP: total cap, then the
+per-client cap and accept bucket, then the TLS handshake, then HTTP. A
+refused connection is closed at once, with no response and nothing read.
+A client is the peer address grouped by `prefix_v4` / `prefix_v6`;
+`X-Forwarded-For` does not apply, so put a load balancer in front in
+`exempt` (or turn the limits off). Applies in reverse and forward mode,
+cleartext and TLS. WebSocket and `CONNECT` tunnels count as connections
+until they close.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | `false` keeps only the timeouts |
+| `max_connections` | integer | `0` (off) | Open connections in total |
+| `max_per_client` | integer | `256` | Open connections per client; `0` off |
+| `accept_rate` | integer | `0` (off) | New connections per second per client |
+| `accept_burst` | integer | `64` | Bucket size for `accept_rate`; at least 1 |
+| `prefix_v4` | integer | `32` | Group IPv4 clients by this prefix, 1 to 32 |
+| `prefix_v6` | integer | `64` | Group IPv6 clients by this prefix, 1 to 128 |
+| `max_clients` | integer | `100000` | Per-client table capacity, least recently seen evicted (an evicted client's count starts again). At least 1 |
+| `exempt` | list of CIDRs | `[]` | Peers never limited (load balancers, health checks) |
+| `header_timeout` | duration | `"30s"` | Time to receive each request head on a connection, the first and every keep-alive one. Above 0 |
+| `idle_timeout` | duration | `"60s"` | Close a connection with no bytes either way and no request in flight for this long; `"0s"` off. A request is in flight until its response body ends |
+| `min_body_rate` | integer | `0` (off) | Bytes per second a request body must keep up, measured over 10 s windows; slower bodies are cut with `408` |
+
+Between requests on a keep-alive HTTP/1.1 connection, `header_timeout`
+also bounds the wait for the next head, so the lower of the two timeouts
+closes an idle connection. The per-client table costs about 106 bytes per
+client, so the default `max_clients` holds about 11 MB.
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -217,6 +249,10 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_detection_heavy_hitters` | Prefixes in the top-k above the per-client limit |
 | `dvarapala_detection_transitions_total{from,to}` | State changes |
 | `dvarapala_ml_score` | Histogram of model scores (feature `ml`) |
+| `dvarapala_l4_connections_open` | Open connections; compare with `l4.max_connections` |
+| `dvarapala_l4_rejected_total{reason}` | Connections closed on accept: `total`, `per_client`, `rate`; logged as `connection limit` at most once a second |
+| `dvarapala_l4_timeouts_total{kind}` | Connections or requests cut by a timeout: `header`, `idle`, `body` (`408`) |
+| `dvarapala_l4_clients` | Clients in the per-client connection table |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |
 | `dvarapala_tls_handshakes_in_progress` | Handshakes running now |
 | `dvarapala_tls_resumed_total` | Resumed sessions |

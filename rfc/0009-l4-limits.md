@@ -119,6 +119,41 @@ enough for browsers and NAT; the rate limits start off.
 | 13 | open WebSocket tunnel, `max_per_client` 1 | a second connect | refused until the tunnel closes | integration |
 | 14 | 100000 clients | memory of the table | per-entry cost reported, within the budget below | bench |
 
+## Implementation notes
+
+Found while building, folded back from the PRs:
+
+- `Table::entry` gives the bucket and the open count of a prefix in one
+  lookup; `take` is built on it. The per-client cap is checked before the
+  accept bucket, so a connection refused for the cap spends no token.
+- `max_connections` is an atomic counter in `l4`, not in the engine: it
+  has no key. Exempt connections count toward it but not per client.
+- The listener's `accept` loops over refused streams, so `serve` only
+  ever sees admitted ones. `serve` and `serve_tls` take
+  `impl Into<Listener>`: a bare `TcpListener` gets no limits and the
+  default timeouts.
+- Idle means no bytes either way and no request in flight; a request is
+  in flight until its response body ends, so a quiet streaming response
+  (gRPC, server-sent events) is not cut. The watcher ends with the HTTP
+  connection: an upgraded tunnel keeps only its RFC 0005 idle limit, but
+  still holds its place.
+- hyper restarts the header read timer for every head on a keep-alive
+  HTTP/1.1 connection, so between requests the lower of `header_timeout`
+  and `idle_timeout` closes it. A header timeout is counted from hyper's
+  `is_timeout`, which on the server side is only that timer.
+- `min_body_rate` windows start at the first poll of the body. The server
+  puts a `BodyRate` extension on each request, and both proxies wrap the
+  body they send upstream; the cut surfaces as an upstream error that
+  maps to `408`. Other services behind `serve` see the extension and can
+  wrap bodies themselves.
+- Cases 9 to 13 live in `crates/proxy/tests` (`l4.rs`, `l4_tls.rs`): in
+  `l4/tests` they would need the proxy as a dev-dependency of its own
+  dependency.
+- Case 14 (`cargo bench -p dvarapala-l4 --bench conns_table`) counts heap
+  bytes with a counting allocator: about 106 bytes per client at 100000
+  clients, budget 160.
+- The `connection limit` log names the client address, not the prefix.
+
 ## Alternatives
 
 | Option | Why not |
