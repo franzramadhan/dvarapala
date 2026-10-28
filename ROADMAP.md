@@ -13,3 +13,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0006](rfc/0006-http3.md) | Optional HTTP/3 over QUIC with Retry under load | accepted | unplanned |
 | [0007](rfc/0007-forward-proxy.md) | Forward proxy with per-destination egress rate shaping | accepted | v0.5.0 |
 | [0008](rfc/0008-sdk.md) | SDKs for Go, Python and JavaScript over a C ABI | accepted | unplanned |
+| [0009](rfc/0009-l4-limits.md) | L4 connection limits per client and in total, accept rate, header, idle and body timeouts | draft | unplanned |
