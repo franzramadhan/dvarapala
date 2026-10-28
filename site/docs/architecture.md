@@ -52,7 +52,7 @@ Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 Dependencies point inward: the binary and `ffi` depend on the rest,
 `engine` on no other workspace crate. More crates arrive with the RFC that
 needs them: `store` with RFC 0010 (shared state across replicas) and
-`xdp` with RFC 0011 (XDP fast path), both in draft.
+`xdp` with RFC 0011 (XDP fast path), both accepted.
 
 ## Modes
 
