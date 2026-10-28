@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-28 | #41 | unplanned |
+| accepted | 2026-10-28 | #41 | v0.5.0 |
 
 > A forward proxy mode for outbound traffic: requests to each named
 > destination are shaped to an agreed rate, delayed in a bounded queue when
