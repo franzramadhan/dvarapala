@@ -81,6 +81,8 @@ async fn pair<S: Store>(b: &Backend<S>, cfg: ClusterConfig) -> (Replica, Replica
     })
     .await;
     assert!(both, "replicas never saw each other");
+    // a slow first connect (a migration) is not a failed round
+    assert_eq!(a.status.logged(), 0, "store unavailable at start");
     (a, c)
 }
 
