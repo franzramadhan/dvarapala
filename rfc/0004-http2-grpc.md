@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-27 | #19 | v0.3.0 |
+| accepted | 2026-10-27 | #19 | v0.4.0 |
 
 > Speak HTTP/2 to the upstream, pass trailers through, and answer gRPC
 > clients in gRPC, so gRPC services can sit behind dvarapala. Harden the

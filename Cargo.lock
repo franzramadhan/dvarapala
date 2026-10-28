@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dvarapala-engine",
  "dvarapala-l7",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "serde",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-l7"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-proxy"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "criterion",
