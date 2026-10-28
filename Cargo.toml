@@ -33,6 +33,7 @@ hyper-rustls = { version = "0.27.10", default-features = false, features = ["htt
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+libc = { version = "0.2.191", default-features = false }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 criterion = { version = "0.8.2", default-features = false }

@@ -7,9 +7,11 @@ mod reverse;
 mod server;
 #[cfg(feature = "tls")]
 pub mod tls;
+mod tunnels;
 mod upgrade;
 mod upstream;
 
+pub use hop::allowed_upgrade;
 pub use http2::Http2Limits;
 pub use reverse::{ProxyBody, ReverseProxy, UpstreamError};
 pub use server::serve;

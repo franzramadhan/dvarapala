@@ -9,11 +9,14 @@ use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 use tower_service::Service;
 
+use crate::upgrade::Drain;
 use crate::{Http2Limits, ProxyBody, http2};
 
-/// How long open connections get to finish after shutdown starts.
+/// How long open connections and tunnels get to finish after shutdown
+/// starts.
 const DRAIN: Duration = Duration::from_secs(30);
 
 /// Serves `service` on `listener` (HTTP/1.1 and HTTP/2) until `shutdown`
@@ -80,6 +83,9 @@ async fn run<S>(
     builder.http2().timer(TokioTimer::new());
     h2.apply(&mut builder);
     let graceful = GracefulShutdown::new();
+    // tunnels outlive their connection: they close on the signal, and the
+    // drain waits for every receiver (RFC 0005)
+    let (drain_tx, drain_rx) = watch::channel(());
     tokio::pin!(shutdown);
     loop {
         let (stream, peer) = tokio::select! {
@@ -94,9 +100,10 @@ async fn run<S>(
             },
             () = &mut shutdown => break,
         };
-        let svc = service.clone();
+        let (svc, drain) = (service.clone(), Drain(drain_rx.clone()));
         let hyper_svc = hyper::service::service_fn(move |mut req: Request<Incoming>| {
             req.extensions_mut().insert(PeerAddr(peer));
+            req.extensions_mut().insert(drain.clone());
             let mut svc = svc.clone();
             async move {
                 poll_fn(|cx| svc.poll_ready(cx)).await?;
@@ -129,11 +136,13 @@ async fn run<S>(
             }
         });
     }
-    drop(listener);
-    if tokio::time::timeout(DRAIN, graceful.shutdown())
-        .await
-        .is_err()
-    {
+    drop((listener, drain_rx));
+    let _ = drain_tx.send(());
+    let drained = async {
+        graceful.shutdown().await;
+        drain_tx.closed().await;
+    };
+    if tokio::time::timeout(DRAIN, drained).await.is_err() {
         tracing::warn!("connections still open after drain timeout");
     }
 }

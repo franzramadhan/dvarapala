@@ -19,7 +19,6 @@ fn ended(how: &str) -> u64 {
 
 /// RFC 0005 case 2: the client's side of the connection ends first.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn client_close() {
     record();
     let (up, seen) = upstream().await;
@@ -37,7 +36,6 @@ async fn client_close() {
 
 /// RFC 0005 case 3
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn upstream_close() {
     record();
     let (up, _) = upstream().await;
@@ -50,7 +48,6 @@ async fn upstream_close() {
 
 /// RFC 0005 case 9
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn idle_tunnel_is_closed() {
     record();
     let (up, _) = upstream().await;
@@ -70,7 +67,6 @@ async fn idle_tunnel_is_closed() {
 
 /// RFC 0005 case 10: steady traffic does not keep a tunnel past its lifetime.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn lifetime_closes_a_busy_tunnel() {
     record();
     let (up, _) = upstream().await;
@@ -104,7 +100,6 @@ async fn lifetime_closes_a_busy_tunnel() {
 
 /// RFC 0005 case 11
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0005"]
 async fn shutdown_closes_open_tunnels() {
     record();
     let (up, _) = upstream().await;
