@@ -12,6 +12,7 @@ use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Body;
 use hyper_util::client::legacy::Client;
+#[cfg(not(feature = "tls"))]
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use tower_service::Service;
@@ -50,8 +51,13 @@ pub struct ReverseProxy<B> {
     scheme: Scheme,
     authority: Authority,
     base_path: String,
-    client: Client<HttpConnector, B>,
+    client: Client<Connector, B>,
 }
+
+#[cfg(feature = "tls")]
+type Connector = crate::tls::Connector;
+#[cfg(not(feature = "tls"))]
+type Connector = HttpConnector;
 
 impl<B> Clone for ReverseProxy<B> {
     fn clone(&self) -> Self {
@@ -69,34 +75,41 @@ where
     B: Body<Data = Bytes> + Send + Unpin + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
+    /// An `http://` upstream.
     pub fn new(upstream: &str) -> Result<Self, UpstreamError> {
-        let invalid = || UpstreamError::Invalid(upstream.to_owned());
-        let uri: Uri = upstream.parse().map_err(|_| invalid())?;
-        let (Some(scheme), Some(authority)) = (uri.scheme(), uri.authority()) else {
-            return Err(invalid());
-        };
-        if *scheme == Scheme::HTTPS {
-            return Err(UpstreamError::Unsupported(upstream.to_owned()));
-        }
-        if *scheme != Scheme::HTTP || uri.query().is_some() {
-            return Err(invalid());
-        }
-        Ok(Self {
-            scheme: scheme.clone(),
-            authority: authority.clone(),
-            base_path: uri.path().trim_end_matches('/').to_owned(),
-            client: Client::builder(TokioExecutor::new()).build_http(),
-        })
+        let (scheme, authority, base_path) = parse(upstream, false)?;
+        #[cfg(feature = "tls")]
+        let connector = crate::tls::UpstreamTls::default()
+            .connector(false)
+            .map_err(UpstreamError::Tls)?;
+        #[cfg(not(feature = "tls"))]
+        let connector = HttpConnector::new();
+        Ok(Self::build(scheme, authority, base_path, connector))
     }
 
     /// Like [`ReverseProxy::new`], also accepting `https://` upstreams
     /// verified as `tls` says (RFC 0003).
     #[cfg(feature = "tls")]
-    pub fn with_tls(
-        _upstream: &str,
-        _tls: &crate::tls::UpstreamTls,
-    ) -> Result<Self, UpstreamError> {
-        todo!("rfc 0003")
+    pub fn with_tls(upstream: &str, tls: &crate::tls::UpstreamTls) -> Result<Self, UpstreamError> {
+        let (scheme, authority, base_path) = parse(upstream, true)?;
+        let connector = tls
+            .connector(scheme == Scheme::HTTPS)
+            .map_err(UpstreamError::Tls)?;
+        Ok(Self::build(scheme, authority, base_path, connector))
+    }
+
+    fn build(
+        scheme: Scheme,
+        authority: Authority,
+        base_path: String,
+        connector: Connector,
+    ) -> Self {
+        Self {
+            scheme,
+            authority,
+            base_path,
+            client: Client::builder(TokioExecutor::new()).build(connector),
+        }
     }
 
     /// The upstream URI for `uri`: base path, then the request's path and query.
@@ -152,6 +165,23 @@ where
             })
         })
     }
+}
+
+/// Scheme, authority and base path of an absolute upstream URL.
+fn parse(upstream: &str, https: bool) -> Result<(Scheme, Authority, String), UpstreamError> {
+    let invalid = || UpstreamError::Invalid(upstream.to_owned());
+    let uri: Uri = upstream.parse().map_err(|_| invalid())?;
+    let (Some(scheme), Some(authority)) = (uri.scheme(), uri.authority()) else {
+        return Err(invalid());
+    };
+    if *scheme == Scheme::HTTPS && !https {
+        return Err(UpstreamError::Unsupported(upstream.to_owned()));
+    }
+    if (*scheme != Scheme::HTTP && *scheme != Scheme::HTTPS) || uri.query().is_some() {
+        return Err(invalid());
+    }
+    let base_path = uri.path().trim_end_matches('/').to_owned();
+    Ok((scheme.clone(), authority.clone(), base_path))
 }
 
 fn status(code: StatusCode) -> Response<ProxyBody> {

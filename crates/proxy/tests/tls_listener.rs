@@ -76,7 +76,6 @@ async fn closed_within(s: &mut TcpStream, within: Duration) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn alpn_http1() {
     let p = defaults().await;
     let s = connect(p.addr, client_config(&p.ca.pem, &[b"http/1.1"]))
@@ -89,7 +88,6 @@ async fn alpn_http1() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn alpn_h2() {
     let p = defaults().await;
     let s = connect(p.addr, client_config(&p.ca.pem, &[b"h2", b"http/1.1"]))
@@ -99,7 +97,6 @@ async fn alpn_h2() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn no_alpn_is_http1() {
     let p = defaults().await;
     let s = connect(p.addr, client_config(&p.ca.pem, &[]))
@@ -109,7 +106,6 @@ async fn no_alpn_is_http1() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn plaintext_on_tls_port_is_closed() {
     let p = defaults().await;
     let mut s = TcpStream::connect(p.addr).await.unwrap();
@@ -120,7 +116,6 @@ async fn plaintext_on_tls_port_is_closed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn stalled_handshake_times_out() {
     let p = proxy(Duration::from_millis(200), 1024).await;
     let mut s = TcpStream::connect(p.addr).await.unwrap();
@@ -130,7 +125,6 @@ async fn stalled_handshake_times_out() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn handshake_limit_rejects_then_recovers() {
     let p = proxy(Duration::from_secs(10), 2).await;
     let a = TcpStream::connect(p.addr).await.unwrap();
@@ -149,7 +143,6 @@ async fn handshake_limit_rejects_then_recovers() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn reload_swaps_the_certificate() {
     let p = defaults().await;
     let old = std::fs::read_to_string(&p.cert).unwrap();
@@ -175,7 +168,6 @@ async fn reload_swaps_the_certificate() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn failed_reload_keeps_the_old_certificate() {
     let p = defaults().await;
     let old = std::fs::read_to_string(&p.cert).unwrap();
@@ -188,7 +180,6 @@ async fn failed_reload_keeps_the_old_certificate() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0003"]
 async fn returning_client_resumes() {
     let p = defaults().await;
     let cfg = client_config(&p.ca.pem, &[]);

@@ -27,6 +27,46 @@ where
         + 'static,
     S::Future: Send + 'static,
 {
+    run(listener, None, service, shutdown).await;
+}
+
+/// Like [`serve`], with TLS on every connection (RFC 0003). The handshake
+/// runs in the connection's task, bounded by the [`crate::tls::Tls`] limits.
+#[cfg(feature = "tls")]
+pub async fn serve_tls<S>(
+    listener: TcpListener,
+    tls: crate::tls::Tls,
+    service: S,
+    shutdown: impl Future<Output = ()>,
+) where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    run(listener, Some(tls), service, shutdown).await;
+}
+
+#[cfg(feature = "tls")]
+type Tls = crate::tls::Tls;
+/// Never built without the `tls` feature.
+#[cfg(not(feature = "tls"))]
+#[derive(Clone)]
+enum Tls {}
+
+async fn run<S>(
+    listener: TcpListener,
+    tls: Option<Tls>,
+    service: S,
+    shutdown: impl Future<Output = ()>,
+) where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
     let mut builder = Builder::new(TokioExecutor::new());
     // a timer turns on hyper's header read timeout (slowloris)
     builder.http1().timer(TokioTimer::new());
@@ -55,10 +95,27 @@ where
                 svc.call(req).await
             }
         });
-        let conn = builder
-            .serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc)
-            .into_owned();
-        tokio::spawn(graceful.watch(conn));
+        let (builder, watcher, tls) = (builder.clone(), graceful.watcher(), tls.clone());
+        tokio::spawn(async move {
+            match tls {
+                None => {
+                    let conn =
+                        builder.serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc);
+                    let _ = watcher.watch(conn.into_owned()).await;
+                }
+                #[cfg(feature = "tls")]
+                Some(tls) => {
+                    let Some(stream) = tls.accept(stream).await else {
+                        return;
+                    };
+                    let conn =
+                        builder.serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc);
+                    let _ = watcher.watch(conn.into_owned()).await;
+                }
+                #[cfg(not(feature = "tls"))]
+                Some(never) => match never {},
+            }
+        });
     }
     drop(listener);
     if tokio::time::timeout(DRAIN, graceful.shutdown())
@@ -67,21 +124,4 @@ where
     {
         tracing::warn!("connections still open after drain timeout");
     }
-}
-
-/// Like [`serve`], with TLS on every connection (RFC 0003).
-#[cfg(feature = "tls")]
-pub async fn serve_tls<S>(
-    _listener: TcpListener,
-    _tls: crate::tls::Tls,
-    _service: S,
-    _shutdown: impl Future<Output = ()>,
-) where
-    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
-        + Clone
-        + Send
-        + 'static,
-    S::Future: Send + 'static,
-{
-    todo!("rfc 0003")
 }

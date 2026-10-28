@@ -1,6 +1,14 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
+
+use rustls::crypto::ring;
+use rustls::sign::CertifiedKey;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+
+use super::expiry;
 
 /// Why a certificate, key or CA file was refused.
 #[derive(Debug)]
@@ -24,22 +32,40 @@ impl std::error::Error for TlsError {}
 
 /// A certificate chain and its private key, checked to match.
 #[derive(Debug, Clone)]
-pub struct CertPair(());
+pub struct CertPair {
+    pub(crate) key: Arc<CertifiedKey>,
+    not_after: Option<SystemTime>,
+}
 
 impl CertPair {
     /// Parses a PEM chain (leaf first) and a PEM key.
-    pub fn from_pem(_cert: &[u8], _key: &[u8]) -> Result<Self, TlsError> {
-        todo!("rfc 0003")
+    pub fn from_pem(cert: &[u8], key: &[u8]) -> Result<Self, TlsError> {
+        let invalid = |what: &str, e: &dyn fmt::Display| TlsError::Invalid(format!("{what}: {e}"));
+        let chain = CertificateDer::pem_slice_iter(cert)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| invalid("certificate", &e))?;
+        let Some(leaf) = chain.first() else {
+            return Err(TlsError::Invalid("no certificate in the PEM".into()));
+        };
+        let not_after = expiry::not_after(leaf);
+        let key = PrivateKeyDer::from_pem_slice(key).map_err(|e| invalid("private key", &e))?;
+        let key = CertifiedKey::from_der(chain, key, &ring::default_provider())
+            .map_err(|e| invalid("certificate and key", &e))?;
+        Ok(Self {
+            key: Arc::new(key),
+            not_after,
+        })
     }
 
     /// Reads and parses both files.
-    pub fn load(_cert: &Path, _key: &Path) -> Result<Self, TlsError> {
-        todo!("rfc 0003")
+    pub fn load(cert: &Path, key: &Path) -> Result<Self, TlsError> {
+        let read = |p: &Path| std::fs::read(p).map_err(|e| TlsError::Read(p.to_owned(), e));
+        Self::from_pem(&read(cert)?, &read(key)?)
     }
 
     /// When the leaf certificate expires, if its validity could be read.
     pub fn not_after(&self) -> Option<SystemTime> {
-        todo!("rfc 0003")
+        self.not_after
     }
 }
 
@@ -61,7 +87,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn matching_pair_loads_and_reports_expiry() {
         let (cert, key) = leaf(Some((2031, 1, 2)));
         let pair = CertPair::from_pem(cert.as_bytes(), key.as_bytes()).unwrap();
@@ -73,7 +98,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn key_of_another_certificate_is_refused() {
         let (cert, _) = leaf(None);
         let (_, other_key) = leaf(None);
@@ -81,7 +105,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn garbage_and_empty_input_are_refused() {
         let (cert, key) = leaf(None);
         for (c, k) in [
@@ -95,7 +118,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0003"]
     fn missing_file_names_the_path() {
         let e = CertPair::load(
             Path::new("/nonexistent/cert.pem"),
