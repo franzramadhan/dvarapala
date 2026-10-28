@@ -79,7 +79,8 @@ async fn run<S: Store>(
         let round = Round {
             cluster: &cfg.cluster,
             replica: &cfg.replica,
-            heartbeat: cfg.interval * 3,
+            // outlives one interval plus one slow round
+            heartbeat: cfg.interval * 3 + cfg.timeout,
             window,
             max_list: cfg.max_list,
             batch: &batch,
