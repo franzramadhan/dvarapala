@@ -11,6 +11,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 pub const INTERVAL: Duration = Duration::from_millis(100);
+pub const TIMEOUT: Duration = Duration::from_millis(500);
 
 /// A test service URL from `var`. Unset skips the test locally and fails
 /// it in CI, where the services run.
@@ -124,7 +125,7 @@ pub fn replica<S: Store>(store: S, cluster: &str, cfg: ClusterConfig) -> Replica
             cluster: cluster.to_owned(),
             replica: unique("r"),
             interval: INTERVAL,
-            timeout: Duration::from_millis(500),
+            timeout: TIMEOUT,
             max_list: 10_000,
         },
     );

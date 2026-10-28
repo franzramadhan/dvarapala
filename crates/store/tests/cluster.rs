@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
-use common::{INTERVAL, Replica, replica, unique, unix_ms, until};
+use common::{INTERVAL, Replica, TIMEOUT, replica, unique, unix_ms, until};
 use dvarapala_engine::{
     Cidr, ClientKey, Cluster, ClusterConfig, Guard, GuardConfig, Limit, Schedule, ScheduleConfig,
     Slot, Verdict, overshoot, split,
@@ -116,8 +116,9 @@ async fn round_robin_client_is_held_to_one_limit<S: Store>(b: Backend<S>) {
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    // without the store each replica lets about 10 + 19 through
-    let bound = limit.allowance(window) + overshoot(10.0, 2, INTERVAL * 2);
+    // without the store each replica lets about 10 + 19 through. A sync
+    // period is the interval plus the round, at most the timeout.
+    let bound = limit.allowance(window) + overshoot(10.0, 2, INTERVAL + TIMEOUT);
     assert!(f64::from(passed) <= bound, "{passed} passed, bound {bound}");
 }
 
