@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 /// Bounds-checked reads at an offset into a packet. A slice in userspace,
 /// the `xdp_md` data pointers in the program, so the kernel verifier sees
 /// a check against the packet end before every access.
@@ -9,7 +8,7 @@ pub trait Bytes {
 
 impl Bytes for [u8] {
     fn get<const N: usize>(&self, off: usize) -> Option<[u8; N]> {
-        todo!("rfc 0011")
+        self.get(off..off.checked_add(N)?)?.try_into().ok()
     }
 }
 
@@ -41,7 +40,85 @@ const MAX_EXT: usize = 4;
 /// headers. `None` for anything else, a truncated header or a fragment
 /// after the first: "not ours", the program passes it.
 pub fn parse<B: Bytes + ?Sized>(b: &B) -> Option<Packet> {
-    todo!("rfc 0011")
+    let mut off = ETH_LEN;
+    let mut ether = u16::from_be_bytes(b.get(12)?);
+    for _ in 0..MAX_VLANS {
+        if ether != 0x8100 && ether != 0x88a8 {
+            break;
+        }
+        ether = u16::from_be_bytes(b.get(off + 2)?);
+        off += VLAN_LEN;
+    }
+    let mut src = [0u8; 16];
+    let (proto, l4, v4) = match ether {
+        0x0800 => {
+            let [vihl] = b.get::<1>(off)?;
+            let ihl = usize::from(vihl & 0x0f) * 4;
+            if vihl >> 4 != 4 || ihl < 20 {
+                return None;
+            }
+            let frag = u16::from_be_bytes(b.get(off + 6)?);
+            if frag & 0x1fff != 0 {
+                return None;
+            }
+            let [proto] = b.get::<1>(off + 9)?;
+            let a: [u8; 4] = b.get(off + 12)?;
+            src[10] = 0xff;
+            src[11] = 0xff;
+            src[12..].copy_from_slice(&a);
+            (proto, off + ihl, true)
+        }
+        0x86dd => {
+            let [v] = b.get::<1>(off)?;
+            if v >> 4 != 6 {
+                return None;
+            }
+            let [mut next] = b.get::<1>(off + 6)?;
+            src = b.get(off + 8)?;
+            let mut l4 = off + 40;
+            for _ in 0..MAX_EXT {
+                match next {
+                    // hop-by-hop, routing, destination options
+                    0 | 43 | 60 => {
+                        let [n, len] = b.get::<2>(l4)?;
+                        next = n;
+                        l4 += (usize::from(len) + 1) * 8;
+                    }
+                    44 => {
+                        let [n, _, hi, lo] = b.get::<4>(l4)?;
+                        if u16::from_be_bytes([hi, lo]) >> 3 != 0 {
+                            return None;
+                        }
+                        next = n;
+                        l4 += 8;
+                    }
+                    _ => break,
+                }
+            }
+            (next, l4, false)
+        }
+        _ => return None,
+    };
+    let dst_port = u16::from_be_bytes(b.get(l4 + 2)?);
+    let proto = match proto {
+        6 => {
+            let [flags] = b.get::<1>(l4 + 13)?;
+            Proto::Tcp {
+                syn: flags & 0x12 == 0x02,
+            }
+        }
+        17 => {
+            b.get::<8>(l4)?;
+            Proto::Udp
+        }
+        _ => return None,
+    };
+    Some(Packet {
+        src,
+        v4,
+        proto,
+        dst_port,
+    })
 }
 
 #[cfg(test)]
@@ -86,7 +163,6 @@ mod tests {
 
     // RFC 0011 case 1
     #[test]
-    #[ignore = "rfc 0011"]
     fn tcp_syn_over_ipv4() {
         let p = [eth(0x0800), ipv4(6, 0), tcp(8080, 0x02)].concat();
         assert_eq!(
@@ -103,7 +179,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn ipv4_options_and_vlan_tags() {
         // two tags: 802.1ad outer, 802.1Q inner
         let mut p = eth(0x88a8);
@@ -115,7 +190,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn ipv6_extension_headers() {
         let mut ip = std::vec![0u8; 40];
         ip[0] = 0x60;
@@ -144,7 +218,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn not_ours() {
         // ARP, ICMP, a later IPv4 fragment, a bad IHL
         assert_eq!(parse(&eth(0x0806)[..]), None);
@@ -159,7 +232,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn every_truncation_is_none() {
         let p = [eth(0x0800), ipv4(6, 4), tcp(8080, 0x02)].concat();
         for n in 0..p.len() - 6 {
