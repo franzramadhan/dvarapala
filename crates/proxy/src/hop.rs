@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use http::header::{CONNECTION, HeaderMap, HeaderName, HeaderValue};
+use http::header::{CONNECTION, HeaderMap, HeaderName, HeaderValue, TE};
 
 /// RFC 9110 section 7.6.1, plus the legacy `proxy-connection`.
 const HOP_BY_HOP: [&str; 9] = [
@@ -21,8 +21,16 @@ const X_FORWARDED_FOR: &str = "x-forwarded-for";
 /// every header named in `Connection`. With `keep_trailers`, a `te` that
 /// lists `trailers` becomes `te: trailers` (HTTP/2 upstreams, RFC 0004).
 pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap, keep_trailers: bool) {
-    // ponytail: rfc 0004 stub
-    let _ = keep_trailers;
+    let trailers = keep_trailers
+        && headers
+            .get_all(TE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|v| v.split(','))
+            .any(|t| {
+                let name = t.split(';').next().unwrap_or_default();
+                name.trim().eq_ignore_ascii_case("trailers")
+            });
     let listed: Vec<HeaderName> = headers
         .get_all(CONNECTION)
         .iter()
@@ -35,6 +43,9 @@ pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap, keep_trailers: bool) {
     }
     for name in HOP_BY_HOP {
         headers.remove(name);
+    }
+    if trailers {
+        headers.insert(TE, HeaderValue::from_static("trailers"));
     }
 }
 
@@ -79,7 +90,6 @@ mod tests {
 
     /// RFC 0004 case 5
     #[test]
-    #[ignore = "rfc 0004"]
     fn http2_upstream_keeps_te_trailers_only() {
         let mut h = HeaderMap::new();
         h.append("te", HeaderValue::from_static("trailers"));

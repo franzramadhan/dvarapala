@@ -15,6 +15,8 @@ tls = ["dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types", "dep:hyp
 [dependencies]
 dvarapala-l7.workspace = true
 bytes.workspace = true
+# typed GOAWAY reasons; already in the tree through hyper
+h2.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "client", "server"] }

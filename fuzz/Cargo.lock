@@ -98,6 +98,7 @@ version = "0.3.0"
 dependencies = [
  "bytes",
  "dvarapala-l7",
+ "h2",
  "http",
  "http-body-util",
  "hyper",

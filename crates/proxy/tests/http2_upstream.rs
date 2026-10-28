@@ -22,7 +22,6 @@ fn post(addr: std::net::SocketAddr, body: &'static str) -> Request<h2::TestBody>
 
 /// RFC 0004 case 1
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn http1_client_reaches_http2_upstream() {
     let up = upstream().await;
     let (addr, _stop) = proxy(
@@ -42,7 +41,6 @@ async fn http1_client_reaches_http2_upstream() {
 
 /// RFC 0004 case 2
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn http2_client_reaches_http2_upstream() {
     let up = upstream().await;
     let (addr, _stop) = proxy(
@@ -62,7 +60,6 @@ async fn http2_client_reaches_http2_upstream() {
 
 /// RFC 0004 case 3
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn http2_to_http1_only_upstream_is_502() {
     let up = http1_upstream().await;
     let (addr, _stop) = proxy(
@@ -96,7 +93,6 @@ async fn default_downgrades_to_http1() {
 
 /// RFC 0004 case 7, plus `te: trailers` reaching an HTTP/2 upstream
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn trailers_pass_through() {
     let up = upstream().await;
     let (addr, _stop) = proxy(
@@ -121,7 +117,6 @@ async fn trailers_pass_through() {
 
 /// RFC 0004 case 13
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0004"]
 async fn grpc_to_dead_upstream_is_unavailable() {
     // bind then drop: nothing listens on this port
     let dead = TcpListener::bind("127.0.0.1:0")

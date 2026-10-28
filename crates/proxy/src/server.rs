@@ -11,7 +11,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use tokio::net::TcpListener;
 use tower_service::Service;
 
-use crate::{Http2Limits, ProxyBody};
+use crate::{Http2Limits, ProxyBody, http2};
 
 /// How long open connections get to finish after shutdown starts.
 const DRAIN: Duration = Duration::from_secs(30);
@@ -78,8 +78,7 @@ async fn run<S>(
     // a timer turns on hyper's header read timeout (slowloris)
     builder.http1().timer(TokioTimer::new());
     builder.http2().timer(TokioTimer::new());
-    // ponytail: rfc 0004 stub, the limits are not applied yet
-    let _ = h2;
+    h2.apply(&mut builder);
     let graceful = GracefulShutdown::new();
     tokio::pin!(shutdown);
     loop {
@@ -110,7 +109,9 @@ async fn run<S>(
                 None => {
                     let conn =
                         builder.serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc);
-                    let _ = watcher.watch(conn.into_owned()).await;
+                    if let Err(e) = watcher.watch(conn.into_owned()).await {
+                        http2::closed(&*e, peer);
+                    }
                 }
                 #[cfg(feature = "tls")]
                 Some(tls) => {
@@ -119,7 +120,9 @@ async fn run<S>(
                     };
                     let conn =
                         builder.serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc);
-                    let _ = watcher.watch(conn.into_owned()).await;
+                    if let Err(e) = watcher.watch(conn.into_owned()).await {
+                        http2::closed(&*e, peer);
+                    }
                 }
                 #[cfg(not(feature = "tls"))]
                 Some(never) => match never {},
