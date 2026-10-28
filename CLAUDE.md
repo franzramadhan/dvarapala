@@ -17,6 +17,8 @@ C ABI). The design and the milestones are in
 | `crates/store` | memory and Redis state backends |
 | `crates/xdp` | `aya` eBPF programs (Linux only, optional) |
 | `crates/ffi` | C ABI for non-Rust embedders |
+| `crates/node` | N-API addon over the C ABI for `sdk/js` |
+| `sdk/` | Go, Python and JavaScript packages over the C ABI (RFC 0008) |
 | `crates/dvarapala` | the binary |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
 | `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/` |
@@ -102,14 +104,14 @@ comma, colon, parentheses or a new sentence.
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
   `cargo test` (also the binary with `--no-default-features`), the file-size check, the stale C header check (`cbindgen`),
   `cargo deny check` (`deny.toml`), the fuzz targets and one job per SDK
-  (`go`, `python`), plus the `footprint` job (release build, idle RSS
+  (`go`, `python`, `js`), plus the `footprint` job (release build, idle RSS
   under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`, `sdk/`,
   Cargo files, `deny.toml`, toolchain). Release PRs also get
   `release-check`. Docs-only PRs skip the Rust jobs (skipped required
   checks count as passing).
 - `main` is protected by a ruleset: PRs only, squash merge only, signed
   commits, no force push or deletion, required checks `secrets`, `test`,
-  `deny`, `fuzz`, `footprint`, `go`, `python`, `release-check` and `title`. A new job that must gate
+  `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `release-check` and `title`. A new job that must gate
   merges is added to the ruleset in the same PR.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest

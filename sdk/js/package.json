@@ -1,0 +1,14 @@
+{
+  "name": "dvarapala",
+  "version": "0.4.0",
+  "description": "In-process rate limit, flood detection and connection limits from the dvarapala gateway (RFC 0008)",
+  "license": "MIT",
+  "repository": "github:franzramadhan/dvarapala",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "dvarapala.node"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test"
+  }
+}
