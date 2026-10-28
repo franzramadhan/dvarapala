@@ -21,6 +21,7 @@ use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio_tungstenite::WebSocketStream;
@@ -100,6 +101,10 @@ async fn route(
                 return;
             }
         }
+        // hold the connection until the proxy drops it: closing here would
+        // race the client's own close in the `end` label (case 2)
+        let mut sink = [0u8; 64];
+        while matches!(ws.get_mut().read(&mut sink).await, Ok(n) if n > 0) {}
     });
     Ok(Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
