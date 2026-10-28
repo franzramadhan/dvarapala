@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
-use hyper::upgrade::OnUpgrade;
+use hyper::upgrade::{OnUpgrade, Upgraded};
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -60,19 +61,40 @@ pub(crate) fn spawn(
                 return;
             }
         };
-        let open = metrics::gauge!("dvarapala_tunnels_open", "protocol" => protocol.clone());
-        open.increment(1.0);
-        let end = copy(
-            TokioIo::new(client),
-            TokioIo::new(upstream),
-            &slot.0.config,
-            drain,
-        )
-        .await;
-        open.decrement(1.0);
-        metrics::counter!("dvarapala_tunnels_total", "protocol" => protocol, "end" => end)
-            .increment(1);
+        tunnel(client, TokioIo::new(upstream), protocol, &slot, drain).await;
     });
+}
+
+/// Like [`spawn`] for a `CONNECT` tunnel (RFC 0007) to an open `upstream`
+/// connection; `held` is dropped when the tunnel ends.
+pub(crate) fn spawn_connect<T: Send + 'static>(
+    client: OnUpgrade,
+    upstream: TcpStream,
+    slot: Slot,
+    drain: Option<Drain>,
+    held: T,
+) {
+    tokio::spawn(async move {
+        match client.await {
+            Ok(c) => tunnel(c, upstream, "connect".to_owned(), &slot, drain).await,
+            Err(e) => tracing::debug!(error = %e, "upgrade failed"),
+        }
+        drop(held);
+    });
+}
+
+async fn tunnel<U: AsyncRead + AsyncWrite>(
+    client: Upgraded,
+    upstream: U,
+    protocol: String,
+    slot: &Slot,
+    drain: Option<Drain>,
+) {
+    let open = metrics::gauge!("dvarapala_tunnels_open", "protocol" => protocol.clone());
+    open.increment(1.0);
+    let end = copy(TokioIo::new(client), upstream, &slot.0.config, drain).await;
+    open.decrement(1.0);
+    metrics::counter!("dvarapala_tunnels_total", "protocol" => protocol, "end" => end).increment(1);
 }
 
 /// Shared by both sides of one tunnel.

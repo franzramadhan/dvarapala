@@ -51,7 +51,6 @@ async fn tls_upstream(ca: &Ca) -> SocketAddr {
 
 /// RFC 0007 case 8
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0007"]
 async fn https_destination_is_verified() {
     let ca = Ca::new();
     let up = tls_upstream(&ca).await;

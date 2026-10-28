@@ -152,6 +152,35 @@ max_wait = "3s"
 | 15 | request target from the client | arbitrary bytes | route never panics, only listed origins match | fuzz (`forward_route`) |
 | 16 | 1000 waiting requests | memory | per-waiter cost reported, within the budget below | bench |
 
+## Implementation notes
+
+Found while building, folded back from the PRs:
+
+- The schedule is a GCRA: `interval = 1 / rate`, a send may go up to
+  `interval * (burst - 1)` ahead of the theoretical arrival time. A pause
+  pushes every send to its end, where a full burst may go again.
+- Case 6 uses a seeded xorshift generator over 200 configs instead of
+  `proptest`: no new dependency for one test.
+- A request that got a rate slot but no `max_concurrent` place within
+  what is left of `max_wait` is refused with `Retry-After: 1`; its rate
+  slot is spent, so the proxy errs on sending less.
+- `Retry-After` from the provider is read as delay-seconds only; an
+  HTTP-date is ignored.
+- `denied` for an unlisted origin is counted with `destination="none"`;
+  a listed destination refused because of the client or
+  `forward.connect = false` keeps its own name.
+- The proxy replaces `Host` with the target authority, strips hop-by-hop
+  headers (`Proxy-Authorization` included) and adds no
+  `X-Forwarded-For`.
+- `CONNECT` tunnels reuse the RFC 0005 copy loop and `[upgrade]` limits
+  (`max_tunnels`, `idle_timeout`, `max_lifetime`), with
+  `protocol="connect"` in the tunnel metrics.
+- Case 16 is the `forward_wait` bench, not run in CI: about 5.5 KB per
+  waiting request on macOS at 1000 and 3000 waiters (the request head,
+  its connection and the timer), over the 2 KB estimate above. Its budget
+  is 8 KB, so the default `max_queue` of 100 is under 1 MB per
+  destination.
+
 ## Alternatives
 
 | Option | Why not |

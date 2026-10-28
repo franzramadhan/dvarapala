@@ -54,3 +54,10 @@ path = "fuzz_targets/upgrade_headers.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "forward_route"
+path = "fuzz_targets/forward_route.rs"
+test = false
+doc = false
+bench = false
