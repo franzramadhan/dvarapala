@@ -123,6 +123,7 @@ async fn http2_and_auto_over_tls() {
     let with = |protocol| UpstreamConfig {
         protocol,
         tls: tls.clone(),
+        ..UpstreamConfig::default()
     };
     let h2 = tls_upstream_alpn(&ca, &["127.0.0.1"], &[b"h2", b"http/1.1"]).await;
     let h1 = tls_upstream(&ca, &["127.0.0.1"]).await;

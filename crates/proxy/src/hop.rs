@@ -49,6 +49,14 @@ pub(crate) fn strip_hop_by_hop(headers: &mut HeaderMap, keep_trailers: bool) {
     }
 }
 
+/// The entry of `allowed` that an HTTP/1.1 upgrade request asks for:
+/// `Connection` lists `upgrade` and `Upgrade` names that protocol
+/// (RFC 0005). Other requests and protocols get `None`.
+#[allow(dead_code)] // called from reverse.rs once implemented
+pub(crate) fn allowed_upgrade<'a>(_headers: &HeaderMap, _allowed: &'a [String]) -> Option<&'a str> {
+    todo!("rfc 0005")
+}
+
 /// Appends `peer` to `X-Forwarded-For`, keeping earlier hops.
 pub(crate) fn append_forwarded_for(headers: &mut HeaderMap, peer: IpAddr) {
     let mut value: Vec<u8> = Vec::new();
@@ -113,6 +121,29 @@ mod tests {
         h.append("te", HeaderValue::from_static("trailers"));
         strip_hop_by_hop(&mut h, false);
         assert!(h.get("te").is_none());
+    }
+
+    /// RFC 0005 case 5, plus the allow list
+    #[test]
+    #[ignore = "rfc 0005"]
+    fn only_allowed_upgrades_pass() {
+        let ws = ["websocket".to_owned()];
+        let mut h = HeaderMap::new();
+        h.insert("connection", HeaderValue::from_static("Upgrade"));
+        h.insert("upgrade", HeaderValue::from_static("h2c"));
+        assert_eq!(allowed_upgrade(&h, &ws), None);
+        strip_hop_by_hop(&mut h, false);
+        assert!(h.is_empty());
+        h.insert(
+            "connection",
+            HeaderValue::from_static("keep-alive, Upgrade"),
+        );
+        h.insert("upgrade", HeaderValue::from_static("h2c, WebSocket"));
+        assert_eq!(allowed_upgrade(&h, &ws), Some("websocket"));
+        assert_eq!(allowed_upgrade(&h, &[]), None);
+        // `Upgrade` alone, without `Connection: upgrade`, is not a request
+        h.remove("connection");
+        assert_eq!(allowed_upgrade(&h, &ws), None);
     }
 
     #[test]

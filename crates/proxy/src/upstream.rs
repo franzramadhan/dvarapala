@@ -19,6 +19,8 @@ pub enum UpstreamProtocol {
 #[derive(Debug, Clone, Default)]
 pub struct UpstreamConfig {
     pub protocol: UpstreamProtocol,
+    /// WebSocket and other HTTP/1.1 upgrades (RFC 0005).
+    pub upgrade: crate::UpgradeConfig,
     /// Verification of `https://` upstreams (RFC 0003).
     #[cfg(feature = "tls")]
     pub tls: crate::tls::UpstreamTls,
