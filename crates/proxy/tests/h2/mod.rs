@@ -193,6 +193,8 @@ pub async fn proxy(
     protocol: UpstreamProtocol,
     h2: Http2Limits,
 ) -> (SocketAddr, oneshot::Sender<()>) {
+    // the update fills `tls` when the feature is on
+    #[allow(clippy::needless_update)]
     let config = UpstreamConfig {
         protocol,
         ..UpstreamConfig::default()
