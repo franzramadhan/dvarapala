@@ -1,0 +1,18 @@
+[package]
+name = "dvarapala-ffi"
+description = "C ABI over the dvarapala engine for the Go, Python and JavaScript SDKs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "dvarapala"
+# rlib for the tests and the fuzz target
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+# The engine only: no parser, no runtime, nothing to unwind into the host.
+[dependencies]
+dvarapala-engine.workspace = true
