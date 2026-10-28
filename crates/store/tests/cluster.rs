@@ -88,7 +88,8 @@ async fn pair<S: Store>(b: &Backend<S>, cfg: ClusterConfig) -> (Replica, Replica
 
 // case 5
 async fn round_robin_client_is_held_to_one_limit<S: Store>(b: Backend<S>) {
-    let window = Duration::from_secs(2);
+    let window = Duration::from_secs(4);
+    let w = window.as_millis() as u64;
     let limit = Limit::new(10, 10).unwrap();
     let (a, c) = pair(&b, config(Some(limit), window)).await;
     let guard = || {
@@ -101,10 +102,10 @@ async fn round_robin_client_is_held_to_one_limit<S: Store>(b: Backend<S>) {
     };
     let mut local = [guard(), guard()];
     // start at a window boundary so the run counts in one window
-    while unix_ms() % 2000 > 50 {
+    while unix_ms() % w > 50 {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    let end = unix_ms() - unix_ms() % 2000 + 1950;
+    let end = unix_ms() - unix_ms() % w + w - 50;
     let mut passed = 0;
     let mut i = 0;
     while unix_ms() < end {
@@ -118,9 +119,10 @@ async fn round_robin_client_is_held_to_one_limit<S: Store>(b: Backend<S>) {
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    // without the store each replica lets about 10 + 19 through. A sync
-    // period is the interval plus the round, at most the timeout.
-    let bound = limit.allowance(window) + overshoot(10.0, 2, INTERVAL + TIMEOUT);
+    // without the store each replica lets about 10 + 39 through. A count
+    // reaches the other replica within two sync periods (its round, then
+    // ours), each the interval plus the round, at most the timeout.
+    let bound = limit.allowance(window) + overshoot(10.0, 2, (INTERVAL + TIMEOUT) * 2);
     assert!(f64::from(passed) <= bound, "{passed} passed, bound {bound}");
 }
 
@@ -243,10 +245,14 @@ macro_rules! cases {
         mod $backend {
             #[allow(unused_imports)]
             use super::*;
+            // one test at a time per backend: a loaded CI runner otherwise
+            // pushes rounds past the timeout
+            static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
             $(
                 #[tokio::test(flavor = "multi_thread")]
                 #[ignore = "rfc 0010"]
                 async fn $case() {
+                    let _serial = SERIAL.lock().await;
                     #[allow(clippy::redundant_closure_call)]
                     let Some(b) = ($make)().await else { return };
                     super::$case(b).await
