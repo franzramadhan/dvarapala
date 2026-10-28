@@ -25,15 +25,18 @@ pub type ProxyBody = BoxBody<Bytes, hyper::Error>;
 pub enum UpstreamError {
     /// Not an absolute `http://host[:port][/path]` URL.
     Invalid(String),
-    /// `https://` upstreams come with the TLS RFC.
+    /// `https://` without the `tls` feature, or through [`ReverseProxy::new`].
     Unsupported(String),
+    /// The upstream TLS settings could not be loaded.
+    Tls(String),
 }
 
 impl fmt::Display for UpstreamError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(u) => write!(f, "upstream {u:?} is not an absolute http:// URL"),
-            Self::Unsupported(u) => write!(f, "upstream {u:?}: only http:// is supported for now"),
+            Self::Unsupported(u) => write!(f, "upstream {u:?}: https:// needs the tls feature"),
+            Self::Tls(why) => write!(f, "upstream tls: {why}"),
         }
     }
 }
@@ -84,6 +87,16 @@ where
             base_path: uri.path().trim_end_matches('/').to_owned(),
             client: Client::builder(TokioExecutor::new()).build_http(),
         })
+    }
+
+    /// Like [`ReverseProxy::new`], also accepting `https://` upstreams
+    /// verified as `tls` says (RFC 0003).
+    #[cfg(feature = "tls")]
+    pub fn with_tls(
+        _upstream: &str,
+        _tls: &crate::tls::UpstreamTls,
+    ) -> Result<Self, UpstreamError> {
+        todo!("rfc 0003")
     }
 
     /// The upstream URI for `uri`: base path, then the request's path and query.

@@ -68,3 +68,20 @@ where
         tracing::warn!("connections still open after drain timeout");
     }
 }
+
+/// Like [`serve`], with TLS on every connection (RFC 0003).
+#[cfg(feature = "tls")]
+pub async fn serve_tls<S>(
+    _listener: TcpListener,
+    _tls: crate::tls::Tls,
+    _service: S,
+    _shutdown: impl Future<Output = ()>,
+) where
+    S: Service<Request<Incoming>, Response = Response<ProxyBody>, Error = Infallible>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    todo!("rfc 0003")
+}

@@ -27,6 +27,10 @@ pub struct Config {
     pub detection: Detection,
     #[serde(default)]
     pub ml: Ml,
+    #[serde(default)]
+    pub tls: Tls,
+    #[serde(default)]
+    pub upstream_tls: UpstreamTls,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -81,6 +85,44 @@ pub struct Ml {
     /// XGBoost JSON model; unset turns scoring off.
     pub model: Option<PathBuf>,
     pub threshold: f64,
+}
+
+/// RFC 0003 listener TLS. No `cert` means a cleartext listener.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Tls {
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
+    #[serde(deserialize_with = "duration")]
+    pub handshake_timeout: Duration,
+    pub max_handshakes: usize,
+}
+
+/// RFC 0003 verification of `https://` upstreams.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct UpstreamTls {
+    pub ca_file: Option<PathBuf>,
+    pub server_name: Option<String>,
+}
+
+impl Tls {
+    /// `(cert, key)` when TLS is on; an error when only one is set.
+    #[allow(dead_code)] // stub until the rfc 0003 wiring
+    pub fn paths(&self) -> Result<Option<(&Path, &Path)>, String> {
+        todo!("rfc 0003")
+    }
+}
+
+impl Default for Tls {
+    fn default() -> Self {
+        Self {
+            cert: None,
+            key: None,
+            handshake_timeout: Duration::from_secs(10),
+            max_handshakes: 1024,
+        }
+    }
 }
 
 impl Default for Detection {
@@ -289,6 +331,55 @@ mod tests {
             assert!(e.contains("block"), "{e}");
             Ok(())
         });
+    }
+
+    #[test]
+    #[ignore = "rfc 0003"]
+    fn tls_defaults_match_the_rfc() {
+        Jail::expect_with(|j| {
+            j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
+            let c = load(None).map_err(|e| e.to_string())?;
+            assert_eq!((c.tls.cert.as_deref(), c.tls.key.as_deref()), (None, None));
+            assert_eq!(c.tls.handshake_timeout, Duration::from_secs(10));
+            assert_eq!(c.tls.max_handshakes, 1024);
+            assert_eq!(c.upstream_tls, UpstreamTls::default());
+            assert_eq!(c.tls.paths(), Ok(None));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[ignore = "rfc 0003"]
+    fn tls_from_file() {
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"https://127.0.0.1:8443\"\n[tls]\ncert = \"c.pem\"\nkey = \"k.pem\"\nhandshake_timeout = \"2s\"\n[upstream_tls]\nserver_name = \"app.test\"\n",
+            )?;
+            let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            assert_eq!(
+                c.tls.paths(),
+                Ok(Some((Path::new("c.pem"), Path::new("k.pem"))))
+            );
+            assert_eq!(c.tls.handshake_timeout, Duration::from_secs(2));
+            assert_eq!(c.upstream_tls.server_name.as_deref(), Some("app.test"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[ignore = "rfc 0003"]
+    fn tls_key_is_required_with_cert() {
+        let t = Tls {
+            cert: Some("c.pem".into()),
+            ..Tls::default()
+        };
+        assert!(t.paths().unwrap_err().contains("tls.key"));
+        let t = Tls {
+            key: Some("k.pem".into()),
+            ..Tls::default()
+        };
+        assert!(t.paths().unwrap_err().contains("tls.cert"));
     }
 
     #[test]
