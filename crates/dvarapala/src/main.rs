@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Instant;
 
-use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
+use dvarapala_engine::{BlockSink, Cidr, DetectConfig, Limit, TrustedProxies};
 use dvarapala_l4::Listener;
 use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
 #[cfg(feature = "tls")]
@@ -88,6 +88,8 @@ fn main() -> ExitCode {
 #[tokio::main]
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
+    // first: a fast path that was asked for and cannot attach stops here
+    let block = xdp::start(&cfg)?;
     let h2 = http2(&cfg.http2)?;
     let tls = listener_tls(&cfg.tls)?;
     let tunnels = upgrade(&cfg.upgrade)?;
@@ -113,7 +115,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             tls: upstream_tls,
             cluster,
         })?;
-        let listener = bind(&cfg).await?;
+        let listener = bind(&cfg, block).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
         listen(listener, tls, h2, proxy).await;
         tracing::info!("stopped");
@@ -151,7 +153,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             scoring: scoring(&cfg.ml)?,
             now: Instant::now,
             cluster,
-            block: None,
+            block: block.clone(),
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {
@@ -162,7 +164,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         }
         None
     };
-    let listener = bind(&cfg).await?;
+    let listener = bind(&cfg, block).await?;
     #[cfg(feature = "http3")]
     let h3 = match (&quic, &tls) {
         (Some(q), Some(t)) => Some(quic::start(q, t, target, &upstream, limiter.clone())?),
@@ -188,14 +190,18 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
 }
 
 /// Starts the metrics endpoint when set, then binds the proxy listener
-/// with the `[l4]` limits.
-async fn bind(cfg: &config::Config) -> Result<Listener, Box<dyn Error>> {
+/// with the `[l4]` limits, reporting accept-rate refusals to `block`.
+async fn bind(cfg: &config::Config, block: Option<BlockSink>) -> Result<Listener, Box<dyn Error>> {
     let l4 = cfg.l4.config()?;
     if !cfg.metrics.listen.is_empty() {
         let addr = cfg.metrics.listen.parse()?;
         metrics::serve(addr, metrics::install()?).await?;
     }
-    Ok(Listener::new(TcpListener::bind(cfg.listen).await?, l4)?)
+    let listener = Listener::new(TcpListener::bind(cfg.listen).await?, l4)?;
+    Ok(match block {
+        Some(b) => listener.with_block(b),
+        None => listener,
+    })
 }
 
 fn detection(d: &config::Detection) -> Option<Detection> {

@@ -104,3 +104,22 @@ prefix_v6 = 64
 # timeout = "500ms"
 # migrate = true
 # ca_file = "/etc/dvarapala/store-ca.pem"
+
+# XDP fast path (RFC 0011), Linux only, in builds with the xdp feature.
+# Needs CAP_BPF and CAP_NET_ADMIN. Start in observe mode and watch
+# dvarapala_xdp_packets_total{action="would_drop"}.
+# [xdp]
+# interface = "eth0"
+# mode = "observe"
+# attach = "auto"
+# allow = ["192.0.2.0/24"]
+# block = []
+# block_ttl = "10m"
+# max_blocks = 65536
+# pps = 0
+# syn_pps = 100
+# udp_pps = 0
+# burst = 200
+# prefix_v4 = 32
+# prefix_v6 = 64
+# max_sources = 1048576

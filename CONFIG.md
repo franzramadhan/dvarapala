@@ -274,6 +274,44 @@ in transaction mode (PgBouncer with `max_prepared_statements = 0` works).
 apply by hand, with no config and no database. A database at another
 schema version than the binary's counts as a store failure.
 
+## `[xdp]`
+
+XDP fast path ([RFC 0011](rfc/0011-xdp.md)), Linux only, in builds with
+the `xdp` feature (off by default). An eBPF program on `interface` drops
+blocked sources and per-source packet floods in the driver, before the
+kernel builds a socket buffer. It needs `CAP_BPF` and `CAP_NET_ADMIN` (or
+root) and only looks at packets to the TCP `listen` port and the UDP
+`quic.listen` port; every other packet passes untouched.
+
+- Per packet to a protected port: `allow` passes, then `block` (static
+  and dynamic) drops, then the per-source rates, then pass.
+- Dynamic blocks, with `mode = "enforce"` and `block_ttl` above 0:
+  clients refused by the `[l4]` accept rate and heavy hitters that
+  detection finds in its own `enforce` mode are blocked for `block_ttl`.
+  Both completed a TCP handshake, so a spoofed address cannot get a
+  victim blocked.
+- An `interface` that cannot be attached is a start-up error. The
+  program is detached when the process exits or is killed; `ip link set
+  dev <iface> xdp off` detaches it at once.
+- Kernel SYN cookies stay the backlog defence: keep
+  `net.ipv4.tcp_syncookies = 1`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `interface` | string | unset | Network interface to attach to; unset turns XDP off |
+| `mode` | `"observe"` or `"enforce"` | `"observe"` | `"observe"` counts `would_drop` and passes everything |
+| `attach` | `"auto"`, `"native"` or `"generic"` | `"auto"` | `"auto"`: native driver mode, else generic (skb) mode, logged as `xdp generic mode`; `"native"` makes a driver without support a start-up error |
+| `allow` | list of CIDRs | `[]` | Never dropped; wins over `block`. Load balancers and health checkers |
+| `block` | list of CIDRs | `[]` | Always dropped |
+| `block_ttl` | duration | `"10m"` | How long a dynamic block lasts; `"0s"` turns dynamic blocks off |
+| `max_blocks` | integer | `65536` | Entries in the block list, static and dynamic; a full list replaces the dynamic entry that expires first |
+| `pps` | integer | `0` (off) | Packets per second per source prefix to protected ports |
+| `syn_pps` | integer | `100` | TCP SYNs per second per source prefix |
+| `udp_pps` | integer | `0` (off) | UDP packets per second per source prefix |
+| `burst` | integer | `200` | Bucket size for the rates above. At least 1 while a rate is on |
+| `prefix_v4` / `prefix_v6` | integer | `32` / `64` | Source grouping for the rates |
+| `max_sources` | integer | `1048576` | Sources tracked, least recently seen evicted first: about 40 MB of kernel memory at the default, outside the process RSS |
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -332,3 +370,6 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_store_sync_seconds` | Histogram of one sync round |
 | `dvarapala_store_sync_errors_total` | Failed rounds |
 | `dvarapala_store_keys_dropped_total` | Clients left out of a round by `store.max_keys` |
+| `dvarapala_xdp_packets_total{action,reason}` | XDP verdicts ([RFC 0011](rfc/0011-xdp.md)): `action` is `pass`, `drop` or `would_drop`; `reason` is `allow`, `block`, `pps`, `syn`, `udp` or `other` (passed every check, or not to a protected port) |
+| `dvarapala_xdp_blocks` | Entries in the XDP block list, static and dynamic |
+| `dvarapala_xdp_attached{mode}` | 1 while attached, `native` or `generic`; `xdp attached` is logged at start |

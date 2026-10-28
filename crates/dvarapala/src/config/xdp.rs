@@ -1,7 +1,9 @@
 //! The `[xdp]` section (RFC 0011).
 
+use std::path::Path;
 use std::time::Duration;
 
+use dvarapala_engine::Cidr;
 use dvarapala_xdp::{Attach, XdpConfig};
 use serde::Deserialize;
 
@@ -69,10 +71,60 @@ pub struct XdpPlan {
 impl Xdp {
     /// `None` when `xdp.interface` is unset. `tcp_port` is the listener's,
     /// `udp_port` the QUIC listener's (0 without one).
-    #[allow(dead_code)]
     pub fn plan(&self, tcp_port: u16, udp_port: u16) -> Result<Option<XdpPlan>, String> {
-        let _ = (tcp_port, udp_port);
-        todo!("rfc 0011")
+        let Some(interface) = &self.interface else {
+            return Ok(None);
+        };
+        if interface.is_empty() || !Path::new("/sys/class/net").join(interface).exists() {
+            return Err(format!("xdp.interface {interface:?}: no such interface"));
+        }
+        let cidrs = |key: &str, list: &[String]| {
+            list.iter()
+                .map(|c| c.parse::<Cidr>().map_err(|e| format!("xdp.{key}: {e}")))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let allow = cidrs("allow", &self.allow)?;
+        let block = cidrs("block", &self.block)?;
+        if self.burst == 0 && (self.pps > 0 || self.syn_pps > 0 || self.udp_pps > 0) {
+            return Err("xdp.burst must be at least 1".into());
+        }
+        if self.prefix_v4 > 32 || self.prefix_v6 > 128 {
+            return Err("xdp.prefix_v4 is at most 32, xdp.prefix_v6 at most 128".into());
+        }
+        if self.max_sources == 0 {
+            return Err("xdp.max_sources must be at least 1".into());
+        }
+        if block.len() > self.max_blocks as usize {
+            return Err(format!(
+                "xdp.block has {} entries, over xdp.max_blocks ({})",
+                block.len(),
+                self.max_blocks
+            ));
+        }
+        Ok(Some(XdpPlan {
+            interface: interface.clone(),
+            attach: match self.attach {
+                AttachMode::Auto => Attach::Auto,
+                AttachMode::Native => Attach::Native,
+                AttachMode::Generic => Attach::Generic,
+            },
+            config: XdpConfig {
+                enforce: self.mode == Mode::Enforce,
+                allow,
+                block,
+                block_ttl: self.block_ttl,
+                max_blocks: self.max_blocks,
+                pps: self.pps,
+                syn_pps: self.syn_pps,
+                udp_pps: self.udp_pps,
+                burst: self.burst,
+                prefix_v4: self.prefix_v4,
+                prefix_v6: self.prefix_v6,
+                max_sources: self.max_sources,
+                tcp_port,
+                udp_port,
+            },
+        }))
     }
 }
 
@@ -81,14 +133,12 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "rfc 0011"]
     fn off_without_an_interface() {
         assert_eq!(Xdp::default().plan(8080, 0), Ok(None));
     }
 
     // RFC 0011 case 10
     #[test]
-    #[ignore = "rfc 0011"]
     fn missing_interface_names_the_key() {
         let x = Xdp {
             interface: Some("dvx-none0".into()),
@@ -100,7 +150,6 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "rfc 0011"]
     fn plan_carries_the_ports_and_lists() {
         let x = Xdp {
             interface: Some("lo".into()),
