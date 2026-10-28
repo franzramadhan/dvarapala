@@ -95,8 +95,12 @@ impl Schedule {
     /// New limits that keep the queue position and any pause (RFC 0010:
     /// the budget split by live replicas).
     pub fn reconfigure(&mut self, config: ScheduleConfig) -> Result<(), ScheduleError> {
-        let _ = config;
-        todo!("rfc 0010")
+        *self = Self {
+            tat: self.tat,
+            paused_until: self.paused_until,
+            ..Self::new(config)?
+        };
+        Ok(())
     }
 
     /// The slot for one request at `now`, with `waiting` requests already
@@ -164,7 +168,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0010"]
     fn reconfigure_keeps_the_pause() {
         let mut s = schedule(10.0, 1, 0, Duration::ZERO);
         let t = Instant::now();
