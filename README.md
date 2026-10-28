@@ -21,11 +21,15 @@ Shipped in the latest release (see [CHANGELOG.md](CHANGELOG.md)):
   XGBoost tree model; `observe` or `enforce` ([RFC 0002](rfc/0002-adaptive-detection.md))
 - TLS listener with ALPN (`h2`, `http/1.1`), `SIGHUP` certificate reload,
   bounded handshakes, `https://` upstreams ([RFC 0003](rfc/0003-tls.md))
-- Cleartext HTTP/1.1 and h2c inbound, HTTP/1.1 to the upstream
+- Cleartext HTTP/1.1 and h2c inbound; HTTP/1.1, HTTP/2 (h2c or ALPN) or
+  `auto` to the upstream, trailers passed through, gRPC-shaped local
+  errors, HTTP/2 flood limits (rapid reset, header lists, keepalive)
+  ([RFC 0004](rfc/0004-http2-grpc.md))
+- WebSocket upgrades, rate limited like any request, with tunnel count,
+  idle and lifetime limits ([RFC 0005](rfc/0005-websocket.md))
 - Prometheus metrics on a separate listener
 
-Next: HTTP/2 upstreams and gRPC ([RFC 0004](rfc/0004-http2-grpc.md)),
-WebSocket ([RFC 0005](rfc/0005-websocket.md)). See [ROADMAP.md](ROADMAP.md).
+Next: forward proxy mode. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
@@ -106,7 +110,7 @@ trust boundary.
 crates/
   engine/       verdict engine, rules, limiters (no I/O, no tokio)
   l7/           tower layers: rate limit, detection
-  proxy/        reverse proxy core, TLS
+  proxy/        reverse proxy core, TLS, HTTP/2, WebSocket tunnels
   dvarapala/    binary
   l4/ store/ xdp/ ffi/   planned: added with the RFC that needs them
 ```
