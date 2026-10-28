@@ -33,6 +33,11 @@ tokio-rustls = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
+# RFC 0005: rate limit in front of the upgrade (case 7)
+dvarapala-engine.workspace = true
+futures-util.workspace = true
+tokio-tungstenite.workspace = true
+tower-layer.workspace = true
 rcgen.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util"] }
 

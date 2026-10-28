@@ -75,6 +75,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             config::UpstreamProtocol::Http2 => UpstreamProtocol::Http2,
             config::UpstreamProtocol::Auto => UpstreamProtocol::Auto,
         },
+        upgrade: Default::default(),
         #[cfg(feature = "tls")]
         tls: UpstreamTls {
             ca_file: cfg.upstream_tls.ca_file.clone(),
