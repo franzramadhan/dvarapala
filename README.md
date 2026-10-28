@@ -117,9 +117,10 @@ embed as a git dependency; they are not on crates.io.
 Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 Every feature lands through an RFC: see [ROADMAP.md](ROADMAP.md) and
-[rfc/](rfc/). Sketched in [RFC 0001](rfc/0001-foundation.md) but without an
-RFC of their own yet: an eBPF/XDP fast path for packet floods, a shared
-Redis state store for clusters, request rules and challenges.
+[rfc/](rfc/). In draft: shared state across replicas through Redis
+([RFC 0010](rfc/0010-shared-state.md)) and an XDP fast path for packet
+floods ([RFC 0011](rfc/0011-xdp.md)). Request rules and challenges,
+sketched in [RFC 0001](rfc/0001-foundation.md), have no RFC yet.
 Contributor and agent rules are in [CLAUDE.md](CLAUDE.md).
 
 ## Security
