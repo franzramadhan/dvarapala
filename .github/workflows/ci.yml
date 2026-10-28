@@ -64,6 +64,33 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-26.04
+    # RFC 0010: the shared store backends. The store tests fail in CI
+    # when a URL is unset, and skip locally.
+    services:
+      redis:
+        image: redis@sha256:6ba19c50b56777f5c11c58eff8ddb69d0d5f27ba131cffb63f180ccfd43c66af # 7.4.12-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-retries 15
+      postgres:
+        image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 # 17.11-alpine
+        # no password: the service is reachable from this job only
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: dvarapala
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 2s --health-retries 15
+      pgbouncer:
+        image: edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d # 1.26.1
+        env:
+          DATABASE_URL: postgres://postgres@postgres:5432/dvarapala
+          POOL_MODE: transaction
+          AUTH_TYPE: trust
+          MAX_PREPARED_STATEMENTS: "0"
+        ports: ["6432:5432"]
+    env:
+      DVARAPALA_TEST_REDIS: redis://127.0.0.1:6379/0
+      DVARAPALA_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/dvarapala?sslmode=disable
+      DVARAPALA_TEST_PGBOUNCER: postgres://postgres@127.0.0.1:6432/dvarapala?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
