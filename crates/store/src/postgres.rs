@@ -165,7 +165,7 @@ async fn round(tx: &Transaction<'_>, r: &Round<'_>) -> Result<Reply, Error> {
     .map_err(pg)?;
     let replicas: i64 = tx
         .query_one(
-            "SELECT count(*) FROM dvarapala.heartbeats WHERE cluster = $1 AND expires_at > now()",
+            "SELECT count(*) FROM dvarapala.heartbeats WHERE cluster = $1 AND expires_at > clock_timestamp()",
             &[&c],
         )
         .await
@@ -233,10 +233,12 @@ async fn round(tx: &Transaction<'_>, r: &Round<'_>) -> Result<Reply, Error> {
     .await
     .map_err(pg)?;
 
+    // clock_timestamp, not now(): now() is when the transaction began,
+    // and a mark written meanwhile would look longer than its ttl
     let rows = tx
         .query(
-            "SELECT kind, key, (extract(epoch FROM expires_at - now()) * 1000)::bigint \
-             FROM dvarapala.marks WHERE cluster = $1 AND expires_at > now() LIMIT $2",
+            "SELECT kind, key, (extract(epoch FROM expires_at - clock_timestamp()) * 1000)::bigint \
+             FROM dvarapala.marks WHERE cluster = $1 AND expires_at > clock_timestamp() LIMIT $2",
             &[&c, &(r.max_list as i64)],
         )
         .await
