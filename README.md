@@ -3,146 +3,124 @@
 [![ci](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml/badge.svg)](https://github.com/franzramadhan/dvarapala/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/tests.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/franzramadhan/dvarapala/badges/coverage.json)](https://github.com/franzramadhan/dvarapala/actions/workflows/coverage.yml)
+[![release](https://img.shields.io/github/v/release/franzramadhan/dvarapala)](https://github.com/franzramadhan/dvarapala/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Anti-DDoS gateway with L4 to L7 protection. Named after the Dvarapala, the
-guardian statues that stand at Javanese temple gates.
+**An anti-DDoS gateway in Rust, with protection from L4 to L7.** It sits in
+front of your app, bounds each client's connections and requests, learns
+what normal traffic looks like, and drops floods before they reach the
+upstream.
 
-Runs as a standalone reverse proxy, as a forward proxy that holds outbound
-calls to each provider's agreed rate, or in process through the Go, Python
-and JavaScript SDKs over a C ABI.
+Named after the Dvarapala, the guardian statues at Javanese temple gates.
 
-## Features
+Docs: **[dvarapala.franzramadhan.dev](https://dvarapala.franzramadhan.dev)**
 
-Shipped in the latest release (see [CHANGELOG.md](CHANGELOG.md)):
+## Three ways to run it
 
-- Token bucket rate limit per client, bounded client table, trusted proxy
-  `X-Forwarded-For` handling ([RFC 0001](rfc/0001-foundation.md))
-- Adaptive detection: heavy hitters, rate baseline, source entropy, optional
-  XGBoost tree model; `observe` or `enforce` ([RFC 0002](rfc/0002-adaptive-detection.md))
-- TLS listener with ALPN (`h2`, `http/1.1`), `SIGHUP` certificate reload,
-  bounded handshakes, `https://` upstreams ([RFC 0003](rfc/0003-tls.md))
-- Cleartext HTTP/1.1 and h2c inbound; HTTP/1.1, HTTP/2 (h2c or ALPN) or
-  `auto` to the upstream, trailers passed through, gRPC-shaped local
-  errors, HTTP/2 flood limits (rapid reset, header lists, keepalive)
-  ([RFC 0004](rfc/0004-http2-grpc.md))
-- WebSocket upgrades, rate limited like any request, with tunnel count,
-  idle and lifetime limits ([RFC 0005](rfc/0005-websocket.md))
-- Optional HTTP/3 over QUIC (build feature `http3`): Retry under load,
-  connection and stream limits, `Alt-Svc` on TCP responses
-  ([RFC 0006](rfc/0006-http3.md))
-- Forward proxy mode for egress rate compliance: per-destination rate,
-  concurrency, bounded queue, provider `Retry-After` pauses, `CONNECT`
-  tunnels ([RFC 0007](rfc/0007-forward-proxy.md))
-- SDKs for Go, Python and JavaScript over a C ABI: the same rate limit,
-  detection and connection limits in process, with HTTP middleware
-  ([RFC 0008](rfc/0008-sdk.md))
-- L4 limits before any HTTP: open connections per client and in total,
-  accept rate per client, header, idle and minimum body rate timeouts
-  ([RFC 0009](rfc/0009-l4-limits.md))
-- Prometheus metrics on a separate listener
+| Mode | What it does | Start with |
+|---|---|---|
+| **Reverse proxy** | Protects your app from inbound floods: HTTP/1.1, HTTP/2, gRPC, WebSocket, optional HTTP/3 | [`examples/dvarapala.toml`](examples/dvarapala.toml) |
+| **Forward proxy** | Holds your outbound calls to each third-party API's agreed rate and concurrency | [`examples/forward-proxy.toml`](examples/forward-proxy.toml) |
+| **In process** | The same limits inside a Go, Python or JavaScript service, over a C ABI | [`sdk/`](sdk/README.md) |
 
-Next: see [ROADMAP.md](ROADMAP.md).
+## What it protects
+
+| Layer | Protection | RFC |
+|---|---|---|
+| L4 | Open connections per client and in total, accept rate per client, header, idle and slow-body timeouts, before any TLS or HTTP | [RFC 0009](rfc/0009-l4-limits.md) |
+| TLS | rustls with ALPN, `SIGHUP` certificate reload, bounded handshakes, verified `https://` upstreams | [RFC 0003](rfc/0003-tls.md) |
+| QUIC | Optional HTTP/3 listener (feature `http3`): Retry under load, connection and stream limits, no 0-RTT, `Alt-Svc` on TCP | [RFC 0006](rfc/0006-http3.md) |
+| HTTP/2 | Rapid reset, header list and keepalive limits; h2c or ALPN upstreams, trailers, gRPC-shaped local errors | [RFC 0004](rfc/0004-http2-grpc.md) |
+| L7 | Token bucket per client with a bounded table, `X-Forwarded-For` only from trusted proxies | [RFC 0001](rfc/0001-foundation.md) |
+| Detection | Heavy hitters, rate baseline, source entropy, optional XGBoost model; `observe` first, then `enforce` | [RFC 0002](rfc/0002-adaptive-detection.md) |
+| WebSocket | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
+| Egress | Per-destination rate, concurrency and bounded queue, provider `Retry-After` pauses, `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
+| Embedding | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
+
+Every layer is optional and configurable. Every verdict is a Prometheus
+metric on a separate listener and a structured log line, so you can watch
+before you enforce.
 
 ## Quick start
 
 Download a binary from the
-[releases](https://github.com/franzramadhan/dvarapala/releases) page (check
-it against `SHA256SUMS`), or build one:
+[releases](https://github.com/franzramadhan/dvarapala/releases) page:
+static Linux (musl) and macOS, `x86_64` and `aarch64`. Check it first:
 
 ```sh
-cargo build --release
+shasum -a 256 -c SHA256SUMS --ignore-missing
+tar xzf dvarapala-v<version>-<target>.tar.gz
+./dvarapala serve --config dvarapala.toml
+```
+
+Or build from source (toolchain pinned in `rust-toolchain.toml`):
+
+```sh
+cargo build --release                    # reverse and forward proxy, TLS
+cargo build --release --features http3   # plus HTTP/3 over QUIC
+cargo build --release --features ml      # plus the XGBoost scorer
 ./target/release/dvarapala serve --config examples/dvarapala.toml
 ```
 
-Every key and default is in [CONFIG.md](CONFIG.md). Environment variables
-override the file: `DVARAPALA__RATE_LIMIT__RATE=5`.
+The smallest config:
+
+```toml
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:8081"
+```
+
+Everything else has a default: 20 requests per second per client (burst
+40), detection in `observe` mode, metrics on `127.0.0.1:9090`. Every key
+is in [CONFIG.md](CONFIG.md); environment variables override the file
+(`DVARAPALA__RATE_LIMIT__RATE=5`). More deployments, from TLS and gRPC to
+HTTP/3 and connection limits, are in [examples/](examples/README.md).
 
 ## Architecture
 
 ```
-                 +-------------------------------------------------+
-  packets  --->  | L3/L4 fast path (eBPF/XDP, optional)            |
-                 |  SYN flood, UDP flood, per-IP pps, blocklist    |
-                 +-------------------------+-----------------------+
-                                           |
-                 +-------------------------v-----------------------+
-  conns    --->  | L4 userspace                                    |
-                 |  conn limits per IP, accept rate, idle/slowloris|
-                 |  timeouts, TLS handshake budget                 |
-                 +-------------------------+-----------------------+
-                                           |
-                 +-------------------------v-----------------------+
-  requests --->  | L7 pipeline (ordered middleware chain)          |
-                 |  1. identity: IP, CIDR, JA3/JA4, headers        |
-                 |  2. rate limit: token bucket per key            |
-                 |  3. rules: path, method, size, header checks    |
-                 |  4. challenge: JS / PoW / cookie on suspicion   |
-                 |  5. verdict: allow | throttle | challenge | drop |
-                 +-------------------------+-----------------------+
-                                           |
-                 +-------------------------v-----------------------+
-                 | Proxy core: reverse (upstream pool) or forward  |
-                 +-------------------------------------------------+
-
-  Shared: state store (local memory, Redis for cluster), config hot-reload,
-          metrics (Prometheus), structured logs.
+  connections --> L4        caps per client and in total, accept rate,   --> close
+                            header, idle and body timeouts
+                    |
+                    v
+                  listener  TCP, TLS (ALPN h2, http/1.1) or QUIC (HTTP/3)
+                    |
+                    v
+  requests -----> L7        identity: peer, or X-Forwarded-For if trusted
+                            rate limit: token bucket per client         --> 429
+                            detection: heavy hitters, baseline, entropy --> 403
+                    |
+                    v
+                  proxy     reverse: HTTP/1.1, HTTP/2, WebSocket to the upstream
+                            forward: shaped per destination, or CONNECT
 ```
 
-### Core idea
+One engine, several entry points. The `engine` crate decides every verdict
+and does no I/O, so the binary and the SDKs share the same logic.
 
-One engine, three entry points. The protection logic lives in a single
-`engine` package that decides a verdict for a connection or request. The
-binary and the SDK are thin wrappers around it.
+| Crate | Role |
+|---|---|
+| `engine` | Verdicts, token buckets, detection sketches, egress schedule. No I/O, no async runtime |
+| `l4` | Listener wrapper: connection limits and timeouts |
+| `l7` | `tower` layers: rate limit, detection |
+| `proxy` | Reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels |
+| `ffi` | C ABI (`dvarapala.h`) for the SDKs |
+| `node` | N-API addon for the JavaScript SDK |
+| `dvarapala` | The binary: config, metrics, signals |
 
-| Mode            | Entry point                                      | Status  |
-|-----------------|--------------------------------------------------|---------|
-| Reverse proxy   | `dvarapala serve --config <file>`                | shipped |
-| Forward proxy   | `mode = "forward"`: absolute-form requests and `CONNECT` | shipped |
-| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper (git dependency) | shipped |
-| Embedded (other)| C ABI (`cdylib`, `staticlib`, `dvarapala.h`) and the `sdk/` packages for Go, Python, Node | shipped |
-
-### Stack
-
-Rust, for a small memory footprint without a GC and memory safety at the
-trust boundary.
-
-| Concern     | Crate                         |
-|-------------|-------------------------------|
-| Async I/O   | `tokio`                       |
-| HTTP/1, 2   | `hyper`, `hyper-util`         |
-| HTTP/3      | `quinn`, `h3` (feature `http3`) |
-| Middleware  | `tower`                       |
-| TLS         | `rustls`                      |
-| eBPF/XDP    | `aya` (pure Rust, no libbpf)  |
-| C bindings  | `cbindgen`                    |
-| Metrics     | `metrics` + Prometheus exporter |
-
-### Layout (cargo workspace)
-
-```
-crates/
-  engine/       verdict engine, rules, limiters (no I/O, no tokio)
-  l4/           listener wrapper: connection limits, timeouts
-  l7/           tower layers: rate limit, detection
-  proxy/        reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels
-  ffi/          C ABI (dvarapala.h) for the SDKs
-  node/         N-API addon for the JavaScript SDK
-  dvarapala/    binary
-sdk/            Go, Python and JavaScript packages
-```
-
-`store/` and `xdp/` are added with the RFC that needs them.
-
-`engine` stays free of I/O and async runtime so it can embed anywhere,
-including through the C ABI.
+Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3`. The idle
+binary has a 10 MB RSS budget that CI checks on every change. Rust crates
+embed as a git dependency; they are not on crates.io.
 
 ## Status
 
 0.x is alpha: config keys and metrics may change between minor versions.
-Features land through RFCs: see
-[ROADMAP.md](ROADMAP.md) and [rfc/](rfc/). Contributor and agent rules are
-in [CLAUDE.md](CLAUDE.md).
+Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
+Every feature lands through an RFC: see [ROADMAP.md](ROADMAP.md) and
+[rfc/](rfc/). Sketched in [RFC 0001](rfc/0001-foundation.md) but without an
+RFC of their own yet: an eBPF/XDP fast path for packet floods, a shared
+Redis state store for clusters, request rules and challenges.
+Contributor and agent rules are in [CLAUDE.md](CLAUDE.md).
 
 ## Security
 
