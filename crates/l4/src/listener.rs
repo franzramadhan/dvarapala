@@ -29,8 +29,18 @@ impl Listener {
     /// The next connection within the limits; refused ones are closed and
     /// counted here.
     pub async fn accept(&self) -> io::Result<(Conn, SocketAddr)> {
-        let _ = (&self.tcp, &self.limits);
-        todo!("rfc 0009")
+        loop {
+            let (io, addr) = self.tcp.accept().await?;
+            let guard = match &self.limits {
+                None => None,
+                // a refused stream is dropped here, closed unread
+                Some(l) => match l.admit(addr.ip()) {
+                    Ok(g) => Some(g),
+                    Err(_) => continue,
+                },
+            };
+            return Ok((Conn::new(io, guard), addr));
+        }
     }
 
     pub fn config(&self) -> &L4Config {
