@@ -231,6 +231,49 @@ also bounds the wait for the next head, so the lower of the two timeouts
 closes an idle connection. The per-client table costs about 106 bytes per
 client, so the default `max_clients` holds about 11 MB.
 
+## `[store]`
+
+Shared state across replicas ([RFC 0010](rfc/0010-shared-state.md)), so N
+replicas behind a load balancer act as one gateway. Each backend is in
+builds with its cargo feature (`redis`, `postgres`, both off by default).
+Nothing on the request path waits for the store: each replica keeps its
+local limits and syncs in the background every `sync_interval`.
+
+- Per-client limit: each replica adds the requests it allowed per client
+  to a cluster count for the window (10 sync intervals). A client over
+  `rate x window + burst` in the cluster is throttled on every replica
+  until the window ends. Overshoot is at most `replicas x rate x 2 x
+  (sync_interval + timeout)` per window: a count reaches the other
+  replicas within two sync periods.
+- Forward mode: each destination's `rate`, `burst` and `max_concurrent`
+  are divided by the live replica count, and a provider `Retry-After`
+  seen by one replica pauses the destination on all.
+- Detection: heavy hitters found in `enforce` mode are dropped on every
+  replica for `cooldown_windows` windows.
+- Lost store: fail open to local limits, logged once as `store
+  unavailable` and `store recovered`; reconnects back off up to
+  `sync_interval x 10`. Forward mode keeps the last replica count, so
+  egress stays under the agreement.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `backend` | `"memory"`, `"redis"` or `"postgres"` | `"memory"` | `"memory"` shares nothing: no task, no socket |
+| `url` | string | unset | Required with a shared backend: `redis://<host>:6379/0` (`rediss://` for TLS) or `postgres://<user>@<host>:5432/<db>?sslmode=verify-full`. Put the password in `DVARAPALA__STORE__URL`; it is never logged |
+| `cluster` | string | `"dvarapala"` | Key prefix (Redis) or `cluster` column (PostgreSQL); replicas with the same store and name share state |
+| `sync_interval` | duration | `"1s"` | How often each replica syncs. Above 0 |
+| `max_keys` | integer | `10000` | Clients synced per interval at most, busiest first; the rest count in `dvarapala_store_keys_dropped_total`. At least 1 |
+| `timeout` | duration | `"500ms"` | A round slower than this fails (PostgreSQL also sets `statement_timeout`); connecting, migrations included, may take 10 times as long. Above 0 |
+| `migrate` | bool | `true` | PostgreSQL only: apply missing schema migrations at start. `false` only checks the version, for a role without DDL rights |
+| `ca_file` | path | system roots | PEM roots for `rediss://` and PostgreSQL TLS |
+
+PostgreSQL keeps `UNLOGGED` tables in the `dvarapala` schema; a failover
+empties them, which is the same as a short store outage. With
+CloudNativePG, point `url` at the `<cluster>-rw` service or a `Pooler`
+in transaction mode (PgBouncer with `max_prepared_statements = 0` works).
+`dvarapala store schema [--from <version>]` prints the migration SQL to
+apply by hand, with no config and no database. A database at another
+schema version than the binary's counts as a store failure.
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -252,6 +295,7 @@ Served on `metrics.listen` at `/metrics`.
 | Metric | Description |
 |---|---|
 | `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`, `http3`) |
+| `dvarapala_requests_total{verdict,protocol,scope="cluster"}` | Requests refused by the shared cluster count or drop list ([RFC 0010](rfc/0010-shared-state.md)), not the local bucket |
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream (or forward destination) connect or response failures |
@@ -283,3 +327,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_quic_handshakes_total{result}` | QUIC handshakes ([RFC 0006](rfc/0006-http3.md)) by `ok`, `failed`, `timeout`, `refused` (over `quic.max_connections`, before any crypto) |
 | `dvarapala_quic_retries_total` | Retry packets sent; `quic retry on` and `quic retry off` are logged when `under_load` starts and stops |
 | `dvarapala_quic_connections_open` | Established QUIC connections |
+| `dvarapala_store_up` | 1 while the last sync round succeeded, 0 otherwise ([RFC 0010](rfc/0010-shared-state.md)) |
+| `dvarapala_store_replicas` | Live replicas seen in the last round |
+| `dvarapala_store_sync_seconds` | Histogram of one sync round |
+| `dvarapala_store_sync_errors_total` | Failed rounds |
+| `dvarapala_store_keys_dropped_total` | Clients left out of a round by `store.max_keys` |

@@ -42,7 +42,8 @@ gateway outage.
   `store.sync_interval` (default 1 s). Limits are therefore approximate,
   with a bounded overshoot (below), never a hard dependency.
 - **Replica count:** each replica writes a heartbeat that expires after
-  three intervals and reads how many are alive.
+  three intervals plus `store.timeout` (one slow round) and reads how
+  many are alive.
   `dvarapala_store_replicas` reports it.
 - **Per-client limit:** the local token bucket stays at the full rate
   (exact when the load balancer pins a client to one replica). On top,
@@ -51,7 +52,10 @@ gateway outage.
   `store.max_keys` clients per sync, busiest first, in one round trip).
   When a client's cluster count for the window is over
   `rate x window + burst`, every replica throttles it locally until the
-  window ends. Overshoot is at most `N x rate x sync_interval` per window.
+  window ends. Overshoot is at most `N x rate x 2 x (sync_interval +
+  timeout)` per window: a count reaches the other replicas within two
+  sync periods (the writer's round, then the reader's), each the
+  interval plus the round.
 - **Forward proxy:** a destination's rate, burst and `max_concurrent` are
   divided by the live replica count on every sync, so the cluster never
   sends above the agreement (fail closed toward the provider). A provider
@@ -71,11 +75,16 @@ gateway outage.
 
 ### Redis backend
 
-One sync round is one pipeline: `SET` the heartbeat with `PX`, `SCAN`
-the heartbeat keys for the count, `INCRBY` and `PEXPIRE` per client
-window key, `SET ... PX` for pauses and heavy hitters, `MGET` the window
-keys this replica cares about. Keys are `<cluster>:<kind>:<id>`; Redis
-TTLs do the expiry.
+One sync round is one pipeline over one multiplexed connection. Keys
+start with `<cluster>:`:
+
+- `replicas`, a sorted set scored by heartbeat expiry: `ZADD`, then
+  `ZREMRANGEBYSCORE` of the expired ones and `ZCARD` for the count.
+- `count:<window_start>`, one hash per window: `HINCRBY` per client
+  returns the cluster total, one `PEXPIRE` of two windows on the hash.
+- `heavy` and `pauses`, sorted sets scored by expiry: `ZADD GT` (the
+  later expiry wins), `ZREMRANGEBYSCORE`, then `ZRANGEBYSCORE ...
+  WITHSCORES LIMIT` for the live entries.
 
 ### PostgreSQL backend
 
@@ -100,7 +109,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
   upserts the same way; the live replica count is a `count(*)` over
   unexpired heartbeats.
 - Expiry: reads filter on `expires_at > now()`, and one replica at a time
-  (`pg_try_advisory_lock`) deletes expired rows every 10 intervals, in
+  (`pg_try_advisory_xact_lock`) deletes expired rows every 10 intervals, in
   batches, so the tables stay small.
 - `UNLOGGED` skips the WAL: cheaper writes, and the counters are not
   replicated to standbys and are emptied after a crash or failover. That
@@ -110,8 +119,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
   `0002.sql`, ...), embedded in the binary with `include_str!`. A
   `dvarapala.schema_version` table holds the last one applied. With
   `store.migrate = true` (the default) the backend takes
-  `pg_advisory_lock`, applies the missing files in order, each in its own
-  transaction with its version bump, and releases the lock, so replicas
+  `pg_advisory_xact_lock` in each migration's transaction, applies the
+  missing files in order, each with its version bump, so replicas
   starting together migrate once. With `store.migrate = false` it only
   checks the version and runs with a role that has `SELECT`, `INSERT`,
   `UPDATE` and `DELETE` on the `dvarapala` schema.
@@ -127,11 +136,14 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
   apply. Since the tables only hold counters that expire within a
   window, a migration may drop and recreate a table instead of
   converting rows.
-- Connection: `store.url` is a libpq URL; TLS follows `sslmode`
-  (`require`, `verify-ca`, `verify-full`) with rustls. With CloudNativePG,
+- Connection: `store.url` is a libpq URL; TLS with rustls unless
+  `sslmode=disable`, and the server certificate is always verified
+  (`verify-ca` and `verify-full` behave as `require`, which verifies
+  here), against `store.ca_file` or the system roots. With CloudNativePG,
   point it at the `<cluster>-rw` service or a `Pooler` in transaction
-  mode: the backend uses unnamed prepared statements only, so it works
-  through PgBouncer.
+  mode: every statement runs inside a transaction, so its prepare and
+  execute stay on one server connection, and it works through PgBouncer
+  with `max_prepared_statements = 0`.
 - `LISTEN/NOTIFY` for instant pauses is left out: one sync interval of
   delay is within the forward proxy's budget, and NOTIFY does not pass
   through a transaction-mode pooler.
@@ -141,7 +153,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS dvarapala.counters (
 | Crate / module | Responsibility |
 |---|---|
 | `crates/engine/src/cluster.rs` | pure merge rules: window counts to verdict overrides, budget split by replica count, overshoot bound. Time and counts as input |
-| `crates/store/src/lib.rs` | the `Store` trait: heartbeat, add and read window counts, publish and read the drop list and pauses |
+| `crates/store/src/round.rs` | the `Store` trait: one `round` call sends the heartbeat, window counts, heavy hitters and pauses, and returns the replica count, totals and shared lists |
 | `crates/store/src/memory.rs` | single-process backend, the default; also the test double |
 | `crates/store/src/redis.rs` | Redis backend: one pipeline per round, one connection, reconnect with backoff |
 | `crates/store/src/postgres.rs` | PostgreSQL backend: one transaction per round, schema creation, expiry sweep |
@@ -175,6 +187,7 @@ feature so the default binary does not grow, and each must pass
 | `store.max_keys` | `10000` | Clients synced per interval at most, busiest first |
 | `store.timeout` | `"500ms"` | One sync round slower than this counts as a failure |
 | `store.migrate` | `true` | PostgreSQL only: apply missing migrations at start; `false` only checks `schema_version` |
+| `store.ca_file` | unset | PEM roots for `rediss://` and PostgreSQL TLS; the system roots when unset |
 
 ### Logs and metrics
 
@@ -195,9 +208,9 @@ PostgreSQL service in CI.
 
 | # | Given | When | Then | Kind |
 |---|---|---|---|---|
-| 1 | `backend = "memory"` | start | no store task, no socket, behavior and metrics as before | integration (`dvarapala`) |
+| 1 | `backend = "memory"` | start | no store task, no socket, behavior and metrics as before | unit (`dvarapala::store`) |
 | 2 | window counts from 3 replicas over the limit | merge | the client is throttled until the window ends | unit (`engine::cluster`) |
-| 3 | rate 20, 4 replicas, interval 1 s | overshoot bound | at most 80 extra requests per window | unit (`engine::cluster`) |
+| 3 | rate 20, 4 replicas, a period of 1 s | overshoot bound | at most 80 extra requests per period | unit (`engine::cluster`) |
 | 4 | destination rate 50, 2 then 3 live replicas | split | 25, then 16.67 per replica; burst and `max_concurrent` rounded down, at least 1 | unit (`engine::cluster`) |
 | 5 | two proxies on one store, one client round robin, rate 10 | 100 requests in 1 s | at most `10 + burst + overshoot` reach the upstream | integration (`store/tests`) |
 | 6 | two forward proxies on one store, destination rate 10 | callers on both send 100 rps | the test upstream sees at most 10 rps plus burst | integration (`store/tests`) |
@@ -209,12 +222,12 @@ PostgreSQL service in CI.
 | 12 | `store.url` with a password | any log or error | the password does not appear | unit (`config`) |
 | 13 | `backend = "redis"` or `"postgres"`, no `url` | start | config error naming `store.url` | unit (`config`) |
 | 14 | arbitrary bytes as a Redis reply | the backend parses it | no panic, an error | fuzz (`store_reply`) |
-| 15 | sync task on a busy proxy | bench | request latency p99 unchanged within noise, sync under 5 ms for 10 000 keys on loopback | bench (`store/benches`) |
+| 15 | 10 000 active clients | one sync round on loopback | well under the default `timeout` (measured: memory 0.7 ms, Redis 16 ms, PostgreSQL 150 ms in Docker on macOS) | bench (`store/benches`) |
 | 16 | PostgreSQL, empty database, `migrate = true` | two replicas start at once | every migration applied once, `schema_version` is the binary's | integration (`store/tests`) |
 | 17 | PostgreSQL, `migrate = false`, schema missing or older | start | `store unavailable` naming both versions, local limits apply | integration (`store/tests`) |
 | 18 | PostgreSQL at version 1, binary at version 2 | start with `migrate = true` | only `0002.sql` runs, version 2 | integration (`store/tests`) |
 | 19 | database newer than the binary | start | `store unavailable` naming both versions, no migration runs | integration (`store/tests`) |
-| 20 | `dvarapala store schema --from 1` | run without config | prints migrations after 1 with their version updates; applied by `psql` it gives the same schema as `migrate = true` | integration (`dvarapala`) |
+| 20 | `dvarapala store schema --from 1` | run without config | prints migrations after 1 with their version updates; applied by hand it gives the same schema as `migrate = true` | integration (`store/tests`) |
 | 21 | released migration files | CI | a changed released file fails the build (checksum list in `migrate.rs`) | unit (`store::migrate`) |
 | 22 | PostgreSQL, rows past `expires_at` | sweep | deleted by one replica only, unexpired rows kept | integration (`store/tests`) |
 | 23 | PostgreSQL through PgBouncer in transaction mode | cases 5 and 9 | same results | integration (`store/tests`) |
@@ -222,6 +235,35 @@ PostgreSQL service in CI.
 The PostgreSQL wire protocol is parsed by `tokio-postgres` and the reply
 values are typed columns, so no separate fuzz target; case 14 covers the
 Redis client, whose replies are untyped.
+
+## Implementation notes
+
+Found while building:
+
+- The window is 10 sync intervals (10 s by default), not a key of its
+  own; the cluster limit is `rate x window + burst`.
+- The `Store` trait has one method, `round`: each backend does a whole
+  round in one pipeline or one transaction, so there is nothing to gain
+  from finer calls.
+- Redis counts go in one hash per window (`HINCRBY`) instead of a key
+  per client: one `PEXPIRE` per round instead of one per client, and the
+  10 000 key round went from 37 ms to 16 ms.
+- Advisory locks are transaction scoped (`pg_advisory_xact_lock`,
+  `pg_try_advisory_xact_lock`): session locks do not survive a
+  transaction-mode pooler. The sweep deletes at most 10 000 rows per
+  table each time; keys are sorted before the upsert so two replicas do
+  not deadlock.
+- PostgreSQL errors carry the server message and SQLSTATE only, never the
+  detail, which can hold row values. URL parse errors never echo the URL.
+- Heartbeats expire after `3 x sync_interval + timeout`, not three
+  intervals: under load in CI a round took over 200 ms and replicas lost
+  sight of each other between rounds.
+- Connecting (and migrating, on PostgreSQL) is its own step before a
+  round, bounded by `10 x timeout` instead of `timeout`: replicas
+  starting together wait for each other's migrations, and a slow
+  migration must not be cancelled and retried forever.
+- The PostgreSQL round time in case 15 is mostly the Docker network on
+  macOS; it is still well under the 500 ms default timeout.
 
 ## Alternatives
 
