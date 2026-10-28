@@ -8,8 +8,9 @@
 Anti-DDoS gateway with L4 to L7 protection. Named after the Dvarapala, the
 guardian statues that stand at Javanese temple gates.
 
-Runs as a standalone reverse proxy today. A forward proxy mode and
-embedding (Rust crate, C ABI) are planned.
+Runs as a standalone reverse proxy, as a forward proxy that holds outbound
+calls to each provider's agreed rate, or in process through the Go, Python
+and JavaScript SDKs over a C ABI.
 
 ## Features
 
@@ -27,9 +28,21 @@ Shipped in the latest release (see [CHANGELOG.md](CHANGELOG.md)):
   ([RFC 0004](rfc/0004-http2-grpc.md))
 - WebSocket upgrades, rate limited like any request, with tunnel count,
   idle and lifetime limits ([RFC 0005](rfc/0005-websocket.md))
+- Optional HTTP/3 over QUIC (build feature `http3`): Retry under load,
+  connection and stream limits, `Alt-Svc` on TCP responses
+  ([RFC 0006](rfc/0006-http3.md))
+- Forward proxy mode for egress rate compliance: per-destination rate,
+  concurrency, bounded queue, provider `Retry-After` pauses, `CONNECT`
+  tunnels ([RFC 0007](rfc/0007-forward-proxy.md))
+- SDKs for Go, Python and JavaScript over a C ABI: the same rate limit,
+  detection and connection limits in process, with HTTP middleware
+  ([RFC 0008](rfc/0008-sdk.md))
+- L4 limits before any HTTP: open connections per client and in total,
+  accept rate per client, header, idle and minimum body rate timeouts
+  ([RFC 0009](rfc/0009-l4-limits.md))
 - Prometheus metrics on a separate listener
 
-Next: forward proxy mode. See [ROADMAP.md](ROADMAP.md).
+Next: see [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
@@ -85,9 +98,9 @@ binary and the SDK are thin wrappers around it.
 | Mode            | Entry point                                      | Status  |
 |-----------------|--------------------------------------------------|---------|
 | Reverse proxy   | `dvarapala serve --config <file>`                | shipped |
-| Forward proxy   | HTTP CONNECT                                     | planned |
-| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper       | planned |
-| Embedded (other)| C ABI (`cdylib` + generated header) for Go, Python, Node, etc. | planned |
+| Forward proxy   | `mode = "forward"`: absolute-form requests and `CONNECT` | shipped |
+| Embedded (Rust) | `tower::Layer` and a `TcpListener` wrapper (git dependency) | shipped |
+| Embedded (other)| C ABI (`cdylib`, `staticlib`, `dvarapala.h`) and the `sdk/` packages for Go, Python, Node | shipped |
 
 ### Stack
 
@@ -98,6 +111,7 @@ trust boundary.
 |-------------|-------------------------------|
 | Async I/O   | `tokio`                       |
 | HTTP/1, 2   | `hyper`, `hyper-util`         |
+| HTTP/3      | `quinn`, `h3` (feature `http3`) |
 | Middleware  | `tower`                       |
 | TLS         | `rustls`                      |
 | eBPF/XDP    | `aya` (pure Rust, no libbpf)  |
@@ -109,11 +123,16 @@ trust boundary.
 ```
 crates/
   engine/       verdict engine, rules, limiters (no I/O, no tokio)
+  l4/           listener wrapper: connection limits, timeouts
   l7/           tower layers: rate limit, detection
-  proxy/        reverse proxy core, TLS, HTTP/2, WebSocket tunnels
+  proxy/        reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels
+  ffi/          C ABI (dvarapala.h) for the SDKs
+  node/         N-API addon for the JavaScript SDK
   dvarapala/    binary
-  l4/ store/ xdp/ ffi/   planned: added with the RFC that needs them
+sdk/            Go, Python and JavaScript packages
 ```
+
+`store/` and `xdp/` are added with the RFC that needs them.
 
 `engine` stays free of I/O and async runtime so it can embed anywhere,
 including through the C ABI.

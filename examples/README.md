@@ -10,6 +10,8 @@ the values differ from the defaults. Every key is described in
 | [reverse-proxy-tls.toml](reverse-proxy-tls.toml) | Public HTTPS endpoint, TLS to a private-CA upstream, behind a load balancer |
 | [grpc.toml](grpc.toml) | gRPC API: HTTP/2 upstream, gRPC-shaped errors, tighter stream limits |
 | [websocket.toml](websocket.toml) | Chat or live updates: rate limited upgrades, tunnel limits |
+| [http3.toml](http3.toml) | HTTP/3 next to HTTPS, Retry under load (build with `--features http3`) |
+| [l4-limits.toml](l4-limits.toml) | Public endpoint without a load balancer: tight connection caps, accept rate, slowloris timeouts |
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and

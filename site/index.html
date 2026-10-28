@@ -29,7 +29,7 @@
   <div class="wrap hero">
     <img class="logo" src="logo.svg" alt="dvarapala logo: a split temple gate">
     <h1>A guardian at the gate</h1>
-    <p class="lead">An anti-DDoS reverse proxy in Rust. It sits in front of your app, limits each client, learns what normal traffic looks like, and drops floods before they reach the upstream.</p>
+    <p class="lead">An anti-DDoS gateway in Rust. It sits in front of your app, limits each client, learns what normal traffic looks like, and drops floods before they reach the upstream. It also runs as a forward proxy for outbound calls, or inside your service through the SDKs.</p>
     <div class="buttons">
       <a class="btn primary" href="docs/">Get started</a>
       <a class="btn" href="docs/configuration.html">Configuration</a>
@@ -48,7 +48,11 @@
         <div class="card"><span class="tag">RFC 0003</span><h3>TLS</h3><p>rustls listener with ALPN, certificate reload on <code>SIGHUP</code>, bounded handshakes and <code>https://</code> upstreams.</p></div>
         <div class="card"><span class="tag">RFC 0004</span><h3>HTTP/2 and gRPC</h3><p>h2c or ALPN to the upstream, trailers passed through, gRPC-shaped local errors, limits against rapid reset and header floods.</p></div>
         <div class="card"><span class="tag">RFC 0005</span><h3>WebSocket</h3><p>Upgrades are rate limited like any request. Tunnel count, idle and lifetime limits bound what each admitted client holds.</p></div>
-        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, tunnels and HTTP/2 limits on a separate listener, so you can watch before you enforce.</p></div>
+        <div class="card"><span class="tag">RFC 0009</span><h3>Connection limits</h3><p>Open connections per client and in total, an accept rate per client, and header, idle and slow-body timeouts, all before any HTTP is parsed.</p></div>
+        <div class="card"><span class="tag">RFC 0006</span><h3>HTTP/3 over QUIC</h3><p>An optional UDP listener (build feature <code>http3</code>) into the same limits, with Retry under load so spoofed Initials cost no handshakes.</p></div>
+        <div class="card"><span class="tag">RFC 0007</span><h3>Forward proxy</h3><p>Outbound calls to each third-party API held to its agreed rate and concurrency, queued briefly or refused locally before the provider blocks you.</p></div>
+        <div class="card"><span class="tag">RFC 0008</span><h3>SDKs</h3><p>The same rate limit, detection and connection limits in process for Go, Python and JavaScript, over a C ABI, with HTTP middleware.</p></div>
+        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, connection limits, tunnels, HTTP/2 and QUIC on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
   </section>
@@ -59,10 +63,11 @@
         <h2>How it works</h2>
         <p class="sub">One engine decides a verdict for each request. The proxy only carries it out.</p>
         <ul class="checks">
+          <li><b>Bound</b> connections first: per-client and total caps, accept rate and timeouts.</li>
           <li><b>Identify</b> the client: peer address, or <code>X-Forwarded-For</code> from a trusted proxy.</li>
           <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
           <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
-          <li><b>Forward</b> what passes, over HTTP/1.1, HTTP/2 or a WebSocket tunnel.</li>
+          <li><b>Forward</b> what passes, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
           <li><b>Report</b> every verdict as a metric and a structured log line.</li>
         </ul>
         <p class="hint" style="text-align:left"><a href="docs/architecture.html">Architecture</a> · <a href="docs/protection.html">Protection layers</a></p>
@@ -82,7 +87,7 @@ mode = "observe"  <span class="c"># log only; "enforce" later</span>
 
 [metrics]
 listen = "127.0.0.1:9090"</pre>
-        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC and WebSocket.</p>
+        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits and the forward proxy.</p>
       </div>
     </div>
   </section>

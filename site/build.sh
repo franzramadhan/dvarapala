@@ -7,7 +7,7 @@ docs=$root/site/docs
 blob=https://github.com/franzramadhan/dvarapala/blob/main
 
 # repo-relative links in the sources point at GitHub
-links() { sed -e "s#](rfc/#]($blob/rfc/#g" -e "s#](examples/#]($blob/examples/#g"; }
+links() { sed -e "s#](rfc/#]($blob/rfc/#g" -e "s#](examples/#]($blob/examples/#g" -e "s#](sdk/#]($blob/sdk/#g"; }
 
 page() { printf -- '---\ntitle: %s\nsource: %s\n---\n\n' "$1" "$2"; }
 

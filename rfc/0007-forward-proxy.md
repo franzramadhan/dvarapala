@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-28 | #41 | v0.5.0 |
+| implemented | 2026-10-28 | #41 | v0.5.0 |
 
 > A forward proxy mode for outbound traffic: requests to each named
 > destination are shaped to an agreed rate, delayed in a bounded queue when
@@ -220,6 +220,6 @@ Found while building, folded back from the PRs:
 
 ## Rollout
 
-- **Rollout:** a new mode; reverse proxy deployments are unchanged
+- **Rollout:** v0.5.0. A new mode; reverse proxy deployments are unchanged
   (`mode` defaults to `"reverse"`). Target version decided on acceptance.
 - **Off switch:** `mode = "reverse"`, or remove a destination to deny it.
