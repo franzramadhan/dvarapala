@@ -8,8 +8,8 @@ error. The log level comes from `RUST_LOG` (default `info`).
 
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
-Durations are strings: `"<n>ms"` or `"<n>s"`, for example `"500ms"` or
-`"10s"`.
+Durations are strings: `"<n>ms"`, `"<n>s"`, `"<n>m"` or `"<n>h"`, for
+example `"500ms"`, `"10s"` or `"24h"`.
 
 ## Top level
 
@@ -111,6 +111,27 @@ every HTTP/2 client connection, cleartext (h2c) or TLS.
 | `keepalive_interval` | duration | `"30s"` | PING interval; `"0s"` turns keepalive off |
 | `keepalive_timeout` | duration | `"10s"` | Close the connection when a PING is not answered in time |
 
+## `[upgrade]`
+
+WebSocket and other HTTP/1.1 upgrades ([RFC 0005](rfc/0005-websocket.md)).
+The upgrade request goes through the rate limit, detection and model score
+like any request. On an upstream `101` the proxy copies bytes both ways
+until either side closes; it never parses WebSocket frames. Upgrades need
+HTTP/1.1 on both sides: with `upstream_protocol = "http2"` they are
+stripped, and WebSocket over HTTP/2 or HTTP/3 is not supported.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `protocols` | list of strings | `["websocket"]` | `Upgrade` tokens passed to the upstream, case-insensitive; others are stripped. `[]` turns upgrades off |
+| `max_tunnels` | integer | `10000` | Open tunnels at once; over it, the upgrade gets `503` before it reaches the upstream. At least 1 |
+| `idle_timeout` | duration | `"300s"` | Close a tunnel with no bytes in either direction for this long. Above 0 |
+| `max_lifetime` | duration | `"24h"` | Close any tunnel after this long, so clients reconnect through the current limits; `"0s"` turns it off |
+
+An idle tunnel costs about 19 KB in the proxy (two 8 KB copy buffers plus
+connection state), so the default `max_tunnels` bounds tunnels to about
+200 MB. Shutdown closes open tunnels and waits for them within the 30 s
+drain.
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -136,6 +157,10 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream connect or response failures |
 | `dvarapala_grpc_local_responses_total{status}` | gRPC errors answered locally: `resource_exhausted`, `permission_denied`, `unavailable` |
+| `dvarapala_tunnels_open{protocol}` | Open tunnels; compare with `upgrade.max_tunnels` |
+| `dvarapala_tunnels_total{protocol,end}` | Closed tunnels by `end`: `client` or `upstream` (that side closed first), `idle`, `lifetime`, `shutdown` |
+| `dvarapala_tunnel_bytes_total{direction}` | Bytes copied: `in` from clients, `out` from the upstream |
+| `dvarapala_tunnels_rejected_total` | Upgrades refused over `upgrade.max_tunnels`; logged as `tunnel limit reached` at most once a second |
 | `dvarapala_http2_goaway_total{reason}` | HTTP/2 connections closed with `GOAWAY`: `flood` (rapid reset, error resets, header floods), `protocol` (other protocol errors) |
 | `dvarapala_detection_state` | 0 `Normal`, 1 `Suspect`, 2 `Attack`, 3 `Cooldown` |
 | `dvarapala_detection_rate_zscore` | Current window z-score |
