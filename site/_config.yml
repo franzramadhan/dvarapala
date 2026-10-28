@@ -1,0 +1,21 @@
+# Jekyll config for the GitHub Pages site. index.html is plain HTML; the
+# pages under docs/ are markdown rendered with _layouts/doc.html. build.sh
+# generates the configuration, examples and roadmap pages from the repo.
+title: dvarapala
+repo: https://github.com/franzramadhan/dvarapala
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+exclude: [build.sh, README.md]
+defaults:
+  - scope: { path: docs }
+    values: { layout: doc }
+# sidebar order
+nav:
+  - { title: Getting started, url: /docs/ }
+  - { title: Architecture, url: /docs/architecture.html }
+  - { title: Protection layers, url: /docs/protection.html }
+  - { title: Configuration, url: /docs/configuration.html }
+  - { title: Examples, url: /docs/examples.html }
+  - { title: Roadmap, url: /docs/roadmap.html }

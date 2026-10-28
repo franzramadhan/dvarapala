@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page.title }} · dvarapala</title>
+<link rel="icon" href="{{ '/logo.svg' | relative_url }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ '/assets/style.css' | relative_url }}">
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/logo.svg' | relative_url }}" alt="">dvarapala</a>
+    <nav>
+      <a href="{{ '/docs/' | relative_url }}">Docs</a>
+      <a class="wide" href="{{ '/docs/configuration.html' | relative_url }}">Configuration</a>
+      <a class="wide" href="{{ site.repo }}/releases">Releases</a>
+      <a href="{{ site.repo }}">GitHub</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap doc">
+  <aside>
+    <nav aria-label="Docs">
+      {% for item in site.nav %}<a href="{{ item.url | relative_url }}"{% if item.url == page.url %} aria-current="page"{% endif %}>{{ item.title }}</a>
+      {% endfor %}
+    </nav>
+  </aside>
+  <article>
+    <h1>{{ page.title }}</h1>
+    {{ content }}
+  </article>
+</main>
+<footer>
+  <div class="wrap">
+    <span>dvarapala, MIT licensed.</span>
+    <span class="right"><a href="{{ site.repo }}/blob/main/{% if page.source %}{{ page.source }}{% else %}site/{{ page.path }}{% endif %}">Page source</a><a href="{{ site.repo }}/blob/main/SECURITY.md">Security</a></span>
+  </div>
+</footer>
+</body>
+</html>

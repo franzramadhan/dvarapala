@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dvarapala: anti-DDoS gateway</title>
+<meta name="description" content="dvarapala is an anti-DDoS reverse proxy in Rust: per-client rate limits, adaptive detection, TLS, HTTP/2 and gRPC, WebSocket tunnel limits, in one small binary.">
+<meta property="og:title" content="dvarapala: anti-DDoS gateway">
+<meta property="og:description" content="Rate limits, adaptive detection, TLS, HTTP/2, gRPC and WebSocket limits in front of your app. One small Rust binary.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="logo.svg" alt="">dvarapala</a>
+    <nav>
+      <a class="wide" href="#features">Features</a>
+      <a class="wide" href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/franzramadhan/dvarapala">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <img class="logo" src="logo.svg" alt="dvarapala logo: a split temple gate">
+    <h1>A guardian at the gate</h1>
+    <p class="lead">An anti-DDoS reverse proxy in Rust. It sits in front of your app, limits each client, learns what normal traffic looks like, and drops floods before they reach the upstream.</p>
+    <div class="buttons">
+      <a class="btn primary" href="docs/">Get started</a>
+      <a class="btn" href="docs/configuration.html">Configuration</a>
+      <a class="btn" href="https://github.com/franzramadhan/dvarapala">View on GitHub</a>
+    </div>
+    <p class="hint">Named after the Dvarapala, the guardian statues at Javanese temple gates. 0.x is alpha: keys and metrics may change between minor versions.</p>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What it protects</h2>
+      <p class="sub">Every layer is optional and configurable. Defaults are generic; deployment specifics belong in your config.</p>
+      <div class="grid">
+        <div class="card"><span class="tag">RFC 0001</span><h3>Rate limit per client</h3><p>Token bucket per client with a bounded table. <code>X-Forwarded-For</code> is trusted only from the proxies you list.</p></div>
+        <div class="card"><span class="tag">RFC 0002</span><h3>Adaptive detection</h3><p>Heavy hitters, a learned rate baseline and source entropy, plus an optional tree model. Start in <code>observe</code>, switch to <code>enforce</code>.</p></div>
+        <div class="card"><span class="tag">RFC 0003</span><h3>TLS</h3><p>rustls listener with ALPN, certificate reload on <code>SIGHUP</code>, bounded handshakes and <code>https://</code> upstreams.</p></div>
+        <div class="card"><span class="tag">RFC 0004</span><h3>HTTP/2 and gRPC</h3><p>h2c or ALPN to the upstream, trailers passed through, gRPC-shaped local errors, limits against rapid reset and header floods.</p></div>
+        <div class="card"><span class="tag">RFC 0005</span><h3>WebSocket</h3><p>Upgrades are rate limited like any request. Tunnel count, idle and lifetime limits bound what each admitted client holds.</p></div>
+        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, tunnels and HTTP/2 limits on a separate listener, so you can watch before you enforce.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap two">
+      <div>
+        <h2>How it works</h2>
+        <p class="sub">One engine decides a verdict for each request. The proxy only carries it out.</p>
+        <ul class="checks">
+          <li><b>Identify</b> the client: peer address, or <code>X-Forwarded-For</code> from a trusted proxy.</li>
+          <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
+          <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
+          <li><b>Forward</b> what passes, over HTTP/1.1, HTTP/2 or a WebSocket tunnel.</li>
+          <li><b>Report</b> every verdict as a metric and a structured log line.</li>
+        </ul>
+        <p class="hint" style="text-align:left"><a href="docs/architecture.html">Architecture</a> · <a href="docs/protection.html">Protection layers</a></p>
+      </div>
+      <div>
+        <h3 class="label">dvarapala.toml</h3>
+<pre><span class="c"># the smallest useful config</span>
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:8081"
+
+[rate_limit]
+rate = 20     <span class="c"># tokens per second per client</span>
+burst = 40
+
+[detection]
+mode = "observe"  <span class="c"># log only; "enforce" later</span>
+
+[metrics]
+listen = "127.0.0.1:9090"</pre>
+        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC and WebSocket.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap two">
+      <div>
+        <h2>Install</h2>
+        <p class="sub">Binaries for Linux (musl, static) and macOS, x86_64 and aarch64, with <code>SHA256SUMS</code>.</p>
+        <h3 class="label">From a release</h3>
+<pre><span class="c"># download your platform's tarball and SHA256SUMS</span>
+shasum -a 256 -c SHA256SUMS --ignore-missing
+tar xzf dvarapala-v*-x86_64-unknown-linux-musl.tar.gz
+./dvarapala serve --config dvarapala.toml</pre>
+        <p><a class="btn" href="https://github.com/franzramadhan/dvarapala/releases/latest">Latest release</a></p>
+      </div>
+      <div>
+        <h3 class="label" style="margin-top:52px">From source</h3>
+<pre>git clone https://github.com/franzramadhan/dvarapala
+cd dvarapala
+cargo build --release
+./target/release/dvarapala serve \
+  --config examples/dvarapala.toml</pre>
+        <p class="hint" style="text-align:left">Environment variables override the file: <code>DVARAPALA__RATE_LIMIT__RATE=5</code>.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>dvarapala, MIT licensed.</span>
+    <span class="right">
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/franzramadhan/dvarapala/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/franzramadhan/dvarapala/blob/main/SECURITY.md">Security</a>
+    </span>
+  </div>
+</footer>
+</body>
+</html>
