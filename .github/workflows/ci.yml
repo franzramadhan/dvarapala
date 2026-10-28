@@ -182,6 +182,27 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
 
+  # RFC 0008 cases 11, 19: the Python package over the shared library.
+  # The oldest supported Python, stdlib unittest only.
+  python:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo build --locked --release -p dvarapala-ffi
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.10"
+      - working-directory: sdk/python
+        env:
+          DVARAPALA_LIB: ${{ github.workspace }}/target/release/libdvarapala.so
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+
   # RustSec advisories, licenses, duplicate crates, sources (deny.toml)
   deny:
     needs: changes
