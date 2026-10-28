@@ -212,12 +212,12 @@ PostgreSQL service in CI.
 | 15 | sync task on a busy proxy | bench | request latency p99 unchanged within noise, sync under 5 ms for 10 000 keys on loopback | bench (`store/benches`) |
 | 16 | PostgreSQL, empty database, `migrate = true` | two replicas start at once | every migration applied once, `schema_version` is the binary's | integration (`store/tests`) |
 | 17 | PostgreSQL, `migrate = false`, schema missing or older | start | `store unavailable` naming both versions, local limits apply | integration (`store/tests`) |
-| 20 | PostgreSQL at version 1, binary at version 2 | start with `migrate = true` | only `0002.sql` runs, version 2 | integration (`store/tests`) |
-| 21 | database newer than the binary | start | `store unavailable` naming both versions, no migration runs | integration (`store/tests`) |
-| 22 | `dvarapala store schema --from 1` | run without config | prints migrations after 1 with their version updates; applied by `psql` it gives the same schema as `migrate = true` | integration (`dvarapala`) |
-| 23 | released migration files | CI | a changed released file fails the build (checksum list in `migrate.rs`) | unit (`store::migrate`) |
-| 18 | PostgreSQL, rows past `expires_at` | sweep | deleted by one replica only, unexpired rows kept | integration (`store/tests`) |
-| 19 | PostgreSQL through PgBouncer in transaction mode | cases 5 and 9 | same results | integration (`store/tests`) |
+| 18 | PostgreSQL at version 1, binary at version 2 | start with `migrate = true` | only `0002.sql` runs, version 2 | integration (`store/tests`) |
+| 19 | database newer than the binary | start | `store unavailable` naming both versions, no migration runs | integration (`store/tests`) |
+| 20 | `dvarapala store schema --from 1` | run without config | prints migrations after 1 with their version updates; applied by `psql` it gives the same schema as `migrate = true` | integration (`dvarapala`) |
+| 21 | released migration files | CI | a changed released file fails the build (checksum list in `migrate.rs`) | unit (`store::migrate`) |
+| 22 | PostgreSQL, rows past `expires_at` | sweep | deleted by one replica only, unexpired rows kept | integration (`store/tests`) |
+| 23 | PostgreSQL through PgBouncer in transaction mode | cases 5 and 9 | same results | integration (`store/tests`) |
 
 The PostgreSQL wire protocol is parsed by `tokio-postgres` and the reply
 values are typed columns, so no separate fuzz target; case 14 covers the
