@@ -403,6 +403,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dvarapala-l4"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "dvarapala-engine",
+ "http-body-util",
+ "hyper",
+ "metrics",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dvarapala-l7"
 version = "0.4.0"
 dependencies = [
