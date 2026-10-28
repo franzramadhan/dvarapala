@@ -14,7 +14,7 @@ mod table;
 mod verdict;
 
 pub use bucket::{Bucket, Limit, LimitError};
-pub use cidr::{Cidr, CidrError, TrustedProxies};
+pub use cidr::{BlockSink, Cidr, CidrError, TrustedProxies};
 pub use cluster::{Batch, Cluster, ClusterConfig, Reply, overshoot, split};
 pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};

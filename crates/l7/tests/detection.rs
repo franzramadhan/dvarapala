@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_engine::{
-    Cluster, ClusterConfig, DetectConfig, Features, Limit, Reply, Scorer, TrustedProxies,
+    BlockSink, Cluster, ClusterConfig, DetectConfig, Features, Limit, Reply, Scorer, TrustedProxies,
 };
 use dvarapala_l7::{Detection, PeerAddr, RateLimitConfig, RateLimitLayer, Scoring};
 use http::{Request, Response, StatusCode};
@@ -40,7 +40,7 @@ fn inner() -> impl Service<Request<Body>, Response = Response<Body>, Error = Inf
 /// rate 4/s, burst 1. Detection alarms after one window of warmup and
 /// enters `Attack` on the first anomalous window.
 fn layer(enforce: bool, prefix_v4: u8, scoring: Option<Scoring>) -> RateLimitLayer {
-    layer_in(enforce, prefix_v4, scoring, None)
+    layer_in(enforce, prefix_v4, scoring, None, None)
 }
 
 fn layer_in(
@@ -48,6 +48,7 @@ fn layer_in(
     prefix_v4: u8,
     scoring: Option<Scoring>,
     cluster: Option<Arc<Mutex<Cluster>>>,
+    block: Option<BlockSink>,
 ) -> RateLimitLayer {
     RateLimitLayer::new(RateLimitConfig {
         limit: Limit::new(4, 1).unwrap(),
@@ -66,6 +67,7 @@ fn layer_in(
         scoring,
         now,
         cluster,
+        block,
     })
     .unwrap()
 }
@@ -211,7 +213,7 @@ fn cluster() -> Arc<Mutex<Cluster>> {
 #[tokio::test]
 async fn cluster_verdicts_come_first() {
     let c = cluster();
-    let mut svc = layer_in(false, 32, None, Some(c.clone())).layer(inner());
+    let mut svc = layer_in(false, 32, None, Some(c.clone()), None).layer(inner());
     at(0);
     assert_eq!(send(&mut svc, "192.0.2.20").await, StatusCode::OK);
     let batch = c.lock().unwrap().drain(0);
@@ -242,11 +244,27 @@ async fn cluster_verdicts_come_first() {
 async fn heavy_hitters_are_published_while_enforcing() {
     for enforce in [false, true] {
         let c = cluster();
-        let mut svc = layer_in(enforce, 32, None, Some(c.clone())).layer(inner());
+        let mut svc = layer_in(enforce, 32, None, Some(c.clone()), None).layer(inner());
         flood(&mut svc).await;
         send(&mut svc, "203.0.113.1").await;
         let heavy = c.lock().unwrap().drain(0).heavy;
         let listed = heavy.iter().any(|(n, _)| n.to_string() == "192.0.2.10/32");
+        assert_eq!(listed, enforce, "enforce = {enforce}");
+    }
+}
+
+// RFC 0011: heavy hitters reach the XDP block sink in enforce mode only
+#[tokio::test]
+#[ignore = "rfc 0011"]
+async fn heavy_hitters_reach_the_block_sink_while_enforcing() {
+    for enforce in [false, true] {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let s = seen.clone();
+        let sink = BlockSink::new(move |c| s.lock().unwrap().push(c.to_string()));
+        let mut svc = layer_in(enforce, 32, None, None, Some(sink)).layer(inner());
+        flood(&mut svc).await;
+        send(&mut svc, "203.0.113.1").await;
+        let listed = seen.lock().unwrap().iter().any(|n| n == "192.0.2.10/32");
         assert_eq!(listed, enforce, "enforce = {enforce}");
     }
 }

@@ -1,0 +1,24 @@
+[package]
+name = "dvarapala-xdp"
+description = "Loader for the dvarapala XDP fast path (Linux)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# The loader (aya), Linux only. Without it: the config types and the
+# block list bookkeeping, so a build without XDP links no aya.
+load = ["dep:aya", "dep:dvarapala-xdp-common", "dep:libc", "dep:metrics", "dep:tracing"]
+
+[dependencies]
+dvarapala-engine.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { version = "0.15.0", default-features = false, optional = true }
+dvarapala-xdp-common = { workspace = true, features = ["aya"], optional = true }
+libc = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }

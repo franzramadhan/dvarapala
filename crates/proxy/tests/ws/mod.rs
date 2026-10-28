@@ -150,6 +150,7 @@ pub fn limiter() -> RateLimitLayer {
         scoring: None,
         now: Instant::now,
         cluster: None,
+        block: None,
     })
     .unwrap()
 }

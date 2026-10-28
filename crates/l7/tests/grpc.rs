@@ -42,6 +42,7 @@ fn layer(detection: Option<Detection>) -> RateLimitLayer {
         scoring: None,
         now,
         cluster: None,
+        block: None,
     })
     .unwrap()
 }

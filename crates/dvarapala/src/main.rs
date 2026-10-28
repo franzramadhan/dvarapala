@@ -3,6 +3,7 @@ mod metrics;
 #[cfg(feature = "http3")]
 mod quic;
 mod store;
+mod xdp;
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -150,6 +151,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             scoring: scoring(&cfg.ml)?,
             now: Instant::now,
             cluster,
+            block: None,
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {

@@ -15,6 +15,7 @@ mod l4;
 mod protocols;
 mod quic;
 mod store;
+mod xdp;
 pub use forward::{Forward, ProxyMode};
 pub use l4::L4;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
@@ -22,6 +23,7 @@ pub use quic::Quic;
 #[cfg(feature = "http3")]
 pub use quic::{QuicPlan, QuicRetry};
 pub use store::{Backend, Store};
+pub use xdp::{Xdp, XdpPlan};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +62,8 @@ pub struct Config {
     pub quic: Quic,
     #[serde(default)]
     pub store: Store,
+    #[serde(default)]
+    pub xdp: Xdp,
 }
 
 impl Config {
