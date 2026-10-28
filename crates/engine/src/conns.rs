@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-use crate::{Cidr, Limit};
+use crate::{Cidr, Limit, Table, Verdict};
 
 /// Per-client connection limits (RFC 0009).
 #[derive(Debug, Clone, PartialEq)]
@@ -67,29 +67,69 @@ pub struct ConnKey(pub Option<Cidr>);
 /// bounded table. Time is an input; not thread-safe, callers lock.
 pub struct Conns {
     config: ConnsConfig,
+    /// open connections per client prefix
+    table: Table<Cidr, u32>,
+    /// `accept`, or a placeholder that only fills new buckets when it is off
+    limit: Limit,
 }
 
 impl Conns {
     pub fn new(config: ConnsConfig) -> Result<Self, ConnsError> {
-        let _ = config;
-        todo!("rfc 0009")
+        if !(1..=32).contains(&config.prefix_v4) || !(1..=128).contains(&config.prefix_v6) {
+            return Err(ConnsError(format!(
+                "prefix_v4 must be 1 to 32 and prefix_v6 1 to 128, got {} and {}",
+                config.prefix_v4, config.prefix_v6
+            )));
+        }
+        let limit = match config.accept {
+            Some(l) => l,
+            None => Limit::new(1, 1).map_err(|e| ConnsError(e.to_string()))?,
+        };
+        Ok(Self {
+            table: Table::new(config.max_clients),
+            limit,
+            config,
+        })
     }
 
-    /// Counts a new connection from `ip` at `now`, or refuses it.
+    /// Counts a new connection from `ip` at `now`, or refuses it. The open
+    /// cap is checked first, so a refused connection takes no token.
     pub fn open(&mut self, ip: IpAddr, now: Instant) -> Result<ConnKey, Refused> {
-        let _ = (ip, now);
-        todo!("rfc 0009")
+        if self.config.exempt.iter().any(|c| c.contains(ip)) {
+            return Ok(ConnKey(None));
+        }
+        let prefix = match ip.to_canonical() {
+            IpAddr::V4(_) => self.config.prefix_v4,
+            IpAddr::V6(_) => self.config.prefix_v6,
+        };
+        let key = Cidr::of(ip, prefix);
+        let limit = self.limit;
+        let (bucket, open) = self.table.entry(key, &limit, now);
+        let max = self.config.max_per_client;
+        if max > 0 && *open >= max {
+            return Err(Refused::PerClient);
+        }
+        if self.config.accept.is_some() && bucket.take(&limit, now) != Verdict::Allow {
+            return Err(Refused::Rate);
+        }
+        *open += 1;
+        Ok(ConnKey(Some(key)))
     }
 
     /// Frees the place `key` took; a client evicted since is a no-op.
     pub fn close(&mut self, key: ConnKey) {
-        let _ = key;
-        todo!("rfc 0009")
+        if let Some(open) = key.0.and_then(|k| self.table.get_mut(&k)) {
+            *open = open.saturating_sub(1);
+        }
     }
 
     /// Entries in the table.
     pub fn clients(&self) -> usize {
-        todo!("rfc 0009")
+        self.table.len()
+    }
+
+    pub fn evictions(&self) -> u64 {
+        self.table.evictions()
     }
 
     pub fn config(&self) -> &ConnsConfig {
@@ -112,7 +152,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0009"]
     fn rejects_bad_prefixes() {
         for (v4, v6) in [(33, 64), (32, 129), (0, 64)] {
             let c = ConnsConfig {
@@ -126,7 +165,6 @@ mod tests {
 
     /// RFC 0009 case 1
     #[test]
-    #[ignore = "rfc 0009"]
     fn per_client_cap_frees_on_close() {
         let mut c = conns(ConnsConfig {
             max_per_client: 2,
@@ -142,7 +180,6 @@ mod tests {
 
     /// RFC 0009 case 2
     #[test]
-    #[ignore = "rfc 0009"]
     fn accept_bucket_refills() {
         let mut c = conns(ConnsConfig {
             max_per_client: 0,
@@ -161,7 +198,6 @@ mod tests {
 
     /// RFC 0009 case 3
     #[test]
-    #[ignore = "rfc 0009"]
     fn clients_group_by_prefix() {
         let mut c = conns(ConnsConfig {
             max_per_client: 1,
@@ -176,7 +212,6 @@ mod tests {
 
     /// RFC 0009 case 4
     #[test]
-    #[ignore = "rfc 0009"]
     fn table_is_bounded() {
         let mut c = conns(ConnsConfig {
             max_per_client: 1,
@@ -196,7 +231,6 @@ mod tests {
 
     /// RFC 0009 case 5
     #[test]
-    #[ignore = "rfc 0009"]
     fn exempt_is_never_limited() {
         let mut c = conns(ConnsConfig {
             max_per_client: 1,
