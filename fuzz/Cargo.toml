@@ -10,6 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 dvarapala-engine = { path = "../crates/engine", features = ["ml"] }
+dvarapala-ffi = { path = "../crates/ffi" }
 dvarapala-l7 = { path = "../crates/l7" }
 dvarapala-proxy = { path = "../crates/proxy", features = ["tls"] }
 http = "1.5.0"
@@ -58,6 +59,13 @@ bench = false
 [[bin]]
 name = "forward_route"
 path = "fuzz_targets/forward_route.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ffi_check"
+path = "fuzz_targets/ffi_check.rs"
 test = false
 doc = false
 bench = false

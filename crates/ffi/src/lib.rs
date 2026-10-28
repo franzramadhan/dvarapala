@@ -2,9 +2,6 @@
 //! the Go, Python and JavaScript packages call. `dvarapala.h` is the
 //! contract.
 
-// rfc 0008: stubs until the implementation layer
-#![allow(dead_code)]
-
 mod config;
 mod conn;
 mod error;

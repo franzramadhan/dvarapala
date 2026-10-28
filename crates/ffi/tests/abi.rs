@@ -83,7 +83,6 @@ fn close(h: *mut DvConn) {
 
 /// RFC 0008 case 2
 #[test]
-#[ignore = "rfc 0008"]
 fn throttles_over_the_burst() {
     let g = guard(&[("rate_limit.rate", "1"), ("rate_limit.burst", "2")]).unwrap();
     let v: Vec<_> = (0..3).map(|_| g.check("192.0.2.10", None)).collect();
@@ -95,7 +94,6 @@ fn throttles_over_the_burst() {
 
 /// RFC 0008 case 3
 #[test]
-#[ignore = "rfc 0008"]
 fn bad_config_names_the_key() {
     for (k, v) in [
         ("rate_limit.nope", "1"),
@@ -115,7 +113,6 @@ fn bad_config_names_the_key() {
 
 /// RFC 0008 case 4
 #[test]
-#[ignore = "rfc 0008"]
 fn trusted_proxies_pick_the_client() {
     let g = guard(&[
         ("rate_limit.rate", "1"),
@@ -134,7 +131,6 @@ fn trusted_proxies_pick_the_client() {
 
 /// RFC 0008 case 5
 #[test]
-#[ignore = "rfc 0008"]
 fn bad_input_is_an_error_not_a_crash() {
     let g = guard(&[]).unwrap();
     let mut v = DvVerdict::default();
@@ -171,7 +167,6 @@ fn bad_input_is_an_error_not_a_crash() {
 
 /// RFC 0008 case 6
 #[test]
-#[ignore = "rfc 0008"]
 fn bound_holds_across_threads() {
     let (rate, burst) = (50u64, 10u64);
     let g = guard(&[
@@ -213,7 +208,6 @@ fn bound_holds_across_threads() {
 /// RFC 0008 case 7: one normal window, a flood from one address, then
 /// the next request closes the window in `Attack`
 #[test]
-#[ignore = "rfc 0008"]
 fn heavy_hitter_is_dropped_in_enforce() {
     let g = guard(&[
         ("rate_limit.rate", "4"),
@@ -242,7 +236,6 @@ fn heavy_hitter_is_dropped_in_enforce() {
 
 /// RFC 0008 case 15
 #[test]
-#[ignore = "rfc 0008"]
 fn per_client_connection_cap() {
     let g = guard(&[("l4.max_per_client", "2")]).unwrap();
     let a = g.open("192.0.2.1").unwrap();
@@ -256,7 +249,6 @@ fn per_client_connection_cap() {
 
 /// RFC 0008 case 16
 #[test]
-#[ignore = "rfc 0008"]
 fn connection_rate() {
     let g = guard(&[("l4.accept_rate", "10"), ("l4.accept_burst", "2")]).unwrap();
     let (a, b) = (g.open("192.0.2.1").unwrap(), g.open("192.0.2.1").unwrap());
@@ -266,7 +258,6 @@ fn connection_rate() {
 }
 
 #[test]
-#[ignore = "rfc 0008"]
 fn total_cap_and_l4_off() {
     let g = guard(&[("l4.max_connections", "1"), ("l4.max_per_client", "0")]).unwrap();
     let a = g.open("192.0.2.1").unwrap();

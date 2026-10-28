@@ -86,6 +86,15 @@ jobs:
       # lint clean and refuse tls config
       - run: cargo clippy --locked -p dvarapala --all-targets --no-default-features -- -D warnings
       - run: cargo test --locked -p dvarapala --no-default-features
+      # RFC 0008 case 8: the committed C header matches the ABI. Keep the
+      # version in step with mise.toml.
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cbindgen@0.29.4
+      - name: header
+        run: |
+          cbindgen --config crates/ffi/cbindgen.toml --crate dvarapala-ffi --output crates/ffi/dvarapala.h
+          git diff --exit-code crates/ffi/dvarapala.h || { echo "::error::crates/ffi/dvarapala.h is stale, regenerate it with cbindgen"; exit 1; }
 
   # RFC 0001 case 17: the release binary idles under 10 MB RSS. Also a
   # smoke test: no upstream behind it, so a request is a 502 and shows up

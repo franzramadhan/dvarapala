@@ -69,14 +69,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "dvarapala-ffi"
+version = "0.4.0"
+dependencies = [
+ "dvarapala-engine",
+]
+
+[[package]]
 name = "dvarapala-fuzz"
 version = "0.0.0"
 dependencies = [
  "dvarapala-engine",
+ "dvarapala-ffi",
  "dvarapala-l7",
  "dvarapala-proxy",
  "http",
  "libfuzzer-sys",
+]
+
+[[package]]
+name = "dvarapala-l4"
+version = "0.4.0"
+dependencies = [
+ "bytes",
+ "dvarapala-engine",
+ "hyper",
+ "metrics",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -98,6 +118,7 @@ version = "0.4.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
+ "dvarapala-l4",
  "dvarapala-l7",
  "h2",
  "http",

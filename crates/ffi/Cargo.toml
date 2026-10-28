@@ -16,3 +16,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # The engine only: no parser, no runtime, nothing to unwind into the host.
 [dependencies]
 dvarapala-engine.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "check"
+harness = false

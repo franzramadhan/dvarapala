@@ -407,6 +407,7 @@ dependencies = [
 name = "dvarapala-ffi"
 version = "0.4.0"
 dependencies = [
+ "criterion",
  "dvarapala-engine",
 ]
 
