@@ -33,6 +33,9 @@ crates ahead of time.
   `implemented`. Not needed for bug fixes, docs, CI, dependency bumps or
   refactors without visible behavior change; when unsure, treat it as a
   feature.
+- `CONFIG.md` is the configuration reference. The PR that adds, changes or
+  removes a config key or a metric updates it (and
+  `examples/dvarapala.toml`) in the same layer.
 - `ROADMAP.md` follows every RFC: the RFC PR adds its row (status
   `draft`), acceptance sets `accepted` (or `rejected`), and the release
   PR sets `implemented` with the version in Target.
@@ -150,6 +153,8 @@ comma, colon, parentheses or a new sentence.
 2. Bump `version` under `[workspace.package]` in `Cargo.toml`.
 3. `git cliff --tag v<version> -o CHANGELOG.md` (config: `cliff.toml`).
 4. Set the released RFCs to `implemented` in `ROADMAP.md` and in each RFC.
+   Check `README.md` (features, status) and `CONFIG.md` (every key, type,
+   default and metric) match what ships.
 5. Open the PR titled `release: v<version>`. `release-check` fails when the
    branch name, the `Cargo.toml` version and the `CHANGELOG.md` heading
    disagree.
