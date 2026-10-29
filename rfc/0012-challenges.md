@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | | |
+| accepted | 2026-10-29 | #102 | |
 
 > A stateless proof-of-work challenge that browsers solve once for a signed
 > pass cookie, issued during an attack (or always), and the JA4 fingerprint
@@ -82,6 +82,7 @@ deferred it to this RFC.
 | `crates/engine/src/guard.rs` | `ChallengeMode`; `Guard::check_passed` issues `Challenge` from the mode, the detector state and whether the request has a pass |
 | `crates/l7/src/challenge/pass.rs` | seeds and pass cookies: HMAC, expiry, constant-time check |
 | `crates/l7/src/challenge/page.rs` | the challenge page, the proof-of-work check, the verify endpoint and its redirect rule |
+| `crates/l7/src/challenge/config.rs` | `ChallengeConfig`, the pass cookie lookup, metrics |
 | `crates/l7/src/challenge/body.rs` | `PageBody`: the response body types a page can be written into |
 | `crates/l7/src/fingerprint.rs` | the `Ja4` request extension, `deny` and `challenge` rules, the upstream header |
 | `crates/proxy/src/tls/hello.rs` | read the ClientHello records off the socket, bounded |
@@ -137,6 +138,30 @@ deferred it to this RFC.
 | 18 | a ClientHello split over two records, and one over 16 KiB | handshake | the first fingerprinted and served, the second served without a fingerprint | integration (`proxy/tests`) |
 | 19 | `challenge.secret` of 10 bytes, `difficulty = 30`, `mode = "attack"` without detection | start | error naming the key | unit (`config`) |
 | 20 | the fingerprinting path | bench | JA4 per handshake under 5 µs | bench (`proxy/benches/ja4.rs`) |
+
+## Implementation notes
+
+Found while building:
+
+- `Guard::check_passed(key, now, pass)` takes a `Pass`: `Missing`,
+  `Valid`, or `Required` (a `fingerprint.challenge` match). `check` is
+  `check_passed` with `Missing`, so the C ABI is unchanged.
+- A failed verify answers `303` to the return path without a cookie, so
+  the client gets a fresh page instead of an error. A verify request is
+  counted as `verdict="allow"`.
+- `PageBody` is implemented for `Full<Bytes>`, `BoxBody` and
+  `UnsyncBoxBody`; the `l7` tests moved from `Empty` to `Full` bodies.
+- The page lives in `crates/l7/src/challenge/page.html`; its SHA-256 was
+  checked against Node's `crypto` for 3000 inputs of one to three blocks.
+- Case 18 is covered by unit tests on the reader (`proxy::tls::hello`):
+  rustls clients never split their hello, so an integration test could
+  not produce one. Case 16 covers the replay on every fingerprinted
+  handshake.
+- `fingerprint.challenge` with `challenge.mode = "off"` is a start-up
+  error instead of a silent no-op.
+- Case 20: about 1.2 µs per JA4 on an Apple M-series core.
+- `[tls]` moved to `crates/dvarapala/src/config/tls.rs` to keep
+  `config.rs` under 500 lines.
 
 ## Alternatives
 

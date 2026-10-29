@@ -10,12 +10,15 @@ use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Deserializer, de};
 
+mod challenge;
 mod forward;
 mod l4;
 mod protocols;
 mod quic;
 mod store;
+mod tls;
 mod xdp;
+pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
 pub use l4::L4;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
@@ -23,6 +26,7 @@ pub use quic::Quic;
 #[cfg(feature = "http3")]
 pub use quic::{QuicPlan, QuicRetry};
 pub use store::{Backend, Store};
+pub use tls::{Tls, UpstreamTls};
 pub use xdp::{Xdp, XdpPlan};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -64,6 +68,10 @@ pub struct Config {
     pub store: Store,
     #[serde(default)]
     pub xdp: Xdp,
+    #[serde(default)]
+    pub challenge: Challenge,
+    #[serde(default)]
+    pub fingerprint: Fingerprint,
 }
 
 impl Config {
@@ -127,48 +135,6 @@ pub struct Ml {
     /// XGBoost JSON model; unset turns scoring off.
     pub model: Option<PathBuf>,
     pub threshold: f64,
-}
-
-/// RFC 0003 listener TLS. No `cert` means a cleartext listener.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Tls {
-    pub cert: Option<PathBuf>,
-    pub key: Option<PathBuf>,
-    #[serde(deserialize_with = "duration")]
-    pub handshake_timeout: Duration,
-    pub max_handshakes: usize,
-}
-
-/// RFC 0003 verification of `https://` upstreams.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct UpstreamTls {
-    pub ca_file: Option<PathBuf>,
-    pub server_name: Option<String>,
-}
-
-impl Tls {
-    /// `(cert, key)` when TLS is on; an error when only one is set.
-    pub fn paths(&self) -> Result<Option<(&Path, &Path)>, String> {
-        match (&self.cert, &self.key) {
-            (Some(c), Some(k)) => Ok(Some((c, k))),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err("tls.key is required with tls.cert".into()),
-            (None, Some(_)) => Err("tls.cert is required with tls.key".into()),
-        }
-    }
-}
-
-impl Default for Tls {
-    fn default() -> Self {
-        Self {
-            cert: None,
-            key: None,
-            handshake_timeout: Duration::from_secs(10),
-            max_handshakes: 1024,
-        }
-    }
 }
 
 impl Default for Detection {

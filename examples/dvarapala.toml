@@ -123,3 +123,21 @@ prefix_v6 = 64
 # prefix_v4 = 32
 # prefix_v6 = 64
 # max_sources = 1048576
+
+# Proof-of-work challenge (RFC 0012). "attack" challenges clients without
+# a pass while detection is enforcing an attack; "always" challenges
+# every one. Put the secret in DVARAPALA__CHALLENGE__SECRET and share it
+# across replicas.
+# [challenge]
+# mode = "attack"
+# difficulty = 16
+# timeout = "60s"
+# pass_ttl = "1h"
+# secret = "<at least 32 bytes>"
+# cookie_secure = true
+
+# JA4 TLS fingerprints (RFC 0012), on the TLS listener.
+# [fingerprint]
+# deny = []
+# challenge = ["t13i*"]
+# header = "x-ja4"
