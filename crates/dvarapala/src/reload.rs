@@ -309,9 +309,15 @@ mod tests {
 
     #[test]
     fn detection_mode_and_factor_reload_in_place() {
+        // in a jail, so no `DVARAPALA__*` another test sets leaks in
+        let mut defaults = None;
+        Jail::expect_with(|_| {
+            defaults = Some(config::load(None).map_err(|e| e.to_string())?);
+            Ok(())
+        });
         let start = Config {
             upstream: Some("http://127.0.0.1:8081".into()),
-            ..config::load(None).unwrap()
+            ..defaults.unwrap()
         };
         let mut new = start.clone();
         new.detection.mode = config::Mode::Enforce;
