@@ -196,4 +196,16 @@ mod tests {
             assert!(s.parse::<Cidr>().is_err(), "{s:?} parsed");
         }
     }
+
+    #[test]
+    fn block_sink_hands_networks_to_its_callback() {
+        use std::sync::Mutex;
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&got);
+        let sink = BlockSink::new(move |n| seen.lock().unwrap().push(n));
+        let net: Cidr = "192.0.2.0/24".parse().unwrap();
+        sink.clone().block(net);
+        assert_eq!(*got.lock().unwrap(), [net]);
+        assert_eq!(format!("{sink:?}"), "BlockSink");
+    }
 }

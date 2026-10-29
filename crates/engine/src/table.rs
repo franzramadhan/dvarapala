@@ -149,7 +149,9 @@ mod tests {
         let l = Limit::new(1, 1).unwrap();
         let t = Instant::now();
         let mut tb = table(2);
+        assert!(tb.is_empty());
         tb.take(1, &l, t);
+        assert!(!tb.is_empty());
         tb.take(2, &l, t);
         // 1 is now the most recent, so 2 goes when 3 arrives
         assert!(matches!(tb.take(1, &l, t), Verdict::Throttle { .. }));

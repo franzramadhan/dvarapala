@@ -119,6 +119,10 @@ mod tests {
         b.add(net("198.51.100.0/24"), t + Duration::from_secs(1), t)
             .unwrap();
         assert_eq!(b.add(net("203.0.113.0/24"), later, t), Err(BlocksFull(2)));
+        assert_eq!(
+            BlocksFull(2).to_string(),
+            "the block list is full (2 networks)"
+        );
         // re-blocking a listed network fits
         b.add(net("192.0.2.0/24"), later, t).unwrap();
         assert!(b.contains("192.0.2.7".parse().unwrap(), t));

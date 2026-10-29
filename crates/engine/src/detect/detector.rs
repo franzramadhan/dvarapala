@@ -386,7 +386,8 @@ mod tests {
             },
         ];
         for c in bad {
-            assert!(Detector::new(c.clone()).is_err(), "{c:?}");
+            let e = Detector::new(c.clone()).err().expect("refused").to_string();
+            assert!(e.starts_with("detection: "), "{c:?}: {e}");
         }
         assert!(Detector::new(DetectConfig::default()).is_ok());
     }

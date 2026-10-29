@@ -170,5 +170,10 @@ mod tests {
     fn rejects_zero_rate_and_burst() {
         assert_eq!(Limit::new(0, 1), Err(LimitError::ZeroRate));
         assert_eq!(Limit::new(1, 0), Err(LimitError::ZeroBurst));
+        assert_eq!(
+            LimitError::ZeroRate.to_string(),
+            "rate must be at least 1 per second"
+        );
+        assert_eq!(LimitError::ZeroBurst.to_string(), "burst must be at least 1");
     }
 }
