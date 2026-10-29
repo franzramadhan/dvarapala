@@ -121,3 +121,10 @@ path = "fuzz_targets/route_match.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "admin_query"
+path = "fuzz_targets/admin_query.rs"
+test = false
+doc = false
+bench = false

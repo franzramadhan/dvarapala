@@ -1,6 +1,5 @@
 //! What an operator changes at run time (RFC 0014): the reloadable policy
 //! and the manual block list.
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 
 use std::sync::{Arc, PoisonError, RwLockWriteGuard};
 use std::time::Duration;
@@ -59,31 +58,82 @@ impl RateLimitLayer {
     /// their buckets, the detector its baseline. Fails, changing nothing,
     /// on an attack factor the engine rejects.
     pub fn reload(&self, r: Reload) -> Result<(), DetectError> {
-        todo!("rfc 0014")
+        let s = &self.shared;
+        let mode = r.challenge.as_ref().map_or(ChallengeMode::Off, |c| c.mode);
+        let mut inner = s.lock();
+        inner
+            .guard
+            .retune(r.limit, r.enforce, r.attack_rate_factor, mode)?;
+        let enforce = r.enforce && inner.guard.detector().is_some();
+        let mut policy = s.policy.write().unwrap_or_else(PoisonError::into_inner);
+        let challenge = r
+            .challenge
+            .map(|c| Challenge::reload(policy.challenge.as_ref(), c));
+        let routes = r
+            .routes
+            .map_or_else(|| policy.routes.clone(), |v| Arc::new(Routes::new(v)));
+        *policy = Arc::new(Policy {
+            trusted: r.trusted,
+            challenge,
+            fingerprints: r.fingerprints,
+            routes,
+            enforce,
+        });
+        Ok(())
     }
 
     /// Blocks `net` for `ttl`, also at the XDP block list when there is one.
     pub fn block(&self, net: Cidr, ttl: Duration) -> Result<(), BlocksFull> {
-        todo!("rfc 0014")
+        let now = (self.shared.now)();
+        let mut b = self.blocks_mut();
+        b.add(net, now + ttl, now)?;
+        metrics::gauge!("dvarapala_blocks").set(b.list(now).len() as f64);
+        drop(b);
+        if let Some(sink) = &self.shared.block {
+            sink.block(net);
+        }
+        Ok(())
     }
 
     /// `true` when `net` was blocked. An XDP entry stays until its own
     /// expiry.
     pub fn unblock(&self, net: Cidr) -> bool {
-        todo!("rfc 0014")
+        let now = (self.shared.now)();
+        let mut b = self.blocks_mut();
+        let removed = b.remove(net);
+        metrics::gauge!("dvarapala_blocks").set(b.list(now).len() as f64);
+        removed
     }
 
     pub fn blocks(&self) -> Vec<Block> {
-        todo!("rfc 0014")
+        let now = (self.shared.now)();
+        self.blocks_mut()
+            .list(now)
+            .iter()
+            .map(|&(net, until)| Block {
+                net,
+                remaining: until.saturating_duration_since(now),
+            })
+            .collect()
     }
 
     pub fn status(&self) -> Status {
-        todo!("rfc 0014")
+        let blocks = self.blocks().len();
+        let inner = self.shared.lock();
+        Status {
+            clients: inner.guard.clients(),
+            detection: inner.guard.detector().map(|d| d.state().name()),
+            blocks,
+        }
     }
 
     /// The heavy hitters of the last closed window, with their counts.
     pub fn top(&self) -> Vec<(Cidr, u32)> {
-        todo!("rfc 0014")
+        let inner = self.shared.lock();
+        inner
+            .guard
+            .detector()
+            .map_or_else(Vec::new, |d| d.heavy().to_vec())
     }
 
     fn blocks_mut(&self) -> RwLockWriteGuard<'_, Blocks> {
@@ -98,6 +148,12 @@ impl Challenge {
     /// The new settings, keeping the old key when the secret is the same
     /// (an empty secret keeps its random key), so passes stay valid.
     pub(crate) fn reload(old: Option<&Challenge>, config: ChallengeConfig) -> Self {
-        todo!("rfc 0014")
+        match old {
+            Some(o) if o.config.secret == config.secret => Self {
+                keys: o.keys.clone(),
+                config,
+            },
+            _ => Self::new(config),
+        }
     }
 }
