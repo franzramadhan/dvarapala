@@ -468,5 +468,29 @@ mod tests {
         );
         assert!(decode(&long).is_err());
         assert!(decode(&agent(AGENT_HELLO, &[])).is_err());
+        let eleven = [&[0xf0u8][..], &[0x80; 10][..]].concat();
+        assert_eq!(Reader(&eleven).varint(), Err(Error("varint too long")));
+        assert_eq!(Error("truncated frame").to_string(), "truncated frame");
+    }
+
+    #[test]
+    fn other_types_round_trip_and_convert() {
+        let ip = Value::Ip(IpAddr::from([192, 0, 2, 1]));
+        let mut b = Vec::new();
+        kv(&mut b, "x", Value::Int32(-2));
+        kv(&mut b, "status-code", Value::Uint64(7));
+        kv(&mut b, "ip", ip);
+        let mut r = Reader(&b);
+        for v in [Value::Int32(-2), Value::Uint64(7), ip] {
+            assert_eq!(r.kv().unwrap().1, v);
+        }
+        let bye = Agent::Disconnect {
+            status: 7,
+            message: String::new(),
+        };
+        assert_eq!(decode(&agent(AGENT_DISCONNECT, &b)), Ok(bye));
+        assert_eq!(Value::Int32(-2).int(), Some(-2));
+        assert_eq!(Value::Uint64(u64::MAX).int(), None);
+        assert_eq!((ip.int(), ip.text()), (None, None));
     }
 }

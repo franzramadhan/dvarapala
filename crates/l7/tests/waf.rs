@@ -1,6 +1,7 @@
 //! RFC 0017 cases 3 to 10: the WAF layer against a fake agent.
 #![cfg(feature = "waf")]
 
+#[allow(dead_code)]
 mod fake_agent;
 
 use std::collections::VecDeque;

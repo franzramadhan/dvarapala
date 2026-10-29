@@ -258,6 +258,7 @@ mod tests {
     #[test]
     fn return_path_stays_on_site() {
         let long = format!("/{}", "a".repeat(3000));
+        let huge = format!("/{}", "a".repeat(7000));
         for r in [
             "//evil.example",
             "/%5Cevil",
@@ -268,6 +269,7 @@ mod tests {
             "",
             "/%zz",
             &long,
+            &huge,
         ] {
             assert_eq!(Query::parse(&format!("r={r}")).r, "/", "{r:?}");
         }

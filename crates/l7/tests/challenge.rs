@@ -9,13 +9,25 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_engine::{ChallengeMode, Limit, TrustedProxies};
-use dvarapala_l7::{ChallengeConfig, PeerAddr, RateLimitConfig, RateLimitLayer, unix_now};
+use dvarapala_l7::{ChallengeConfig, PeerAddr, RateLimitConfig, RateLimitLayer, Reload, unix_now};
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use ring::digest;
 use tower::{Layer, Service, ServiceExt, service_fn};
 
 type Body = Full<Bytes>;
+
+fn challenge(secret: u8) -> ChallengeConfig {
+    ChallengeConfig {
+        mode: ChallengeMode::Always,
+        difficulty: 8,
+        timeout: Duration::from_secs(60),
+        pass_ttl: Duration::from_secs(3600),
+        secret: vec![secret; 32],
+        cookie_secure: false,
+        unix: unix_now,
+    }
+}
 
 fn layer() -> RateLimitLayer {
     RateLimitLayer::new(RateLimitConfig {
@@ -27,15 +39,7 @@ fn layer() -> RateLimitLayer {
         now: Instant::now,
         cluster: None,
         block: None,
-        challenge: Some(ChallengeConfig {
-            mode: ChallengeMode::Always,
-            difficulty: 8,
-            timeout: Duration::from_secs(60),
-            pass_ttl: Duration::from_secs(3600),
-            secret: vec![5; 32],
-            cookie_secure: false,
-            unix: unix_now,
-        }),
+        challenge: Some(challenge(5)),
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 0,
@@ -125,10 +129,11 @@ async fn non_browsers_get_429_or_grpc_8() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
-async fn solved_page_gives_a_pass_that_opens_the_upstream() {
-    let (calls, inner) = counting();
-    let mut svc = layer().layer(inner);
+/// Solves the page for `/a?b=1`; the `dvarapala_pass=...` cookie.
+async fn pass<S>(svc: &mut S) -> String
+where
+    S: Service<Request<Body>, Response = Response<Body>, Error = Infallible>,
+{
     let res = svc
         .ready()
         .await
@@ -156,14 +161,49 @@ async fn solved_page_gives_a_pass_that_opens_the_upstream() {
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(res.headers()["location"], "/a?b=1");
     let cookie = res.headers()["set-cookie"].to_str().unwrap();
-    let pass = cookie.split(';').next().unwrap();
-    let res = svc
-        .ready()
-        .await
-        .unwrap()
-        .call(req("/a?b=1", &[HTML, ("cookie", pass)]))
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
+    cookie.split(';').next().unwrap().to_owned()
+}
+
+async fn status<S>(svc: &mut S, cookie: &str) -> StatusCode
+where
+    S: Service<Request<Body>, Response = Response<Body>, Error = Infallible>,
+{
+    let r = req("/a?b=1", &[HTML, ("cookie", cookie)]);
+    svc.ready().await.unwrap().call(r).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn solved_page_gives_a_pass_that_opens_the_upstream() {
+    let (calls, inner) = counting();
+    let mut svc = layer().layer(inner);
+    let pass = pass(&mut svc).await;
+    assert_eq!(status(&mut svc, &pass).await, StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+// RFC 0014: a reload with the same secret keeps passes valid
+#[tokio::test]
+async fn reload_keeps_passes_while_the_secret_stays() {
+    let (calls, inner) = counting();
+    let l = layer();
+    let mut svc = l.layer(inner);
+    let pass = pass(&mut svc).await;
+    let reload = |secret| Reload {
+        limit: Limit::new(100, 100).unwrap(),
+        trusted: TrustedProxies::new(Vec::new()),
+        enforce: false,
+        attack_rate_factor: 1.0,
+        challenge: Some(challenge(secret)),
+        fingerprints: Default::default(),
+        routes: None,
+    };
+    l.reload(reload(5)).unwrap();
+    assert_eq!(status(&mut svc, &pass).await, StatusCode::OK);
+    l.reload(reload(6)).unwrap();
+    assert_eq!(status(&mut svc, &pass).await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        status(&mut svc, "dvarapala_pass=1.00").await,
+        StatusCode::FORBIDDEN
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

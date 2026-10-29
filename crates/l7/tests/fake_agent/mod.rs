@@ -26,6 +26,16 @@ pub enum Reply {
     Silent,
     /// `AGENT-DISCONNECT` instead of the hello
     RefuseHello,
+    /// a hello for SPOP 1.0
+    OldHello,
+    /// `AGENT-DISCONNECT` instead of the `ACK`
+    Disconnect,
+    /// an `ACK` for another stream
+    WrongStream,
+    /// a frame length over the agreed size
+    Oversize,
+    /// passes one message, then closes the connection
+    Once,
 }
 
 #[derive(Debug, Clone)]
@@ -121,7 +131,11 @@ async fn serve(mut c: TcpStream, b: Behavior, seen: Seen) {
                 agreed = b.max_frame.unwrap_or(ours);
                 seen.frame_sizes.lock().unwrap().push(agreed);
                 let mut out = head(101, 0, 0);
-                kv(&mut out, "version", |o| text(o, 8, b"2.0"));
+                let version = match b.reply {
+                    Reply::OldHello => b"1.0",
+                    _ => b"2.0",
+                };
+                kv(&mut out, "version", |o| text(o, 8, version));
                 kv(&mut out, "max-frame-size", |o| int(o, 3, agreed.into()));
                 kv(&mut out, "capabilities", |o| text(o, 8, b""));
                 send(&mut c, out).await;
@@ -148,9 +162,22 @@ async fn serve(mut c: TcpStream, b: Behavior, seen: Seen) {
                         set(&mut out, "action", |o| text(o, 8, b"deny"));
                         set(&mut out, "ruleid", |o| int(o, 4, rule as u64));
                     }
+                    Reply::Disconnect => {
+                        out = head(102, 0, 0);
+                        kv(&mut out, "status-code", |o| int(o, 3, 10));
+                        kv(&mut out, "message", |o| text(o, 8, b"bye"));
+                    }
+                    Reply::WrongStream => out = head(103, stream + 1, frame),
+                    Reply::Oversize => {
+                        let _ = c.write_all(&(agreed + 1).to_be_bytes()).await;
+                        return;
+                    }
                     _ => set(&mut out, "id", |o| text(o, 8, b"tx-1")),
                 }
                 send(&mut c, out).await;
+                if let Reply::Once | Reply::Disconnect = b.reply {
+                    return;
+                }
             }
             _ => return,
         }

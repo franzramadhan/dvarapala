@@ -155,6 +155,10 @@ mod tests {
         assert_eq!(s.get(&a, now), None, "the oldest is dropped");
         assert_eq!(s.get(&b, now).unwrap().subject, "b");
         assert_eq!(s.get(&c, now).unwrap().method, Method::Oidc);
+        assert_eq!(
+            (Method::Token.name(), Method::Oidc.name()),
+            ("token", "oidc")
+        );
         let later = now + Duration::from_secs(3601);
         assert_eq!(s.get(&b, later), None, "expired");
         assert_eq!(s.len(later), 1);
