@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-29 | #N | |
+| draft | 2026-10-29 | #139 | |
 
 > An optional web console on the admin listener (`admin.ui_enabled`, off
 > by default) that shows the gateway's state live and drives the admin
