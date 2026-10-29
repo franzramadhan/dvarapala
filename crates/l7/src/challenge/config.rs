@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dvarapala_engine::{ChallengeMode, ClientKey, Pass};
@@ -26,7 +25,9 @@ pub struct ChallengeConfig {
 
 /// Seconds since the Unix epoch.
 pub fn unix_now() -> u64 {
-    todo!("rfc 0012")
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 pub(crate) const COOKIE_NAME: &str = "dvarapala_pass";
@@ -39,22 +40,39 @@ pub(crate) struct Challenge {
 
 impl Challenge {
     pub(crate) fn new(config: ChallengeConfig) -> Self {
-        todo!("rfc 0012")
+        Self {
+            keys: Keys::new(&config.secret),
+            config,
+        }
     }
 
     /// What the request's cookie says, before the engine decides.
     pub(crate) fn pass(&self, headers: &HeaderMap, key: ClientKey, required: bool) -> Pass {
-        todo!("rfc 0012")
+        match pass_cookie(headers) {
+            Some(v) if self.keys.check_pass(key, v, (self.config.unix)()) => return Pass::Valid,
+            Some(_) => count("invalid_pass"),
+            None => {}
+        }
+        if required {
+            Pass::Required
+        } else {
+            Pass::Missing
+        }
     }
 }
 
 pub(crate) fn count(result: &'static str) {
-    todo!("rfc 0012")
+    metrics::counter!("dvarapala_challenges_total", "result" => result).increment(1);
 }
 
 /// The first `dvarapala_pass` value in the `Cookie` headers.
 pub(crate) fn pass_cookie(headers: &HeaderMap) -> Option<&str> {
-    todo!("rfc 0012")
+    headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .find_map(|c| c.trim().strip_prefix(COOKIE_NAME)?.strip_prefix('='))
 }
 
 #[cfg(test)]
@@ -63,7 +81,6 @@ mod tests {
     use http::HeaderValue;
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn finds_the_pass_among_cookies() {
         let mut h = HeaderMap::new();
         assert_eq!(pass_cookie(&h), None);

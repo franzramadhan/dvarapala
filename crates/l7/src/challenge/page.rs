@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -29,13 +28,62 @@ const MAX_RETURN: usize = 2048;
 impl Challenge {
     /// The challenge page for `key`, with a fresh seed.
     pub(crate) fn page<R: PageBody>(&self, key: ClientKey) -> Response<R> {
-        todo!("rfc 0012")
+        let t = (self.config.unix)();
+        let html = TEMPLATE
+            .replacen("{T}", &t.to_string(), 1)
+            .replacen("{S}", &self.keys.seed(key, t), 1)
+            .replacen("{D}", &self.config.difficulty.to_string(), 1);
+        count("issued");
+        let mut res = Response::new(R::page(Bytes::from(html)));
+        *res.status_mut() = StatusCode::FORBIDDEN;
+        let h = res.headers_mut();
+        h.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        h.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP));
+        res
     }
 
     /// The verify endpoint: a pass and a redirect to the return path when
     /// the work is right, the redirect alone (a fresh challenge) otherwise.
     pub(crate) fn verify<R: PageBody>(&self, query: Option<&str>, key: ClientKey) -> Response<R> {
-        todo!("rfc 0012")
+        let q = Query::parse(query.unwrap_or(""));
+        let now = (self.config.unix)();
+        let fresh =
+            q.t.is_some_and(|t| t <= now && now - t <= self.config.timeout.as_secs());
+        let ok = fresh
+            && q.t.is_some_and(|t| self.keys.check_seed(key, t, q.s))
+            && work_ok(q.s, q.n, self.config.difficulty);
+        let mut res = Response::new(R::default());
+        *res.status_mut() = StatusCode::SEE_OTHER;
+        let h = res.headers_mut();
+        h.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        h.insert(
+            LOCATION,
+            HeaderValue::from_str(&q.r).unwrap_or(HeaderValue::from_static("/")),
+        );
+        if !ok {
+            count("failed");
+            return res;
+        }
+        count("passed");
+        tracing::debug!(msg = "challenge_passed", key = %key);
+        let ttl = self.config.pass_ttl.as_secs();
+        let cookie = format!(
+            "{COOKIE_NAME}={}; Path=/; Max-Age={ttl}; HttpOnly; SameSite=Lax{}",
+            self.keys.pass(key, now + ttl),
+            if self.config.cookie_secure {
+                "; Secure"
+            } else {
+                ""
+            }
+        );
+        if let Ok(v) = HeaderValue::from_str(&cookie) {
+            h.insert(SET_COOKIE, v);
+        }
+        res
     }
 }
 
@@ -49,29 +97,93 @@ struct Query<'a> {
 
 impl<'a> Query<'a> {
     fn parse(q: &'a str) -> Self {
-        todo!("rfc 0012")
+        let (mut t, mut s, mut n, mut r) = (None, None, None, None);
+        for (k, v) in q.split('&').filter_map(|p| p.split_once('=')) {
+            match k {
+                "t" if t.is_none() => t = Some(v),
+                "s" if s.is_none() => s = Some(v),
+                "n" if n.is_none() => n = Some(v),
+                "r" if r.is_none() => r = Some(v),
+                _ => {}
+            }
+        }
+        Self {
+            t: t.and_then(digits),
+            s: s.unwrap_or(""),
+            n: n.unwrap_or(""),
+            r: r.and_then(safe_return).unwrap_or_else(|| "/".into()),
+        }
     }
 }
 
 /// The decoded return path when it stays on this site: one `/`, then not
 /// `/` or `\` (a scheme-relative URL), printable ASCII only.
 fn safe_return(encoded: &str) -> Option<String> {
-    todo!("rfc 0012")
+    if encoded.len() > MAX_RETURN * 3 {
+        return None;
+    }
+    let b = encoded.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = b.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    let ok = out.len() <= MAX_RETURN
+        && out.first() == Some(&b'/')
+        && !matches!(out.get(1), Some(b'/' | b'\\'))
+        && out.iter().all(|c| (0x21..=0x7e).contains(c));
+    ok.then(|| String::from_utf8(out).ok())?
 }
 
 /// `SHA-256(seed ":" nonce)` starts with `difficulty` zero bits.
 fn work_ok(seed: &str, nonce: &str, difficulty: u8) -> bool {
-    todo!("rfc 0012")
+    if digits(nonce).is_none() {
+        return false;
+    }
+    let mut ctx = digest::Context::new(&digest::SHA256);
+    ctx.update(seed.as_bytes());
+    ctx.update(b":");
+    ctx.update(nonce.as_bytes());
+    leading_zeros(ctx.finish().as_ref()) >= u32::from(difficulty)
 }
 
 fn leading_zeros(h: &[u8]) -> u32 {
-    todo!("rfc 0012")
+    let mut n = 0;
+    for b in h {
+        n += b.leading_zeros();
+        if *b != 0 {
+            break;
+        }
+    }
+    n
 }
 
 /// Fuzzing entry (RFC 0012 case 15): the verify query and a cookie header.
 #[doc(hidden)]
 pub fn fuzz_verify(query: &str, cookie: &str) {
-    todo!("rfc 0012")
+    let c = Challenge::new(ChallengeConfig {
+        mode: ChallengeMode::Always,
+        difficulty: 8,
+        timeout: Duration::from_secs(60),
+        pass_ttl: Duration::from_secs(60),
+        secret: vec![1; 32],
+        cookie_secure: true,
+        unix: || 1_000_000,
+    });
+    let key = ClientKey::V4([192, 0, 2, 1].into());
+    let _ = c.verify::<http_body_util::Full<Bytes>>(Some(query), key);
+    let mut h = http::HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(cookie) {
+        h.insert(http::header::COOKIE, v);
+    }
+    let _ = c.pass(&h, key, false);
 }
 
 #[cfg(test)]
@@ -106,7 +218,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn right_work_in_time_gets_a_pass() {
         let c = challenge(1000);
         let s = c.keys.seed(key(1), 990);
@@ -124,7 +235,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn stale_foreign_or_lazy_work_fails() {
         let s = challenge(1000).keys.seed(key(1), 990);
         let n = solve(&s, 8);
@@ -146,7 +256,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn return_path_stays_on_site() {
         let long = format!("/{}", "a".repeat(3000));
         for r in [
@@ -167,7 +276,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn page_carries_no_request_data() {
         let res = challenge(1000).page::<Full<Bytes>>(key(1));
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
@@ -176,7 +284,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn zero_bits_counted_across_bytes() {
         assert_eq!(leading_zeros(&[0, 0, 0x10, 0xff]), 19);
         assert_eq!(leading_zeros(&[0x80]), 0);

@@ -258,10 +258,13 @@ dependencies = [
 name = "dvarapala-l7"
 version = "0.6.2"
 dependencies = [
+ "bytes",
  "dvarapala-engine",
  "http",
+ "http-body-util",
  "metrics",
  "pin-project-lite",
+ "ring",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -282,6 +285,7 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "metrics",
+ "ring",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
