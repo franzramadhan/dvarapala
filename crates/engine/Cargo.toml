@@ -24,3 +24,7 @@ serde_json.workspace = true
 [[bench]]
 name = "detect"
 harness = false
+
+[[bench]]
+name = "blocks"
+harness = false

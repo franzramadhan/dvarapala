@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
@@ -40,12 +39,28 @@ impl Blocks {
     /// Blocks `net` until `until`; blocking a listed network again moves
     /// its expiry. Expired entries are dropped first.
     pub fn add(&mut self, net: Cidr, until: Instant, now: Instant) -> Result<(), BlocksFull> {
-        todo!("rfc 0014")
+        self.expire(now);
+        let net = Cidr::of(net.addr(), net.prefix());
+        if let Some(u) = self.entries.get_mut(&net) {
+            *u = until;
+            return Ok(());
+        }
+        if self.entries.len() >= self.max {
+            return Err(BlocksFull(self.max));
+        }
+        self.entries.insert(net, until);
+        self.prefixes[slot(net)] += 1;
+        Ok(())
     }
 
     /// `true` when `net` was listed.
     pub fn remove(&mut self, net: Cidr) -> bool {
-        todo!("rfc 0014")
+        let net = Cidr::of(net.addr(), net.prefix());
+        let removed = self.entries.remove(&net).is_some();
+        if removed {
+            self.prefixes[slot(net)] -= 1;
+        }
+        removed
     }
 
     /// Whether a block in force at `now` holds `ip`.
@@ -63,11 +78,19 @@ impl Blocks {
 
     /// The blocks in force at `now`, with their expiry.
     pub fn list(&mut self, now: Instant) -> Vec<(Cidr, Instant)> {
-        todo!("rfc 0014")
+        self.expire(now);
+        self.entries.iter().map(|(n, u)| (*n, *u)).collect()
     }
 
     fn expire(&mut self, now: Instant) {
-        todo!("rfc 0014")
+        let prefixes = &mut self.prefixes;
+        self.entries.retain(|n, u| {
+            let keep = *u > now;
+            if !keep {
+                prefixes[slot(*n)] -= 1;
+            }
+            keep
+        });
     }
 }
 
@@ -88,7 +111,6 @@ mod tests {
 
     // RFC 0014 case 3
     #[test]
-    #[ignore = "rfc 0014"]
     fn bounded_and_expiring() {
         let mut b = Blocks::new(2);
         let t = Instant::now();

@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
@@ -169,7 +168,16 @@ impl<V: Default> Guard<V> {
         attack_rate_factor: f64,
         challenge: ChallengeMode,
     ) -> Result<(), DetectError> {
-        todo!("rfc 0014")
+        let f = attack_rate_factor;
+        if self.detector.is_some() && !(f > 0.0 && f <= 1.0) {
+            return Err(DetectError("attack_rate_factor must be in (0, 1]".into()));
+        }
+        let detection = self.detector.is_some();
+        self.limit = limit;
+        self.attack_limit = if detection { limit.scaled(f) } else { limit };
+        self.enforce = detection && enforce;
+        self.challenge = challenge;
+        Ok(())
     }
 
     /// The caller's state for `key`, when it is in the table.
@@ -303,7 +311,6 @@ mod tests {
 
     // RFC 0014 case 1
     #[test]
-    #[ignore = "rfc 0014"]
     fn retune_keeps_clients_and_applies_the_new_rate() {
         let mut g = guard(10, 1);
         let t = Instant::now();
@@ -318,7 +325,6 @@ mod tests {
 
     // RFC 0014 case 2
     #[test]
-    #[ignore = "rfc 0014"]
     fn retune_to_enforce_drops_heavy_hitters() {
         let mut g = challenging(ChallengeMode::Off, false);
         let t = attack(&mut g);
