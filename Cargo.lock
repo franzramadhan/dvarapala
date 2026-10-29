@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "dvarapala-engine",
  "dvarapala-l4",
@@ -565,7 +565,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-engine"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "serde",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-ffi"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "dvarapala-engine",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-l4"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-l7"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "criterion",
@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-node"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "dvarapala-ffi",
  "napi",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-proxy"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "criterion",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-store"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "dvarapala-engine",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-xdp"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aya",
  "dvarapala-engine",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-xdp-common"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aya",
 ]

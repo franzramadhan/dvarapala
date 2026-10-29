@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-engine"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-ffi"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "dvarapala-engine",
 ]
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-l4"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-l7"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-proxy"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytes",
  "dvarapala-engine",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-store"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "dvarapala-engine",
  "metrics",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "dvarapala-xdp-common"
-version = "0.9.0"
+version = "0.10.0"
 
 [[package]]
 name = "equivalent"
