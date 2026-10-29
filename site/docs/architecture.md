@@ -88,6 +88,7 @@ Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 | `ffi` | C ABI (`dvarapala.h`) over the engine, for the SDKs |
 | `node` | N-API addon over the C ABI for the JavaScript SDK |
 | `dvarapala` | The binary: config, metrics endpoint, signals |
+| `operator` | Kubernetes operator: the `DvarapalaPolicy` CRD, the route rewrite webhook and the gateway controller |
 
 Dependencies point inward: the binary and `ffi` depend on the rest,
 `engine` on no other workspace crate. More crates arrive with the RFC that
@@ -108,19 +109,22 @@ background task syncs every `sync_interval`. See [Clusters](clusters.html).
 | Embedded (Rust) | `tower::Layer` and a listener wrapper | shipped |
 | Embedded (other) | C ABI with Go, Python and JavaScript packages, see [SDKs](sdk.html) | shipped |
 | Cluster | Any proxy mode with `[store]`: replicas share limits, see [Clusters](clusters.html) | shipped |
+| Kubernetes | `dvarapala-operator` runs a reverse proxy gateway per labeled route's Service, see [Kubernetes](kubernetes.html) | shipped |
 
 ## Failure policy
 
 The protection path fails closed: when a limit cannot be decided, the
 request does not pass. It fails open only where an RFC says so, and logs
 it: a lost store falls back to local limits, and `waf.on_error = "pass"`
-forwards when the WAF agent fails. Shutdown drains in-flight requests and open tunnels for up to 30 s.
+forwards when the WAF agent fails. On Kubernetes, a new gateway passes
+traffic straight to the application until its first pod is ready, then
+never again: no ready gateway pod means `503`. Shutdown drains in-flight requests and open tunnels for up to 30 s.
 
 ## Stack
 
 Rust for a small footprint without a GC and memory safety at the trust
 boundary: `tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3` (feature
 `http3`), `redis` and `tokio-postgres` (features `redis`, `postgres`),
-`aya` (feature `xdp`), and `metrics` with the
+`aya` (feature `xdp`), `kube` (the operator), and `metrics` with the
 Prometheus exporter. The idle binary has an RSS budget that CI checks on
 every change.

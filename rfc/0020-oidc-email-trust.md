@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #153 | |
+| implemented | 2026-10-29 | #153 | v0.13.0 |
 
 > A new `admin.oidc.require_email_verified` key (default `true`) lets the
 > console accept an `email` claim that comes without `email_verified`, for
@@ -94,7 +94,7 @@ next to the key. No CPU or memory change.
 
 ## Rollout
 
-- **Rollout:** next minor release. Default `true`, so upgrades change
+- **Rollout:** v0.13.0, a minor release. Default `true`, so upgrades change
   nothing. Cloudflare Access users set `require_email_verified = false`.
 - **Off switch:** remove the key or set it to `true` (applies on restart;
   `[admin]` keys are not reloaded).
