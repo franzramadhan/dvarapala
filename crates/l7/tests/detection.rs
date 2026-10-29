@@ -14,10 +14,10 @@ use dvarapala_engine::{
 };
 use dvarapala_l7::{Detection, PeerAddr, RateLimitConfig, RateLimitLayer, Scoring};
 use http::{Request, Response, StatusCode};
-use http_body_util::Empty;
+use http_body_util::Full;
 use tower::{Layer, Service, ServiceExt, service_fn};
 
-type Body = Empty<Bytes>;
+type Body = Full<Bytes>;
 
 static BASE: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -34,7 +34,7 @@ fn at(ms: u64) {
 }
 
 fn inner() -> impl Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone {
-    service_fn(|_req: Request<Body>| async { Ok::<_, Infallible>(Response::new(Body::new())) })
+    service_fn(|_req: Request<Body>| async { Ok::<_, Infallible>(Response::new(Body::default())) })
 }
 
 /// rate 4/s, burst 1. Detection alarms after one window of warmup and
@@ -68,6 +68,8 @@ fn layer_in(
         now,
         cluster,
         block,
+        challenge: None,
+        fingerprints: Default::default(),
     })
     .unwrap()
 }
@@ -76,7 +78,7 @@ async fn send<S>(svc: &mut S, peer: &str) -> StatusCode
 where
     S: Service<Request<Body>, Response = Response<Body>, Error = Infallible>,
 {
-    let mut r = Request::get("/").body(Body::new()).unwrap();
+    let mut r = Request::get("/").body(Body::default()).unwrap();
     r.extensions_mut().insert(PeerAddr(
         format!("{peer}:4000").parse::<SocketAddr>().unwrap(),
     ));
@@ -185,7 +187,7 @@ async fn response_status_feeds_the_features() {
         threshold: 0.5,
     };
     let not_found = service_fn(|_req: Request<Body>| async {
-        let mut r = Response::new(Body::new());
+        let mut r = Response::new(Body::default());
         *r.status_mut() = StatusCode::NOT_FOUND;
         Ok::<_, Infallible>(r)
     });

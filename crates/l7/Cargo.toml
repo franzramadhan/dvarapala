@@ -10,15 +10,19 @@ publish.workspace = true
 
 [dependencies]
 dvarapala-engine.workspace = true
+# RFC 0012: the challenge page body
+bytes.workspace = true
 http.workspace = true
+http-body-util.workspace = true
 metrics.workspace = true
 pin-project-lite.workspace = true
 tower-layer.workspace = true
 tower-service.workspace = true
 tracing.workspace = true
+# RFC 0012: HMAC passes and the proof-of-work hash; already in the tree
+# through rustls
+ring.workspace = true
 
 [dev-dependencies]
-http-body-util.workspace = true
-bytes.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { workspace = true, features = ["util"] }

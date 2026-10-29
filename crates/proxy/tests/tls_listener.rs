@@ -37,6 +37,7 @@ async fn proxy(handshake_timeout: Duration, max_handshakes: usize) -> Proxy {
         key: key.clone(),
         handshake_timeout,
         max_handshakes,
+        fingerprint: false,
     })
     .unwrap();
     let up = upstream("ok").await;

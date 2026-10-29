@@ -151,6 +151,8 @@ pub fn limiter() -> RateLimitLayer {
         now: Instant::now,
         cluster: None,
         block: None,
+        challenge: None,
+        fingerprints: Default::default(),
     })
     .unwrap()
 }

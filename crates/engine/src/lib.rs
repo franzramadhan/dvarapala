@@ -18,7 +18,7 @@ pub use cidr::{BlockSink, Cidr, CidrError, TrustedProxies};
 pub use cluster::{Batch, Cluster, ClusterConfig, Reply, overshoot, split};
 pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
-pub use guard::{Decision, Guard, GuardConfig, GuardDetection};
+pub use guard::{ChallengeMode, Decision, Guard, GuardConfig, GuardDetection, Pass};
 pub use key::{ClientKey, client_key};
 pub use schedule::{Schedule, ScheduleConfig, ScheduleError, Slot};
 pub use score::{ClientStats, FEATURE_NAMES, FEATURES, Features, Scorer};

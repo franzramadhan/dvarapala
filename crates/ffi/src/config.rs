@@ -3,7 +3,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use dvarapala_engine::{
-    Cidr, ConnsConfig, DetectConfig, GuardConfig, GuardDetection, Limit, TrustedProxies,
+    ChallengeMode, Cidr, ConnsConfig, DetectConfig, GuardConfig, GuardDetection, Limit,
+    TrustedProxies,
 };
 
 /// What a guard is built from: `CONFIG.md` key names and string values.
@@ -114,6 +115,8 @@ impl Settings {
                     enforce,
                     attack_rate_factor: factor,
                 }),
+                // RFC 0008: no challenge page in process
+                challenge: ChallengeMode::Off,
             },
             trusted: TrustedProxies::new(trusted),
             conns: l4.then_some(c),

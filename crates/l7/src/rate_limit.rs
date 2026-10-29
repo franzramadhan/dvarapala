@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    BlockSink, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig, GuardDetection,
-    State, TrustedProxies, Verdict, client_key,
+    BlockSink, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig,
+    GuardDetection, State, TrustedProxies, Verdict, client_key,
 };
 use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode, Version};
@@ -18,7 +18,9 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::detection::{ReqInfo, Watch};
-use crate::{Detection, GrpcStatus, PeerAddr, Scoring, grpc_response, is_grpc};
+use crate::{
+    ChallengeConfig, Detection, Fingerprints, GrpcStatus, PeerAddr, Scoring, grpc_response, is_grpc,
+};
 
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
@@ -35,6 +37,10 @@ pub struct RateLimitConfig {
     pub cluster: Option<Arc<Mutex<Cluster>>>,
     /// RFC 0011: heavy hitters in enforce mode go to the XDP block list.
     pub block: Option<BlockSink>,
+    /// RFC 0012 challenge; `None` turns it off.
+    pub challenge: Option<ChallengeConfig>,
+    /// RFC 0012 rules on the JA4 fingerprint.
+    pub fingerprints: Fingerprints,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the
@@ -84,6 +90,7 @@ impl RateLimitLayer {
                 enforce: d.enforce,
                 attack_rate_factor: d.attack_rate_factor,
             }),
+            challenge: ChallengeMode::Off,
         })?;
         Ok(Self {
             shared: Arc::new(Shared {

@@ -21,6 +21,32 @@ pub struct GuardConfig {
     pub max_clients: NonZeroUsize,
     /// `None` turns detection off.
     pub detection: Option<GuardDetection>,
+    /// When a request without a pass gets `Challenge` (RFC 0012).
+    pub challenge: ChallengeMode,
+}
+
+/// When a request without a pass gets `Challenge` (RFC 0012).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChallengeMode {
+    /// Never.
+    #[default]
+    Off,
+    /// While detection is in `Attack` and enforcing.
+    Attack,
+    /// On every request.
+    Always,
+}
+
+/// What the caller knows about a request's challenge pass (RFC 0012).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Pass {
+    /// No pass; the mode decides.
+    #[default]
+    Missing,
+    /// A valid pass: no challenge, and the normal limit during an attack.
+    Valid,
+    /// No pass, and a rule asks for one whatever the detector says.
+    Required,
 }
 
 /// The decision for one request and what the caller reports about it.
@@ -48,6 +74,7 @@ pub struct Guard<V = ()> {
     /// `limit` with the refill scaled by `attack_rate_factor`
     attack_limit: Limit,
     enforce: bool,
+    challenge: ChallengeMode,
 }
 
 impl<V: Default> Guard<V> {
@@ -78,10 +105,11 @@ impl<V: Default> Guard<V> {
             limit: config.limit,
             attack_limit,
             enforce,
+            challenge: config.challenge,
         })
     }
 
-    /// The verdict for one request from `key` at `now`.
+    /// The verdict for one request from `key` at `now`, without a pass.
     pub fn check(&mut self, key: ClientKey, now: Instant) -> Decision {
         let (report, attack, heavy) = match self.detector.as_mut() {
             Some(d) => {
@@ -105,6 +133,14 @@ impl<V: Default> Guard<V> {
             report,
             evicted: self.table.evictions() - before,
         }
+    }
+
+    /// The verdict for one request from `key` at `now`. The bucket comes
+    /// first, so a client without a pass gets `Challenge` only within its
+    /// limit; heavy hitters are dropped with or without one.
+    pub fn check_passed(&mut self, key: ClientKey, now: Instant, pass: Pass) -> Decision {
+        let _ = (key, now, pass, self.challenge);
+        todo!("rfc 0012")
     }
 
     /// The caller's state for `key`, when it is in the table.
@@ -148,8 +184,121 @@ mod tests {
             limit: Limit::new(rate, burst).unwrap(),
             max_clients: NonZeroUsize::new(2).unwrap(),
             detection: None,
+            challenge: ChallengeMode::Off,
         })
         .unwrap()
+    }
+
+    fn challenging(mode: ChallengeMode, enforce: bool) -> Guard {
+        Guard::new(GuardConfig {
+            limit: Limit::new(10, 20).unwrap(),
+            max_clients: NonZeroUsize::new(1024).unwrap(),
+            detection: Some(GuardDetection {
+                detect: DetectConfig {
+                    warmup_windows: 1,
+                    trigger_windows: 1,
+                    ..DetectConfig::default()
+                },
+                enforce,
+                attack_rate_factor: 0.1,
+            }),
+            challenge: mode,
+        })
+        .unwrap()
+    }
+
+    /// A quiet window, then a flood from one heavy /24 and many small
+    /// sources, so the detector is in `Attack` at the returned instant.
+    fn attack(g: &mut Guard) -> Instant {
+        let t0 = Instant::now();
+        let src = |i: u32| ClientKey::from(IpAddr::V4(Ipv4Addr::from(0xc633_0000 | i << 8)));
+        for i in 0..50 {
+            g.check(src(i), t0);
+        }
+        let t1 = t0 + Duration::from_secs(1);
+        for i in 0..3000 {
+            g.check(src(i % 200), t1);
+        }
+        for _ in 0..500 {
+            g.check(key(1), t1);
+        }
+        let t2 = t1 + Duration::from_secs(1);
+        g.check(src(0), t2);
+        assert_eq!(g.detector().unwrap().state(), State::Attack);
+        t2
+    }
+
+    #[test]
+    #[ignore = "rfc 0012"]
+    fn always_challenges_without_a_pass() {
+        let mut g = challenging(ChallengeMode::Always, false);
+        let t = Instant::now();
+        assert_eq!(g.check(key(1), t).verdict, Verdict::Challenge);
+        let d = g.check_passed(key(1), t, Pass::Valid);
+        assert_eq!(d.verdict, Verdict::Allow);
+    }
+
+    #[test]
+    #[ignore = "rfc 0012"]
+    fn attack_challenges_and_a_pass_keeps_the_normal_limit() {
+        let mut g = challenging(ChallengeMode::Attack, true);
+        let t = attack(&mut g);
+        assert_eq!(g.check(key(9), t).verdict, Verdict::Challenge);
+        // the attack limit (factor 0.1) still lets the burst through; a
+        // pass is checked against the normal rate after it
+        let passed: Vec<_> = (0..21)
+            .map(|i| g.check_passed(key(10), t + Duration::from_millis(100 * i), Pass::Valid))
+            .map(|d| d.verdict)
+            .collect();
+        assert!(passed.iter().all(|v| *v == Verdict::Allow), "{passed:?}");
+    }
+
+    #[test]
+    #[ignore = "rfc 0012"]
+    fn no_challenge_in_observe_or_normal() {
+        let mut g = challenging(ChallengeMode::Attack, false);
+        let t = attack(&mut g);
+        assert_eq!(g.check(key(9), t).verdict, Verdict::Allow);
+        let mut g = challenging(ChallengeMode::Attack, true);
+        assert_eq!(g.check(key(9), Instant::now()).verdict, Verdict::Allow);
+        // a rule that asks for a pass applies without an attack
+        let d = g.check_passed(key(9), Instant::now(), Pass::Required);
+        assert_eq!(d.verdict, Verdict::Challenge);
+    }
+
+    #[test]
+    #[ignore = "rfc 0012"]
+    fn heavy_hitter_dropped_with_a_pass() {
+        let mut g = challenging(ChallengeMode::Attack, true);
+        let t = attack(&mut g);
+        assert!(g.detector().unwrap().is_heavy(key(1).into()));
+        let d = g.check_passed(key(1), t, Pass::Valid);
+        assert_eq!(d.verdict, Verdict::Drop);
+    }
+
+    #[test]
+    #[ignore = "rfc 0012"]
+    fn bucket_before_challenge() {
+        let mut g = Guard::<()>::new(GuardConfig {
+            challenge: ChallengeMode::Always,
+            ..guard_config(1, 1)
+        })
+        .unwrap();
+        let t = Instant::now();
+        assert_eq!(g.check(key(1), t).verdict, Verdict::Challenge);
+        assert!(matches!(
+            g.check(key(1), t).verdict,
+            Verdict::Throttle { .. }
+        ));
+    }
+
+    fn guard_config(rate: u32, burst: u32) -> GuardConfig {
+        GuardConfig {
+            limit: Limit::new(rate, burst).unwrap(),
+            max_clients: NonZeroUsize::new(2).unwrap(),
+            detection: None,
+            challenge: ChallengeMode::Off,
+        }
     }
 
     #[test]
@@ -186,6 +335,7 @@ mod tests {
                     enforce: true,
                     attack_rate_factor: f,
                 }),
+                challenge: ChallengeMode::Off,
             });
             assert!(r.is_err(), "{f}");
         }

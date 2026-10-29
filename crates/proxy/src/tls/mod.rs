@@ -3,7 +3,11 @@
 mod acceptor;
 mod client;
 mod expiry;
+mod hello;
+#[doc(hidden)]
+pub mod ja4;
 mod pair;
+mod prefixed;
 
 pub use acceptor::{Tls, TlsConfig};
 pub(crate) use client::Connector;

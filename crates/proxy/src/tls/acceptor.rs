@@ -22,6 +22,8 @@ pub struct TlsConfig {
     pub handshake_timeout: Duration,
     /// Handshakes in progress at once; over it, close before any crypto.
     pub max_handshakes: usize,
+    /// Compute the JA4 of each ClientHello (RFC 0012).
+    pub fingerprint: bool,
 }
 
 /// A loaded TLS listener config. Clones share the certificate, so

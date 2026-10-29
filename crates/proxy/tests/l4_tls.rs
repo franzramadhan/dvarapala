@@ -28,6 +28,7 @@ async fn second_connect_closed_before_handshake() {
         key: write(&dir, "key.pem", &key_pem),
         handshake_timeout: Duration::from_secs(10),
         max_handshakes: 1024,
+        fingerprint: false,
     })
     .unwrap();
     let up = upstream("ok").await;
