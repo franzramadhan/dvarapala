@@ -1,5 +1,4 @@
 //! The `[[routes]]` list (RFC 0013).
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -38,20 +37,66 @@ pub struct Route {
 }
 
 fn client() -> String {
-    todo!("rfc 0013")
+    "client".into()
 }
 
 fn yes() -> bool {
-    todo!("rfc 0013")
+    true
 }
 
 fn max_keys() -> usize {
-    todo!("rfc 0013")
+    10_000
 }
 
 /// The layer's routes, in order. Errors name the route and the key.
 pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
-    todo!("rfc 0013")
+    let mut names = HashSet::new();
+    routes
+        .iter()
+        .map(|r| {
+            let err = |key: &str, e: String| format!("routes {:?}: {key}: {e}", r.name);
+            if r.name.is_empty() {
+                return Err("routes: every route needs a name".into());
+            }
+            if !names.insert(r.name.as_str()) {
+                return Err(err("name", "used by another route".into()));
+            }
+            let host = r.host.as_deref().map(Host::parse).transpose();
+            let path = r.path.as_deref().map(PathMatch::parse).transpose();
+            let methods = r
+                .methods
+                .iter()
+                .map(|m| Method::from_bytes(m.to_ascii_uppercase().as_bytes()))
+                .collect::<Result<Vec<_>, _>>();
+            let clients = r
+                .clients
+                .iter()
+                .map(|c| c.parse::<Cidr>())
+                .collect::<Result<Vec<_>, _>>();
+            let limit = match r.rate {
+                0 => None,
+                rate => Some(
+                    Limit::new(rate, if r.burst == 0 { rate } else { r.burst })
+                        .map_err(|e| err("rate", e.to_string()))?,
+                ),
+            };
+            Ok(RouteConfig {
+                name: r.name.clone(),
+                matcher: Matcher {
+                    host: host.map_err(|e| err("host", e))?,
+                    path: path.map_err(|e| err("path", e))?,
+                    methods: methods.map_err(|e| err("methods", e.to_string()))?,
+                    clients: clients.map_err(|e| err("clients", e.0))?,
+                },
+                deny: r.deny,
+                limit,
+                key: RouteKey::parse(&r.key).map_err(|e| err("key", e))?,
+                challenge: r.challenge,
+                max_keys: NonZeroUsize::new(r.max_keys)
+                    .ok_or_else(|| err("max_keys", "must be above 0".into()))?,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -76,7 +121,6 @@ mod tests {
 
     // RFC 0013 case 11
     #[test]
-    #[ignore = "rfc 0013"]
     fn bad_routes_name_the_route_and_key() {
         let err = |f: fn(&mut Route)| {
             let mut r = route("api");
@@ -97,7 +141,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0013"]
     fn burst_defaults_to_rate() {
         let mut r = route("login");
         r.rate = 5;
