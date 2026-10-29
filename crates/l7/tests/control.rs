@@ -74,7 +74,6 @@ where
 
 // case 4
 #[tokio::test]
-#[ignore = "rfc 0014"]
 async fn manual_block_closes_before_any_bucket() {
     let l = layer(Limit::new(100, 100).unwrap());
     let (calls, inner) = counting();
@@ -98,7 +97,6 @@ async fn manual_block_closes_before_any_bucket() {
 
 // case 5
 #[tokio::test]
-#[ignore = "rfc 0014"]
 async fn reload_applies_the_rate_and_keeps_clients() {
     let l = layer(Limit::new(100, 100).unwrap());
     let (_, inner) = counting();
@@ -123,7 +121,6 @@ async fn reload_applies_the_rate_and_keeps_clients() {
 
 // case 6
 #[tokio::test]
-#[ignore = "rfc 0014"]
 async fn reload_adds_a_deny_route() {
     let l = layer(Limit::new(100, 100).unwrap());
     let (_, inner) = counting();
