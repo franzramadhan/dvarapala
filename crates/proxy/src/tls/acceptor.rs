@@ -1,3 +1,4 @@
+use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -11,7 +12,10 @@ use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 
-use super::{CertPair, TlsError};
+use dvarapala_l7::Ja4;
+
+use super::prefixed::Prefixed;
+use super::{CertPair, TlsError, hello};
 
 /// Listener TLS settings.
 #[derive(Debug, Clone)]
@@ -110,9 +114,12 @@ impl Tls {
         Ok(sc)
     }
 
-    /// The handshake, bounded in concurrency and time. `None` closes the
-    /// connection.
-    pub(crate) async fn accept<IO>(&self, tcp: IO) -> Option<TlsStream<IO>>
+    /// The handshake, bounded in concurrency and time, with the JA4 when
+    /// `fingerprint` is on. `None` closes the connection.
+    pub(crate) async fn accept<IO>(
+        &self,
+        mut tcp: IO,
+    ) -> Option<(TlsStream<Prefixed<IO>>, Option<Ja4>)>
     where
         IO: AsyncRead + AsyncWrite + Unpin,
     {
@@ -123,17 +130,29 @@ impl Tls {
         };
         let in_progress = metrics::gauge!("dvarapala_tls_handshakes_in_progress");
         in_progress.increment(1.0);
-        let res =
-            tokio::time::timeout(self.0.config.handshake_timeout, self.0.acceptor.accept(tcp))
-                .await;
+        let fingerprint = self.0.config.fingerprint;
+        let handshake = async {
+            let (seen, ja4) = if fingerprint {
+                hello::read(&mut tcp).await?
+            } else {
+                (Vec::new(), None)
+            };
+            let s = self.0.acceptor.accept(Prefixed::new(seen, tcp)).await?;
+            Ok::<_, io::Error>((s, ja4))
+        };
+        let res = tokio::time::timeout(self.0.config.handshake_timeout, handshake).await;
         in_progress.decrement(1.0);
         match res {
-            Ok(Ok(s)) => {
+            Ok(Ok((s, ja4))) => {
                 count("ok");
                 if s.get_ref().1.handshake_kind() == Some(HandshakeKind::Resumed) {
                     metrics::counter!("dvarapala_tls_resumed_total").increment(1);
                 }
-                Some(s)
+                if fingerprint {
+                    let result = if ja4.is_some() { "ok" } else { "unparsed" };
+                    metrics::counter!("dvarapala_tls_ja4_total", "result" => result).increment(1);
+                }
+                Some((s, ja4))
             }
             Ok(Err(_)) => {
                 count("failed");

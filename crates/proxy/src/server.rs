@@ -3,7 +3,7 @@ use std::future::{Future, poll_fn};
 use std::time::Duration;
 
 use dvarapala_l4::{BodyRate, Listener};
-use dvarapala_l7::PeerAddr;
+use dvarapala_l7::{Ja4, PeerAddr};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::{Request, Response};
@@ -111,43 +111,49 @@ async fn run<S>(
         let (svc, drain) = (service.clone(), Drain(drain_rx.clone()));
         let activity = conn.activity();
         let act = activity.clone();
-        let hyper_svc = hyper::service::service_fn(move |mut req: Request<Incoming>| {
-            // in flight until the response body ends, for the idle timeout
-            let busy = act.begin();
-            req.extensions_mut().insert(PeerAddr(peer));
-            req.extensions_mut().insert(drain.clone());
-            if rate > 0 {
-                req.extensions_mut().insert(BodyRate(rate));
-            }
-            let mut svc = svc.clone();
-            async move {
-                poll_fn(|cx| svc.poll_ready(cx)).await?;
-                let res = svc.call(req).await?;
-                Ok::<_, Infallible>(res.map(|b| {
-                    b.map_frame(move |f| {
-                        let _ = &busy;
-                        f
-                    })
-                    .boxed()
-                }))
-            }
-        });
+        // RFC 0012: the JA4 is known after the handshake
+        let make = move |ja4: Option<Ja4>| {
+            hyper::service::service_fn(move |mut req: Request<Incoming>| {
+                // in flight until the response body ends, for the idle timeout
+                let busy = act.begin();
+                req.extensions_mut().insert(PeerAddr(peer));
+                if let Some(f) = ja4 {
+                    req.extensions_mut().insert(f);
+                }
+                req.extensions_mut().insert(drain.clone());
+                if rate > 0 {
+                    req.extensions_mut().insert(BodyRate(rate));
+                }
+                let mut svc = svc.clone();
+                async move {
+                    poll_fn(|cx| svc.poll_ready(cx)).await?;
+                    let res = svc.call(req).await?;
+                    Ok::<_, Infallible>(res.map(|b| {
+                        b.map_frame(move |f| {
+                            let _ = &busy;
+                            f
+                        })
+                        .boxed()
+                    }))
+                }
+            })
+        };
         let (builder, watcher, tls) = (builder.clone(), graceful.watcher(), tls.clone());
         tokio::spawn(async move {
             let served = async {
                 let res = match tls {
                     None => {
                         let c =
-                            builder.serve_connection_with_upgrades(TokioIo::new(conn), hyper_svc);
+                            builder.serve_connection_with_upgrades(TokioIo::new(conn), make(None));
                         watcher.watch(c.into_owned()).await
                     }
                     #[cfg(feature = "tls")]
                     Some(tls) => {
-                        let Some(stream) = tls.accept(conn).await else {
+                        let Some((stream, ja4)) = tls.accept(conn).await else {
                             return;
                         };
                         let c =
-                            builder.serve_connection_with_upgrades(TokioIo::new(stream), hyper_svc);
+                            builder.serve_connection_with_upgrades(TokioIo::new(stream), make(ja4));
                         watcher.watch(c.into_owned()).await
                     }
                     #[cfg(not(feature = "tls"))]

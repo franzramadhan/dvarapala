@@ -102,6 +102,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ja4"
+path = "fuzz_targets/ja4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "challenge"
 path = "fuzz_targets/challenge.rs"
 test = false

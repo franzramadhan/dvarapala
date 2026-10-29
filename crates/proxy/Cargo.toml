@@ -62,6 +62,11 @@ harness = false
 required-features = ["tls"]
 
 [[bench]]
+name = "ja4"
+harness = false
+required-features = ["tls"]
+
+[[bench]]
 name = "tunnels"
 harness = false
 

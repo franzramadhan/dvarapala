@@ -114,7 +114,6 @@ async fn get(addr: SocketAddr, ca: &Ca) -> (StatusCode, Option<String>, String) 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0012"]
 async fn upstream_sees_the_computed_ja4_only() {
     let (addr, ca, _stop) = proxy(Fingerprints::new(&[], &[], "x-ja4").unwrap()).await;
     let (status, _, body) = get(addr, &ca).await;
@@ -125,7 +124,6 @@ async fn upstream_sees_the_computed_ja4_only() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0012"]
 async fn denied_fingerprint_is_dropped() {
     let (addr, ca, _stop) = proxy(Fingerprints::new(&["t13d*".into()], &[], "").unwrap()).await;
     let (status, conn, _) = get(addr, &ca).await;
@@ -134,7 +132,6 @@ async fn denied_fingerprint_is_dropped() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0012"]
 async fn other_fingerprints_pass() {
     let (addr, ca, _stop) = proxy(Fingerprints::new(&["t12*".into()], &[], "").unwrap()).await;
     assert_eq!(get(addr, &ca).await.0, StatusCode::OK);
