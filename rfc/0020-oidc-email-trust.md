@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-29 | #N | |
+| accepted | 2026-10-29 | #153 | |
 
 > A new `admin.oidc.require_email_verified` key (default `true`) lets the
 > console accept an `email` claim that comes without `email_verified`, for
