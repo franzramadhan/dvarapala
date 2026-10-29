@@ -1,100 +1,19 @@
-//! The RFC 0014 admin API on its own listener: JSON over HTTP/1.1, every
-//! call behind the bearer token.
+//! The RFC 0014 calls and their JSON, written by hand (no new dependency).
 
-use std::convert::Infallible;
 use std::fmt::Write;
-use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
 
-use dvarapala_l7::{Call, RateLimitLayer, authorized, parse_admin};
-use http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue, WWW_AUTHENTICATE};
+use dvarapala_l7::{Call, RateLimitLayer, request_totals};
+use http::header::{CONTENT_TYPE, HeaderValue};
 use http_body_util::Full;
-use hyper::body::{Bytes, Incoming};
-use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::{TokioIo, TokioTimer};
-use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+use hyper::body::Bytes;
+use hyper::{Response, StatusCode};
 
+use super::Admin;
 use crate::config::parse_duration;
-use crate::reload::{Outcome, Reloader};
-
-/// Open admin connections at most; one request each.
-const MAX_CONNS: usize = 16;
-
-pub struct Admin {
-    pub token: String,
-    pub max_block_ttl: Duration,
-    /// `None` when the reverse proxy's rate limiter is off.
-    pub layer: Option<RateLimitLayer>,
-    pub reloader: Arc<Reloader>,
-    /// `reverse` or `forward`
-    pub mode: &'static str,
-}
-
-/// Binds `addr` and serves the admin API until the process exits.
-pub async fn serve(addr: SocketAddr, admin: Admin) -> io::Result<()> {
-    let listener = TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "admin listening");
-    let admin = Arc::new(admin);
-    let slots = Arc::new(Semaphore::new(MAX_CONNS));
-    tokio::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                continue;
-            };
-            // over the bound: close it instead of queueing
-            let Ok(slot) = slots.clone().try_acquire_owned() else {
-                continue;
-            };
-            let admin = admin.clone();
-            let svc = hyper::service::service_fn(move |req: Request<Incoming>| {
-                let res = admin.answer(&req);
-                async move { Ok::<_, Infallible>(res) }
-            });
-            tokio::spawn(async move {
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .timer(TokioTimer::new())
-                    .header_read_timeout(Duration::from_secs(5))
-                    .keep_alive(false)
-                    .serve_connection(TokioIo::new(stream), svc)
-                    .await;
-                drop(slot);
-            });
-        }
-    });
-    Ok(())
-}
+use crate::reload::Outcome;
 
 impl Admin {
-    fn answer<B>(&self, req: &Request<B>) -> Response<Full<Bytes>> {
-        let path = req.uri().path();
-        let endpoint = match path {
-            "/status" | "/top" | "/reload" | "/blocks" => path.to_owned(),
-            _ => "other".to_owned(),
-        };
-        let res = if !authorized(req.headers().get(AUTHORIZATION), self.token.as_bytes()) {
-            let mut r = json(StatusCode::UNAUTHORIZED, error("unauthorized"));
-            r.headers_mut()
-                .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
-            r
-        } else {
-            match parse_admin(req.method().as_str(), path, req.uri().query()) {
-                Ok(call) => self.call(call),
-                Err((status, msg)) => json(status, error(&msg)),
-            }
-        };
-        ::metrics::counter!(
-            "dvarapala_admin_requests_total",
-            "endpoint" => endpoint,
-            "status" => res.status().as_str().to_owned()
-        )
-        .increment(1);
-        res
-    }
-
-    fn call(&self, call: Call) -> Response<Full<Bytes>> {
+    pub(super) fn call(&self, call: Call) -> Response<Full<Bytes>> {
         if call == Call::Reload {
             let out = self.reloader.reload();
             let status = match out.result {
@@ -173,8 +92,13 @@ impl Admin {
             .reloader
             .last()
             .map_or_else(|| "null".into(), |o| outcome(&o));
+        let mut requests = String::new();
+        for (i, (verdict, n)) in request_totals().iter().enumerate() {
+            let sep = if i == 0 { "" } else { "," };
+            let _ = write!(requests, "{sep}\"{verdict}\":{n}");
+        }
         format!(
-            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload}}}",
+            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}}}}",
             env!("CARGO_PKG_VERSION"),
             self.mode,
             s.as_ref().map_or(0, |s| s.clients),
@@ -201,12 +125,12 @@ fn outcome(o: &Outcome) -> String {
     }
 }
 
-fn error(msg: &str) -> String {
+pub(super) fn error(msg: &str) -> String {
     format!("{{\"error\":{}}}", string(msg))
 }
 
 /// `s` as a JSON string.
-fn string(s: &str) -> String {
+pub(super) fn string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -223,7 +147,7 @@ fn string(s: &str) -> String {
     out
 }
 
-fn json(status: StatusCode, body: String) -> Response<Full<Bytes>> {
+pub(super) fn json(status: StatusCode, body: String) -> Response<Full<Bytes>> {
     let mut r = Response::new(Full::new(Bytes::from(body)));
     *r.status_mut() = status;
     r.headers_mut()

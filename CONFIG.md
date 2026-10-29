@@ -411,6 +411,10 @@ JSON over HTTP/1.1 on its own listener; every call needs
 | `token` | string | `""` | Bearer token, at least 32 bytes, required when `listen` is set. Set it with `DVARAPALA__ADMIN__TOKEN` |
 | `max_blocks` | integer | `4096` | Manual blocks at most; a block over it gets `507` |
 | `max_block_ttl` | duration | `"24h"` | Longest block `ttl`, also the default |
+| `ui_enabled` | bool | `false` | Serves the web console at `/ui/` ([RFC 0018](rfc/0018-admin-ui.md)); needs `listen` |
+| `session_ttl` | duration | `"8h"` | Console session lifetime, at most `"24h"` |
+| `max_sessions` | integer | `64` | Console sessions at most; the oldest is dropped for a new one |
+| `public_url` | string | `""` | The console's origin as the browser sees it, for example `"https://<host>"`. Required with OIDC (the redirect URI is `<public_url>/session/oidc/callback`); `https` also sets `Secure` on the session cookie |
 
 | Call | Answer |
 |---|---|
@@ -422,7 +426,56 @@ JSON over HTTP/1.1 on its own listener; every call needs
 | `DELETE /blocks?cidr=<net>` | removes the block, `404` when not listed. An XDP entry stays until its own expiry |
 
 Admin connections: at most 16, one request each, a 5 s header timeout,
-the query string at most 1 KiB, no body read.
+the query string at most 1 KiB, no body read. Every call that changes
+state is logged as `admin action` with its `actor` (`token`, or the
+console user).
+
+### Console
+
+With `ui_enabled = true` the admin listener serves a web console at
+`/ui/` ([RFC 0018](rfc/0018-admin-ui.md)): the detection state and live
+request rates, top talkers, manual blocks and reload. It is embedded in
+the binary (the `ui` feature, in the default build). The listener stays
+plain HTTP: off loopback, put a TLS terminator in front (a reverse proxy,
+a Kubernetes `HTTPRoute`, a Tailscale ingress) and set an `https`
+`public_url`.
+
+The console logs in with the admin token or, with `[admin.oidc]`, through
+an OIDC issuer, and then holds an `HttpOnly`, `SameSite=Lax` session
+cookie. The API calls above accept that cookie in place of the bearer
+header; with the cookie, `POST` and `DELETE` also need
+`X-Dvarapala-Csrf` set to the session's `csrf`.
+
+| Call | Answer |
+|---|---|
+| `GET /ui/...` | the console; unknown paths under `/ui/` get the page so deep links work |
+| `GET /session/methods` | unauthenticated: `token` and `oidc` (`null` or its `label`) |
+| `POST /session` | with the bearer header: `204` and the session cookie |
+| `GET /session` | `subject`, `method` (`token`, `oidc`), `expires_in`, `csrf`; `401` without a session |
+| `DELETE /session` | logs out |
+| `GET /session/oidc` | `302` to the issuer |
+| `GET /session/oidc/callback` | the issuer's redirect: `302` to `/ui/` with the cookie, or `303` to `/ui/login?error=<reason>` |
+
+`GET /status` also answers `requests`: the totals of
+`dvarapala_requests_total` per verdict since start.
+
+### `[admin.oidc]`
+
+OIDC login for the console: the authorization code flow with PKCE, the
+gateway as a confidential client. The ID token comes straight from the
+token endpoint over verified TLS, so its claims are checked (`iss`,
+`aud`, `exp`, `nonce`) and its signature is not (OIDC Core 3.1.3.7).
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `issuer` | string | `""` | Issuer URL, `https` (`http` only on a loopback host); empty turns OIDC off. Needs `ui_enabled` and `public_url` |
+| `client_id` | string | `""` | Required with `issuer` |
+| `client_secret` | string | `""` | Required with `issuer`; set it with `DVARAPALA__ADMIN__OIDC__CLIENT_SECRET` |
+| `scopes` | list | `["openid", "email"]` | Add the scope that carries groups when using `allow_groups` |
+| `allow_emails` | list | `[]` | Verified emails allowed in (case does not matter) |
+| `allow_groups` | list | `[]` | Groups allowed in. One of the two lists must name someone |
+| `groups_claim` | string | `"groups"` | The ID token claim holding the groups |
+| `label` | string | `"SSO"` | The login button: "Sign in with SSO" |
 
 ### Reload
 
@@ -555,7 +608,9 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
 | `dvarapala_route_keys{route}` | Keys in the route's table |
 | `dvarapala_config_reloads_total{result}` | Reloads ([RFC 0014](rfc/0014-admin.md)): `ok`, `failed` |
-| `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`other` for unknown paths) and status, `401` included |
+| `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`ui`, `session` and `oidc` for the console, `other` for unknown paths) and status, `401` included |
+| `dvarapala_admin_logins_total{method,result}` | Console logins ([RFC 0018](rfc/0018-admin-ui.md)): `method` `token` or `oidc`, `result` `ok`, `denied` (not in the allow lists) or `failed` |
+| `dvarapala_admin_sessions` | Console sessions alive |
 | `dvarapala_blocks` | Manual blocks in force |
 | `dvarapala_tls_ja4_total{result}` | ClientHellos fingerprinted (`ok`) or not (`unparsed`: not a whole ClientHello within 16 KiB) |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |

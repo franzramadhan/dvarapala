@@ -156,6 +156,20 @@ prefix_v6 = 64
 # token = "<at least 32 bytes>"
 # max_blocks = 4096
 # max_block_ttl = "24h"
+# Web console at /ui/ (RFC 0018), login by the token or OIDC. See admin-ui.toml.
+# ui_enabled = false
+# session_ttl = "8h"
+# max_sessions = 64
+# public_url = "https://<host>"
+# [admin.oidc]
+# issuer = "https://<idp>"
+# client_id = "dvarapala"
+# client_secret = "<set with DVARAPALA__ADMIN__OIDC__CLIENT_SECRET>"
+# scopes = ["openid", "email"]
+# allow_emails = ["<email>"]
+# allow_groups = []
+# groups_claim = "groups"
+# label = "SSO"
 
 # Upstream pool (RFC 0015): in place of upstream, not together with it.
 # See pool.toml.

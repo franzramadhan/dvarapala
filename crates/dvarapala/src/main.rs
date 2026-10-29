@@ -248,6 +248,12 @@ async fn control(
                 config::ProxyMode::Reverse => "reverse",
                 config::ProxyMode::Forward => "forward",
             },
+            #[cfg(feature = "ui")]
+            console: if cfg.admin.ui_enabled {
+                Some(admin::Console::new(&cfg.admin)?)
+            } else {
+                None
+            },
         };
         admin::serve(addr, a).await?;
     }

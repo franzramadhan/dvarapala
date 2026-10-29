@@ -1,0 +1,28 @@
+# Admin web console (RFC 0018) behind a TLS terminator, with OIDC login.
+#
+# The admin listener stays on loopback (or a pod-local port); a reverse
+# proxy, a Kubernetes HTTPRoute or a Tailscale ingress serves it over
+# https at public_url. Register <public_url>/session/oidc/callback as the
+# redirect URI at the identity provider.
+#
+#   DVARAPALA__ADMIN__TOKEN=<at least 32 bytes> \
+#   DVARAPALA__ADMIN__OIDC__CLIENT_SECRET=<secret> \
+#   dvarapala serve --config admin-ui.toml
+
+listen = "0.0.0.0:8080"
+upstream = "http://127.0.0.1:3000"
+
+[admin]
+listen = "127.0.0.1:9091"
+ui_enabled = true
+public_url = "https://<admin host>"
+session_ttl = "8h"
+
+[admin.oidc]
+issuer = "https://<idp>"
+client_id = "dvarapala"
+allow_emails = ["<email>"]
+# or by group, with the scope that carries it:
+# scopes = ["openid", "email", "groups"]
+# allow_groups = ["sre"]
+label = "SSO"

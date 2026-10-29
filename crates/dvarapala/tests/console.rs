@@ -153,7 +153,6 @@ const UI: &str = "ui_enabled = true";
 
 // case 8
 #[test]
-#[ignore = "rfc 0018"]
 fn console_off_by_default() {
     let p = start("off", "");
     assert_eq!(call(p.admin, "GET", "/ui/", &[bearer()]).status, 404);
@@ -163,7 +162,6 @@ fn console_off_by_default() {
 
 // case 9
 #[test]
-#[ignore = "rfc 0018"]
 fn bundle_served_with_headers() {
     let p = start("bundle", UI);
     for path in ["/ui/", "/ui/blocks"] {
@@ -182,7 +180,6 @@ fn bundle_served_with_headers() {
 
 // cases 10, 11, 12
 #[test]
-#[ignore = "rfc 0018"]
 fn token_session_csrf_and_logout() {
     let p = start("token", UI);
     let wrong = format!("Authorization: Bearer {}", "f".repeat(TOKEN.len()));
@@ -231,7 +228,6 @@ fn token_session_csrf_and_logout() {
 
 // case 17
 #[test]
-#[ignore = "rfc 0018"]
 fn status_counts_requests() {
     let p = start("totals", "");
     let allowed = |p: &Proxy| {
@@ -354,7 +350,6 @@ fn sign_in(p: &Proxy, i: &Issuer, email: &str) -> Answer {
 
 // cases 13, 15
 #[test]
-#[ignore = "rfc 0018"]
 fn oidc_login_opens_a_session() {
     let i = issuer();
     let p = start("oidc", &oidc(&i));
@@ -380,7 +375,6 @@ fn oidc_login_opens_a_session() {
 
 // cases 6, 14
 #[test]
-#[ignore = "rfc 0018"]
 fn oidc_denied_and_replayed() {
     let i = issuer();
     let p = start("denied", &oidc(&i));
