@@ -56,6 +56,8 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }
+# the TLS listener tests' certificates; already in the tree through proxy
+rcgen.workspace = true
 
 [[bench]]
 name = "replay"

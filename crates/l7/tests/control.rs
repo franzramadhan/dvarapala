@@ -11,6 +11,7 @@ use bytes::Bytes;
 use dvarapala_engine::{Limit, TrustedProxies};
 use dvarapala_l7::{
     Matcher, PathMatch, PeerAddr, RateLimitConfig, RateLimitLayer, Reload, RouteConfig, RouteKey,
+    request_totals,
 };
 use http::{Request, Response, StatusCode};
 use http_body_util::Full;
@@ -84,9 +85,16 @@ async fn manual_block_closes_before_any_bucket() {
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
     assert_eq!(res.headers()["connection"], "close");
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let allowed = request_totals()[0];
     let res = send(&mut svc, "/", "198.51.100.7").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // the admin `/status` totals, shared by the tests running alongside
+    assert_eq!(request_totals()[0].0, "allow");
+    assert!(request_totals()[0].1 > allowed.1);
+    let s = l.status();
+    assert_eq!((s.clients, s.detection, s.blocks), (1, None, 1));
+    assert!(l.top().is_empty());
     let b = l.blocks();
     assert_eq!(b.len(), 1);
     assert!(b[0].remaining <= Duration::from_secs(600));

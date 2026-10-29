@@ -72,3 +72,57 @@ impl<B: Body<Data = Bytes>> Body for WafBody<B> {
         s
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use http_body_util::{BodyExt, Full};
+
+    use super::*;
+
+    /// A body of unknown length.
+    struct Open;
+
+    impl Body for Open {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+            Poll::Ready(None)
+        }
+    }
+
+    fn head(chunks: &[&'static [u8]]) -> VecDeque<Frame<Bytes>> {
+        chunks
+            .iter()
+            .map(|c| Frame::data(Bytes::from_static(c)))
+            .collect()
+    }
+
+    // RFC 0017: the upstream reads the buffered frames, then the rest
+    #[tokio::test]
+    async fn head_then_rest_with_the_length_of_both() {
+        let full = |s: &'static [u8]| Full::new(Bytes::from_static(s));
+        let b = WafBody::buffered(head(&[b"ab", b"c"]), Some(full(b"de")));
+        assert_eq!(b.size_hint().exact(), Some(5));
+        assert!(!b.is_end_stream());
+        assert_eq!(b.collect().await.unwrap().to_bytes(), &b"abcde"[..]);
+
+        let ended = WafBody::<Full<Bytes>>::buffered(head(&[b"xyz"]), None);
+        assert_eq!(ended.size_hint().exact(), Some(3));
+        assert!(!ended.is_end_stream());
+        assert_eq!(ended.collect().await.unwrap().to_bytes(), &b"xyz"[..]);
+        assert!(WafBody::<Full<Bytes>>::buffered(VecDeque::new(), None).is_end_stream());
+
+        let open = WafBody::buffered(head(&[b"ab"]), Some(Open));
+        let h = open.size_hint();
+        assert_eq!((h.lower(), h.upper()), (2, None));
+        assert!(!open.is_end_stream());
+        assert_eq!(open.collect().await.unwrap().to_bytes(), &b"ab"[..]);
+        assert!(WafBody::new(full(b"")).is_end_stream());
+    }
+}

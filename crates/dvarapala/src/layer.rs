@@ -85,3 +85,49 @@ fn scoring(m: &config::Ml) -> Result<Option<Scoring>, Box<dyn Error>> {
     )
     .into())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    fn ml(model: Option<&str>) -> config::Ml {
+        config::Ml {
+            model: model.map(PathBuf::from),
+            threshold: 0.9,
+        }
+    }
+
+    #[test]
+    fn no_model_no_scoring() {
+        assert!(scoring(&ml(None)).unwrap().is_none());
+    }
+
+    // RFC 0002: the model's errors name the key and the file
+    #[test]
+    fn model_errors_name_the_file() {
+        let e = scoring(&ml(Some("/nonexistent/dvarapala-model.json")))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            e.contains("ml.model") && e.contains("dvarapala-model.json"),
+            "{e}"
+        );
+    }
+
+    #[cfg(feature = "ml")]
+    #[test]
+    fn model_loads_with_the_threshold() {
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../engine/tests/fixtures/xgb_stumps.json"
+        );
+        let s = scoring(&ml(Some(fixture))).unwrap().unwrap();
+        assert_eq!(s.threshold, 0.9);
+        let bad = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        let e = scoring(&ml(Some(bad))).err().unwrap().to_string();
+        assert!(e.contains("ml.model") && e.contains("Cargo.toml"), "{e}");
+    }
+}

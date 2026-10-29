@@ -92,6 +92,18 @@ mod tests {
     }
 
     #[test]
+    fn states_display_as_their_label() {
+        let shown = [
+            State::Normal,
+            State::Suspect,
+            State::Attack,
+            State::Cooldown,
+        ]
+        .map(|s| s.to_string());
+        assert_eq!(shown, ["normal", "suspect", "attack", "cooldown"]);
+    }
+
+    #[test]
     fn suspect_clears_on_normal_window() {
         let mut m = Machine::new(3, 30);
         assert_eq!(run(&mut m, &[true, false]), State::Normal);

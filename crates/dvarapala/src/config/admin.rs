@@ -211,4 +211,44 @@ mod tests {
         };
         assert!(err(long).contains("session_ttl"));
     }
+
+    #[test]
+    fn zero_values_and_partial_oidc_name_the_key() {
+        let on = Admin {
+            listen: "127.0.0.1:9091".into(),
+            token: "x".repeat(32),
+            ..Admin::default()
+        };
+        let err = |a: Admin| a.addr().unwrap_err();
+        let ttl = Admin {
+            max_block_ttl: Duration::ZERO,
+            ..on.clone()
+        };
+        assert!(err(ttl).contains("admin.max_block_ttl"));
+        if !cfg!(feature = "ui") {
+            return;
+        }
+        let ui = Admin {
+            ui_enabled: true,
+            ..on
+        };
+        let sessions = Admin {
+            max_sessions: 0,
+            ..ui.clone()
+        };
+        assert!(err(sessions).contains("admin.max_sessions"));
+        let oidc = |issuer: &str, client_id: &str| Admin {
+            public_url: "https://admin.example".into(),
+            oidc: Oidc {
+                issuer: issuer.into(),
+                client_id: client_id.into(),
+                client_secret: "s".into(),
+                allow_emails: vec!["<email>".into()],
+                ..Oidc::default()
+            },
+            ..ui.clone()
+        };
+        assert!(err(oidc("http://idp.example", "c")).contains("admin.oidc.issuer must be https"));
+        assert!(err(oidc("https://idp.example", "")).contains("admin.oidc.client_id"));
+    }
 }

@@ -82,4 +82,17 @@ mod tests {
         s.read_to_string(&mut out).await.unwrap();
         assert_eq!(out, "abcdef");
     }
+
+    #[tokio::test]
+    async fn writes_go_straight_through() {
+        use tokio::io::AsyncWriteExt;
+        let mut s = Prefixed::new(b"hello".to_vec(), Vec::new());
+        assert_eq!(s.is_write_vectored(), Vec::<u8>::new().is_write_vectored());
+        s.write_all(b"one ").await.unwrap();
+        let n = s.write_vectored(&[io::IoSlice::new(b"two")]).await.unwrap();
+        assert_eq!(n, 3);
+        s.flush().await.unwrap();
+        s.shutdown().await.unwrap();
+        assert_eq!(s.io, b"one two");
+    }
 }

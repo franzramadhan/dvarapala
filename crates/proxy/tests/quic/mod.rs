@@ -23,6 +23,7 @@ use hyper_util::rt::TokioIo;
 use quinn::crypto::rustls::QuicClientConfig;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{MutexGuard, Semaphore, oneshot};
+use tokio::task::JoinHandle;
 use tower_layer::Layer;
 
 #[path = "../support/mod.rs"]
@@ -96,17 +97,32 @@ pub fn listen(
     tune: impl FnOnce(&mut QuicConfig),
     limiter: Option<RateLimitLayer>,
 ) -> (SocketAddr, Ca, oneshot::Sender<()>) {
-    let ca = Ca::new();
+    let (addr, ca, tx, _task) = listen_task(p, tune, limiter);
+    (addr, ca, tx)
+}
+
+/// The `[tls]` of a listener: a fresh leaf from `ca` for [`NAME`].
+pub fn tls(ca: &Ca) -> Tls {
     let (cert_pem, key_pem) = ca.leaf(&[NAME]);
     let dir = tempdir();
-    let tls = Tls::new(TlsConfig {
+    Tls::new(TlsConfig {
         cert: write(&dir, "cert.pem", &cert_pem),
         key: write(&dir, "key.pem", &key_pem),
         handshake_timeout: Duration::from_secs(5),
         max_handshakes: 64,
         fingerprint: false,
     })
-    .unwrap();
+    .unwrap()
+}
+
+/// Like [`listen`], with the serving task, which ends after the drain.
+pub fn listen_task(
+    p: ReverseProxy<H3Body>,
+    tune: impl FnOnce(&mut QuicConfig),
+    limiter: Option<RateLimitLayer>,
+) -> (SocketAddr, Ca, oneshot::Sender<()>, JoinHandle<()>) {
+    let ca = Ca::new();
+    let tls = tls(&ca);
     let mut cfg = QuicConfig::new("127.0.0.1:0".parse().unwrap());
     tune(&mut cfg);
     let l = QuicListener::bind(cfg, &tls).unwrap();
@@ -115,16 +131,21 @@ pub fn listen(
     let stop = async {
         let _ = rx.await;
     };
-    match limiter {
+    let task = match limiter {
         None => tokio::spawn(l.serve(p, stop)),
         Some(layer) => tokio::spawn(l.serve(layer.layer(p), stop)),
     };
-    (addr, ca, tx)
+    (addr, ca, tx, task)
 }
 
 /// A client endpoint trusting `ca`, ALPN `h3`; `early` offers 0-RTT.
 pub fn client(ca: &Ca, early: bool) -> quinn::Endpoint {
-    let mut tls = (*client_config(&ca.pem, &[b"h3"])).clone();
+    client_alpn(ca, early, b"h3")
+}
+
+/// Like [`client`], offering `alpn` instead of `h3`.
+pub fn client_alpn(ca: &Ca, early: bool, alpn: &[u8]) -> quinn::Endpoint {
+    let mut tls = (*client_config(&ca.pem, &[alpn])).clone();
     tls.enable_early_data = early;
     let mut c = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls).unwrap()));
     let mut t = quinn::TransportConfig::default();

@@ -49,7 +49,7 @@ fn load(_: config::XdpPlan) -> Result<Option<BlockSink>, Box<dyn Error>> {
     unreachable!("start refuses xdp.interface first")
 }
 
-#[cfg(all(test, not(feature = "xdp")))]
+#[cfg(all(test, not(all(feature = "xdp", target_os = "linux"))))]
 // figment::Jail closures return figment::Error by value; not ours to box
 #[allow(clippy::result_large_err)]
 mod tests {

@@ -6,6 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
+mod stop;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
@@ -18,8 +19,7 @@ struct Proxy {
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        stop::stop(&mut self.child);
         let _ = std::fs::remove_file(&self.config);
     }
 }
@@ -32,20 +32,21 @@ fn port() -> u16 {
         .port()
 }
 
-fn toml(listen: u16, admin: u16, rate: u32) -> String {
+/// `admin_extra` goes at the end of `[admin]`.
+fn toml(listen: u16, admin: u16, rate: u32, admin_extra: &str) -> String {
     // the upstream refuses connections: the proxy answers 502, the limiter
     // still runs first
     format!(
         "listen = \"127.0.0.1:{listen}\"\nupstream = \"http://127.0.0.1:1\"\n\
          [metrics]\nlisten = \"\"\n[rate_limit]\nrate = {rate}\nburst = {rate}\n\
-         [admin]\nlisten = \"127.0.0.1:{admin}\"\ntoken = \"{TOKEN}\"\n"
+         [admin]\nlisten = \"127.0.0.1:{admin}\"\ntoken = \"{TOKEN}\"\n{admin_extra}"
     )
 }
 
-fn start(name: &str, rate: u32) -> Proxy {
+fn start(name: &str, rate: u32, admin_extra: &str) -> Proxy {
     let (listen, admin) = (port(), port());
     let config = std::env::temp_dir().join(format!("dvarapala-{name}-{}.toml", std::process::id()));
-    std::fs::write(&config, toml(listen, admin, rate)).unwrap();
+    std::fs::write(&config, toml(listen, admin, rate, admin_extra)).unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_dvarapala"))
         .args(["serve", "--config"])
         .arg(&config)
@@ -101,7 +102,7 @@ fn bearer() -> String {
 // case 9
 #[test]
 fn every_call_needs_the_token() {
-    let p = start("auth", 100);
+    let p = start("auth", 100, "");
     assert_eq!(admin(&p, "GET", "/status", None).0, 401);
     let wrong = format!("Bearer {}", "f".repeat(TOKEN.len()));
     assert_eq!(admin(&p, "GET", "/status", Some(&wrong)).0, 401);
@@ -113,7 +114,7 @@ fn every_call_needs_the_token() {
 // case 10
 #[test]
 fn block_listed_and_enforced() {
-    let p = start("block", 100);
+    let p = start("block", 100, "");
     let mut c = TcpStream::connect(("127.0.0.1", p.listen)).unwrap();
     assert_eq!(send(&mut c, "GET", "/", None).0, 502);
     let b = bearer();
@@ -140,10 +141,10 @@ fn block_listed_and_enforced() {
 // case 13
 #[test]
 fn hangup_applies_the_rate_without_dropping_connections() {
-    let p = start("hup", 1000);
+    let p = start("hup", 1000, "");
     let mut c = TcpStream::connect(("127.0.0.1", p.listen)).unwrap();
     assert_eq!(send(&mut c, "GET", "/", None).0, 502);
-    std::fs::write(&p.config, toml(p.listen, p.admin, 1)).unwrap();
+    std::fs::write(&p.config, toml(p.listen, p.admin, 1, "")).unwrap();
     let pid = p.child.id().to_string();
     assert!(
         Command::new("kill")
@@ -163,4 +164,43 @@ fn hangup_applies_the_rate_without_dropping_connections() {
     }
     let (_, body) = admin(&p, "GET", "/status", Some(&bearer()));
     assert!(body.contains("\"result\":\"ok\""), "{body}");
+}
+
+#[test]
+fn block_ttl_checked_and_table_bounded() {
+    let p = start("ttl", 100, "max_blocks = 1\nmax_block_ttl = \"1h\"\n");
+    let b = bearer();
+    for ttl in ["soon", "0s", "2h"] {
+        let (status, body) = admin(
+            &p,
+            "POST",
+            &format!("/blocks?cidr=192.0.2.0/24&ttl={ttl}"),
+            Some(&b),
+        );
+        assert_eq!(status, 400, "{ttl}: {body}");
+        assert!(body.starts_with("{\"error\":"), "{ttl}: {body}");
+    }
+    // without ttl: admin.max_block_ttl
+    let (status, body) = admin(&p, "POST", "/blocks?cidr=192.0.2.0/24", Some(&b));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"ttl_secs\":3600"), "{body}");
+    // admin.max_blocks = 1
+    let (status, body) = admin(&p, "POST", "/blocks?cidr=198.51.100.0/24", Some(&b));
+    assert_eq!(status, 507, "{body}");
+    assert!(body.starts_with("{\"error\":"), "{body}");
+}
+
+#[test]
+fn top_lists_the_heavy_prefixes() {
+    let p = start("top", 1000, "");
+    let mut c = TcpStream::connect(("127.0.0.1", p.listen)).unwrap();
+    for _ in 0..20 {
+        assert_eq!(send(&mut c, "GET", "/", None).0, 502);
+    }
+    let (status, body) = admin(&p, "GET", "/top", Some(&bearer()));
+    assert_eq!(status, 200);
+    assert!(
+        body.starts_with("{\"top\":[") && body.ends_with("]}"),
+        "{body}"
+    );
 }

@@ -159,8 +159,29 @@ mod tests {
                 prefix_v6: v6,
                 ..ConnsConfig::default()
             };
-            assert!(Conns::new(c).is_err(), "{v4} {v6}");
+            let e = Conns::new(c).err().expect("refused").to_string();
+            assert!(e.contains("prefix_v4"), "{v4} {v6}: {e}");
         }
+    }
+
+    #[test]
+    fn reasons_label_metrics() {
+        assert_eq!(Refused::PerClient.as_str(), "per_client");
+        assert_eq!(Refused::Rate.as_str(), "rate");
+    }
+
+    #[test]
+    fn v6_clients_group_by_prefix_v6() {
+        let mut c = conns(ConnsConfig {
+            max_per_client: 1,
+            ..ConnsConfig::default()
+        });
+        let t = Instant::now();
+        assert!(c.open(ip("2001:db8::1"), t).is_ok());
+        // same /64
+        assert_eq!(c.open(ip("2001:db8::2"), t), Err(Refused::PerClient));
+        assert!(c.open(ip("2001:db8:0:1::1"), t).is_ok());
+        assert_eq!(c.config().prefix_v6, 64);
     }
 
     /// RFC 0009 case 1
@@ -223,6 +244,7 @@ mod tests {
         c.open(ip("192.0.2.2"), t).unwrap();
         c.open(ip("192.0.2.3"), t).unwrap();
         assert_eq!(c.clients(), 2);
+        assert_eq!(c.evictions(), 1);
         // the oldest was evicted, its count reset; closing it is a no-op
         assert!(c.open(ip("192.0.2.1"), t).is_ok());
         c.close(first);

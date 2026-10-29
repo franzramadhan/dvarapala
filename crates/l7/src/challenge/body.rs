@@ -26,3 +26,28 @@ impl<E: 'static> PageBody for UnsyncBoxBody<Bytes, E> {
             .boxed_unsync()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::Infallible;
+
+    use super::*;
+
+    // RFC 0012: the page fits the boxed bodies a server answers with
+    #[tokio::test]
+    async fn every_body_carries_the_page() {
+        let html = Bytes::from_static(b"<p>solve</p>");
+        let full = Full::<Bytes>::page(html.clone()).collect().await.unwrap();
+        let boxed = BoxBody::<Bytes, Infallible>::page(html.clone())
+            .collect()
+            .await
+            .unwrap();
+        let unsync = UnsyncBoxBody::<Bytes, std::io::Error>::page(html.clone())
+            .collect()
+            .await
+            .unwrap();
+        for b in [full, boxed, unsync] {
+            assert_eq!(b.to_bytes(), html);
+        }
+    }
+}

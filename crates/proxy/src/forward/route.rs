@@ -89,6 +89,8 @@ mod tests {
         assert_eq!(find(Method::CONNECT, "api.example:443"), Some(0));
         assert_eq!(find(Method::CONNECT, "192.0.2.1:8080"), Some(1));
         assert_eq!(find(Method::CONNECT, "api.example:80"), None);
+        assert_eq!(find(Method::CONNECT, "user@api.example:443"), None);
+        assert_eq!(find(Method::CONNECT, "https://api.example:443"), None);
     }
 
     #[test]

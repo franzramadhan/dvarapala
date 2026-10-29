@@ -188,6 +188,30 @@ mod tests {
         assert!(e.contains("pool.upstreams") && e.contains("ftp://"), "{e}");
         let e = Pool::default().config(None).unwrap_err();
         assert!(e.contains("upstream"), "{e}");
+        assert!(
+            pool(|p| p.eject_time = Duration::ZERO)
+                .unwrap_err()
+                .contains("pool.eject_time")
+        );
+        let health = |f: fn(&mut Pool)| {
+            let mut p = Pool {
+                upstreams: vec!["http://192.0.2.1".into()],
+                health_path: "/healthz".into(),
+                ..Pool::default()
+            };
+            f(&mut p);
+            p.config(None).unwrap_err()
+        };
+        assert!(health(|p| p.health_interval = Duration::ZERO).contains("pool.health_interval"));
+        assert!(health(|p| p.health_timeout = Duration::ZERO).contains("pool.health_timeout"));
+        assert!(health(|p| p.unhealthy_after = 0).contains("pool.unhealthy_after"));
+        assert!(health(|p| p.healthy_after = 0).contains("pool.healthy_after"));
+    }
+
+    #[test]
+    fn least_requests_balance() {
+        let c = pool(|p| p.balance = Balance::LeastRequests).unwrap();
+        assert!(matches!(c.balance, ProxyBalance::LeastRequests));
     }
 
     #[test]

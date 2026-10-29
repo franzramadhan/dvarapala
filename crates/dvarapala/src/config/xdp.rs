@@ -168,4 +168,68 @@ mod tests {
         };
         assert!(bad.plan(8080, 0).unwrap_err().contains("xdp.block"));
     }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bad_values_name_the_key() {
+        let lo = || Xdp {
+            interface: Some("lo".into()),
+            ..Xdp::default()
+        };
+        let err = |x: Xdp| x.plan(8080, 0).unwrap_err();
+        let x = Xdp {
+            allow: vec!["nope".into()],
+            ..lo()
+        };
+        assert!(err(x).contains("xdp.allow"));
+        assert!(
+            err(Xdp { burst: 0, ..lo() }).contains("xdp.burst"),
+            "syn_pps is on by default"
+        );
+        assert!(
+            err(Xdp {
+                prefix_v4: 33,
+                ..lo()
+            })
+            .contains("xdp.prefix_v4")
+        );
+        assert!(
+            err(Xdp {
+                prefix_v6: 129,
+                ..lo()
+            })
+            .contains("xdp.prefix_v6")
+        );
+        assert!(
+            err(Xdp {
+                max_sources: 0,
+                ..lo()
+            })
+            .contains("xdp.max_sources")
+        );
+        let x = Xdp {
+            block: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            max_blocks: 1,
+            ..lo()
+        };
+        assert!(err(x).contains("over xdp.max_blocks (1)"));
+        // every rate off: no bucket, so no burst needed
+        let off = Xdp {
+            burst: 0,
+            syn_pps: 0,
+            ..lo()
+        };
+        assert!(!off.plan(8080, 0).unwrap().unwrap().config.enforce);
+        for (mode, attach) in [
+            (AttachMode::Auto, Attach::Auto),
+            (AttachMode::Native, Attach::Native),
+            (AttachMode::Generic, Attach::Generic),
+        ] {
+            let x = Xdp {
+                attach: mode,
+                ..lo()
+            };
+            assert_eq!(x.plan(8080, 0).unwrap().unwrap().attach, attach);
+        }
+    }
 }

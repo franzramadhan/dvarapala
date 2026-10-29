@@ -385,4 +385,83 @@ mod tests {
         assert!(TreeEnsemble::from_json(b"{\"learner\":1}").is_err());
         assert!(TreeEnsemble::from_json(&vec![b' '; MAX_BYTES + 1]).is_err());
     }
+
+    fn reason(v: &serde_json::Value) -> String {
+        load(v).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn rejects_other_boosters_and_multi_class() {
+        let mut v = model_json();
+        v["learner"]["gradient_booster"]["name"] = "gblinear".into();
+        assert!(reason(&v).contains("gblinear"));
+        let mut v = model_json();
+        v["learner"]["learner_model_param"]["num_class"] = "3".into();
+        assert!(reason(&v).contains("multi-class"));
+        // "1" is a binary model too
+        v["learner"]["learner_model_param"]["num_class"] = "1".into();
+        assert!(load(&v).is_ok());
+    }
+
+    #[test]
+    fn rejects_unnamed_features() {
+        let mut v = model_json();
+        v["learner"]["feature_names"] = serde_json::json!([]);
+        assert!(reason(&v).contains("feature names"));
+    }
+
+    #[test]
+    fn rejects_too_many_nodes() {
+        let mut v = model_json();
+        tree0(&mut v)["left_children"] = vec![-1i64; MAX_NODES + 1].into();
+        assert!(reason(&v).contains("nodes"));
+    }
+
+    #[test]
+    fn rejects_bad_base_score() {
+        for bad in ["1", "[0E0]", "-0.5"] {
+            let mut v = model_json();
+            v["learner"]["learner_model_param"]["base_score"] = bad.into();
+            assert!(reason(&v).contains("(0, 1)"), "{bad}");
+        }
+        let mut v = model_json();
+        v["learner"]["learner_model_param"]["base_score"] = "half".into();
+        assert!(reason(&v).contains("not a number"));
+    }
+
+    #[test]
+    fn rejects_malformed_trees() {
+        let mut v = model_json();
+        for k in ["left_children", "right_children"] {
+            tree0(&mut v)[k] = serde_json::json!([]);
+        }
+        assert!(reason(&v).contains("tree 0: no nodes"));
+        let mut v = model_json();
+        tree0(&mut v)["split_conditions"] = serde_json::json!([1.0]);
+        assert!(reason(&v).contains("differ in length"));
+        let mut v = model_json();
+        tree0(&mut v)["split_type"] = serde_json::json!([1, 0, 0]);
+        assert!(reason(&v).contains("categorical"));
+        let mut v = model_json();
+        tree0(&mut v)["split_indices"] = serde_json::json!([10, 0, 0]);
+        assert!(reason(&v).contains("split feature out of range"));
+    }
+
+    #[test]
+    fn boolean_default_left_routes_missing_values() {
+        // a missing first feature follows default_left, as 0/1 or false/true
+        let mut f = [0.0; 10];
+        f[0] = f64::NAN;
+        let score = |flag: serde_json::Value| {
+            let mut v = model_json();
+            for t in 0..2 {
+                v["learner"]["gradient_booster"]["model"]["trees"][t]["default_left"] =
+                    serde_json::json!([flag.clone(), false, false]);
+            }
+            load(&v).unwrap().score(&f)
+        };
+        assert_eq!(score(true.into()), score(1.into()));
+        assert_eq!(score(false.into()), score(0.into()));
+        assert!(score(true.into()) < score(false.into()));
+    }
 }

@@ -262,6 +262,19 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn older_versions_are_named() {
+        for (v, want) in [
+            (0x0302, "t11"),
+            (0x0301, "t10"),
+            (0x0300, "ts3"),
+            (0x0200, "t00"),
+        ] {
+            let f = from_handshake(&hello(v, &[], &[])).unwrap();
+            assert_eq!(&f.as_str()[..3], want, "{v:#06x}");
+        }
+    }
+
+    #[test]
     fn alpn_falls_back_to_hex() {
         assert_eq!(alpn_chars(b"h2"), "h2");
         assert_eq!(alpn_chars(b"h"), "hh");

@@ -427,8 +427,13 @@ mod tests {
         let mut c = PoolConfig::single("http://192.0.2.1:80");
         c.upstreams.clear();
         assert_eq!(Pool::new(c.clone()).err(), Some(PoolError::Empty));
+        assert_eq!(PoolError::Empty.to_string(), "the pool has no upstream");
         c.upstreams = vec!["http://192.0.2.1:80".into(); 65];
         assert_eq!(Pool::new(c.clone()).err(), Some(PoolError::TooMany(65)));
+        assert_eq!(
+            PoolError::TooMany(65).to_string(),
+            format!("65 upstreams, at most {MAX_ENDPOINTS}")
+        );
         c.upstreams = vec!["nope".into()];
         assert!(matches!(Pool::new(c), Err(PoolError::Upstream(_))));
     }

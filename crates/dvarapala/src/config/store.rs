@@ -137,5 +137,16 @@ mod tests {
             ..Store::default()
         };
         assert!(s.shared_url().unwrap_err().contains("store.max_keys"));
+        let ok = Store { max_keys: 1, ..s };
+        assert_eq!(ok.shared_url(), Ok(Some("postgres://<host>/db")));
+        let err = |f: fn(&mut Store)| {
+            let mut s = ok.clone();
+            f(&mut s);
+            s.shared_url().unwrap_err()
+        };
+        assert!(err(|s| s.sync_interval = Duration::ZERO).contains("store.sync_interval"));
+        assert!(err(|s| s.timeout = Duration::ZERO).contains("store.timeout"));
+        assert!(err(|s| s.cluster.clear()).contains("store.cluster"));
+        assert!(err(|s| s.url = Some(String::new())).contains("store.url"));
     }
 }

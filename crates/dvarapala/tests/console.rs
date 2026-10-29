@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+mod stop;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
@@ -22,8 +23,7 @@ struct Proxy {
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        stop::stop(&mut self.child);
         let _ = std::fs::remove_file(&self.config);
     }
 }
@@ -219,11 +219,17 @@ fn token_session_csrf_and_logout() {
         200
     );
     p.logged(&["admin action", "actor=\"token\"", "192.0.2.0"]);
+    // logout changes state too: no session 401, no CSRF header 403
+    assert_eq!(call(p.admin, "DELETE", "/session", &[]).status, 401);
+    let no_csrf = call(p.admin, "DELETE", "/session", std::slice::from_ref(&cookie));
+    assert_eq!(no_csrf.status, 403);
     assert_eq!(
         call(p.admin, "DELETE", "/session", &[cookie.clone(), good]).status,
         204
     );
+    assert_eq!(call(p.admin, "GET", "/session", &[]).status, 401);
     assert_eq!(call(p.admin, "GET", "/status", &[cookie]).status, 401);
+    assert_eq!(call(p.admin, "GET", "/nowhere", &[bearer()]).status, 404);
 }
 
 // case 17
@@ -371,6 +377,47 @@ fn oidc_login_opens_a_session() {
     let block = "/blocks?cidr=192.0.2.0/24";
     assert_eq!(call(p.admin, "POST", block, &[cookie, csrf]).status, 200);
     p.logged(&["admin action", "actor=\"ops@example.com\"", "POST /blocks"]);
+}
+
+// an issuer that answers 404: back to the login page, then a pause
+// before the next discovery
+#[test]
+fn oidc_discovery_failure_backs_off() {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut s in l.incoming().map_while(Result::ok) {
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut h = String::new();
+            while r.read_line(&mut h).unwrap_or(0) > 2 {
+                h.clear();
+            }
+            let _ = write!(
+                s,
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        }
+    });
+    let i = Issuer {
+        port,
+        claims: Arc::default(),
+    };
+    let p = start("discovery", &oidc(&i));
+    let a = call(p.admin, "GET", "/session/oidc", &[]);
+    assert_eq!(a.status, 303);
+    assert!(
+        a.headers["location"].starts_with("/ui/login?error="),
+        "{:?}",
+        a.headers
+    );
+    p.logged(&["oidc discovery failed", "404"]);
+    let again = call(p.admin, "GET", "/session/oidc", &[]);
+    assert_eq!(again.status, 303);
+    assert!(
+        again.headers["location"].contains("retry"),
+        "{:?}",
+        again.headers
+    );
 }
 
 // cases 6, 14

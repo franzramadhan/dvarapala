@@ -170,3 +170,28 @@ impl std::fmt::Debug for Redis {
         f.write_str("Redis { .. }")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bad_url_is_refused_with_or_without_a_ca() {
+        for ca in [None, Some(&b""[..])] {
+            let e = Redis::new("<host>:6379", ca).unwrap_err();
+            assert!(e.0.starts_with("store.url is not a Redis URL"), "{e}");
+        }
+    }
+
+    #[test]
+    fn debug_hides_the_password() {
+        let r = Redis::new("redis://:<token>@127.0.0.1:6379/0", None).unwrap();
+        assert_eq!(format!("{r:?}"), "Redis { .. }");
+    }
+
+    #[test]
+    fn a_short_pipeline_reply_is_an_error() {
+        let e = decode(vec![Value::Int(1)], &Batch::default()).unwrap_err();
+        assert_eq!(e.0, "redis: unexpected reply for the pipeline");
+    }
+}

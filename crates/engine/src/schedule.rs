@@ -203,6 +203,12 @@ mod tests {
         assert!(bad(0.0001, 1));
         assert!(bad(1.0, 0));
         assert!(!bad(0.5, 1));
+        let e = Schedule::new(ScheduleConfig {
+            burst: 0,
+            ..ScheduleConfig::default()
+        })
+        .expect_err("refused");
+        assert_eq!(e.to_string(), "burst must be at least 1");
     }
 
     /// RFC 0007 case 1

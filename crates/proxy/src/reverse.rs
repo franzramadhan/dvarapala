@@ -341,4 +341,33 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn errors_name_the_upstream() {
+        let e = ReverseProxy::<Incoming>::new("https://app.internal").err();
+        assert_eq!(
+            e.unwrap().to_string(),
+            "upstream \"https://app.internal\": https:// needs the tls feature"
+        );
+        let e = ReverseProxy::<Incoming>::with_config("ftp://app.internal", &Default::default());
+        assert_eq!(
+            e.err().unwrap().to_string(),
+            "upstream \"ftp://app.internal\" is not an absolute http:// URL"
+        );
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn a_ca_file_without_certificates_is_refused() {
+        let ca =
+            std::env::temp_dir().join(format!("dvarapala-empty-ca-{}.pem", std::process::id()));
+        std::fs::write(&ca, "").unwrap();
+        let mut config = UpstreamConfig::default();
+        config.tls.ca_file = Some(ca.clone());
+        let e = ReverseProxy::<Incoming>::with_config("https://app.internal", &config).err();
+        std::fs::remove_file(&ca).unwrap();
+        let e = e.unwrap().to_string();
+        assert!(e.starts_with("upstream tls: "), "{e}");
+        assert!(e.ends_with(": no certificates"), "{e}");
+    }
 }

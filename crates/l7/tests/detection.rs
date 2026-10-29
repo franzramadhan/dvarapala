@@ -71,7 +71,7 @@ fn layer_in(
         challenge: None,
         fingerprints: Default::default(),
         routes: Vec::new(),
-        max_blocks: 0,
+        max_blocks: 4,
     })
     .unwrap()
 }
@@ -167,6 +167,7 @@ async fn score_over_threshold_throttles() {
             scorer: Arc::new(Fixed(score)),
             threshold: 0.9,
         };
+        assert_eq!(format!("{scoring:?}"), "Scoring { threshold: 0.9, .. }");
         let mut svc = layer(true, 32, Some(scoring)).layer(inner());
         at(0);
         assert_eq!(send(&mut svc, "198.51.100.1").await, want, "score {score}");
@@ -270,4 +271,40 @@ async fn heavy_hitters_reach_the_block_sink_while_enforcing() {
         let listed = seen.lock().unwrap().iter().any(|n| n == "192.0.2.10/32");
         assert_eq!(listed, enforce, "enforce = {enforce}");
     }
+}
+
+// RFC 0014: status and top for the admin API follow the attack to its end
+#[tokio::test]
+async fn status_and_top_follow_the_attack() {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let s = seen.clone();
+    let sink = BlockSink::new(move |c| s.lock().unwrap().push(c.to_string()));
+    let l = layer_in(false, 32, None, None, Some(sink));
+    let mut svc = l.layer(inner());
+    assert!(l.top().is_empty());
+    flood(&mut svc).await;
+    send(&mut svc, "203.0.113.1").await;
+    let st = l.status();
+    assert_eq!(
+        (st.detection, st.clients, st.blocks),
+        (Some("attack"), 12, 0)
+    );
+    let top = l.top();
+    assert!(top.iter().any(|(n, _)| n.to_string() == "192.0.2.10/32"));
+    // a manual block reaches the block sink
+    l.block("198.51.100.0/24".parse().unwrap(), Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(l.status().blocks, 1);
+    assert_eq!(*seen.lock().unwrap(), ["198.51.100.0/24"]);
+    // quiet windows end the attack
+    for w in 3..200 {
+        at(w * 1000);
+        for i in 0..10 {
+            send(&mut svc, &format!("203.0.113.{i}")).await;
+        }
+        if l.status().detection == Some("normal") {
+            return;
+        }
+    }
+    panic!("still {:?}", l.status().detection);
 }

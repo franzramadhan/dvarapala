@@ -556,6 +556,7 @@ dependencies = [
  "hyper-util",
  "metrics",
  "metrics-exporter-prometheus",
+ "rcgen",
  "serde",
  "tokio",
  "tower-layer",

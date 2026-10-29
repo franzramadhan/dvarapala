@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_proxy::ForwardConfig;
-use egress::{Behave, config, connect, counter, dest, get, proxy, record, send, upstream};
+use dvarapala_proxy::UpgradeConfig;
+use egress::{
+    Behave, config, connect, counter, dest, get, get_over, proxy, record, send, upstream,
+};
 use http::{Request, StatusCode};
 use http_body_util::Empty;
 
@@ -140,4 +143,58 @@ async fn provider_retry_after_pauses_the_destination() {
         1
     );
     assert_eq!(egress("c13", "delayed"), 1);
+}
+
+/// A `CONNECT` to a listed destination that does not answer is a `502`.
+#[tokio::test(flavor = "multi_thread")]
+async fn tunnel_to_a_closed_port_is_bad_gateway() {
+    record();
+    let gone = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let (p, _stop) = proxy(config(vec![dest(
+        "gone",
+        &format!("http://{gone}"),
+        100.0,
+        10,
+    )]))
+    .await;
+    assert_eq!(
+        connect(p, &gone.to_string()).await.unwrap_err(),
+        StatusCode::BAD_GATEWAY
+    );
+    assert!(counter("dvarapala_upstream_errors_total{}") >= 1);
+}
+
+/// Over `max_tunnels`, a `CONNECT` is a `503` until a tunnel closes.
+#[tokio::test(flavor = "multi_thread")]
+async fn tunnels_over_the_limit_are_refused() {
+    let (up, _) = upstream(Behave::default()).await;
+    let (p, _stop) = proxy(ForwardConfig {
+        tunnels: UpgradeConfig {
+            max_tunnels: 1,
+            max_lifetime: None,
+            ..UpgradeConfig::default()
+        },
+        ..config(vec![dest("one", &format!("http://{up}"), 100.0, 10)])
+    })
+    .await;
+    let first = connect(p, &up.to_string()).await.unwrap();
+    assert_eq!(
+        connect(p, &up.to_string()).await.unwrap_err(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(get_over(first).await.starts_with("GET /\n"));
+    // the slot frees once the first tunnel is gone
+    let mut again = Err(StatusCode::SERVICE_UNAVAILABLE);
+    for _ in 0..50 {
+        again = connect(p, &up.to_string()).await;
+        if again.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(again.is_ok(), "{again:?}");
 }

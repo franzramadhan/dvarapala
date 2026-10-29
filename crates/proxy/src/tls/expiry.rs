@@ -123,4 +123,17 @@ mod tests {
         assert_eq!(not_after(&[0x30, 0x84, 0xff, 0xff, 0xff, 0xff]), None);
         assert_eq!(not_after(&[0x30, 0x02, 0x30, 0x00]), None);
     }
+
+    #[test]
+    fn wrong_tags_are_none() {
+        // a SET where the certificate SEQUENCE should be
+        assert_eq!(not_after(&[0x31, 0x00]), None);
+        // a SET where the tbsCertificate should be
+        assert_eq!(not_after(&[0x30, 0x02, 0x31, 0x00]), None);
+        // serial, signature, issuer, then a SET where validity should be
+        let tbs = [0x02, 0x01, 0x01, 0x30, 0x00, 0x30, 0x00, 0x31, 0x00];
+        let mut der = vec![0x30, 11, 0x30, 9];
+        der.extend_from_slice(&tbs);
+        assert_eq!(not_after(&der), None);
+    }
 }

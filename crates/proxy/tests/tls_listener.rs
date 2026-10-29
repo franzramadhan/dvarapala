@@ -187,6 +187,15 @@ async fn failed_reload_keeps_the_old_certificate() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn debug_shows_the_paths_not_the_key() {
+    let p = defaults().await;
+    let shown = format!("{:?}", p.tls);
+    assert!(shown.starts_with("Tls {"), "{shown}");
+    assert!(shown.contains("key.pem"), "{shown}");
+    assert!(!shown.contains("PRIVATE KEY"), "{shown}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn returning_client_resumes() {
     let p = defaults().await;
     let cfg = client_config(&p.ca.pem, &[]);

@@ -76,3 +76,66 @@ impl fmt::Display for ForwardError {
 }
 
 impl std::error::Error for ForwardError {}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use http_body_util::Empty;
+
+    use super::*;
+    use crate::ForwardProxy;
+
+    fn refused(config: ForwardConfig) -> String {
+        ForwardProxy::<Empty<Bytes>>::new(&config)
+            .err()
+            .expect("refused")
+            .to_string()
+    }
+
+    fn dest(origin: &str, rate: f64) -> Destination {
+        Destination {
+            name: "d".into(),
+            origin: origin.into(),
+            schedule: ScheduleConfig {
+                rate,
+                ..ScheduleConfig::default()
+            },
+            max_concurrent: 0,
+        }
+    }
+
+    fn config(destinations: Vec<Destination>) -> ForwardConfig {
+        ForwardConfig {
+            destinations,
+            ..ForwardConfig::default()
+        }
+    }
+
+    #[test]
+    fn errors_name_the_destination() {
+        let e = refused(config(vec![dest("ftp://x.example", 1.0)]));
+        assert!(
+            e.starts_with("forward destination: origin \"ftp://x.example\""),
+            "{e}"
+        );
+        let e = refused(config(vec![dest("http://x.example", 0.0)]));
+        assert!(e.starts_with("forward destination limits: d: "), "{e}");
+        assert_eq!(
+            ForwardError::Unsupported("https://x.example".into()).to_string(),
+            "destination \"https://x.example\": https:// needs the tls feature"
+        );
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn a_ca_file_without_certificates_is_refused() {
+        let ca = std::env::temp_dir().join(format!("dvarapala-fwd-ca-{}.pem", std::process::id()));
+        std::fs::write(&ca, "").unwrap();
+        let mut c = config(vec![dest("https://x.example", 1.0)]);
+        c.tls.ca_file = Some(ca.clone());
+        let e = refused(c);
+        std::fs::remove_file(&ca).unwrap();
+        assert!(e.starts_with("upstream tls: "), "{e}");
+        assert!(e.ends_with(": no certificates"), "{e}");
+    }
+}
