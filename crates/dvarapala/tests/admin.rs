@@ -100,7 +100,6 @@ fn bearer() -> String {
 
 // case 9
 #[test]
-#[ignore = "rfc 0014"]
 fn every_call_needs_the_token() {
     let p = start("auth", 100);
     assert_eq!(admin(&p, "GET", "/status", None).0, 401);
@@ -113,7 +112,6 @@ fn every_call_needs_the_token() {
 
 // case 10
 #[test]
-#[ignore = "rfc 0014"]
 fn block_listed_and_enforced() {
     let p = start("block", 100);
     let mut c = TcpStream::connect(("127.0.0.1", p.listen)).unwrap();
@@ -141,7 +139,6 @@ fn block_listed_and_enforced() {
 
 // case 13
 #[test]
-#[ignore = "rfc 0014"]
 fn hangup_applies_the_rate_without_dropping_connections() {
     let p = start("hup", 1000);
     let mut c = TcpStream::connect(("127.0.0.1", p.listen)).unwrap();

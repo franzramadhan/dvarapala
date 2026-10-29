@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | | |
+| accepted | 2026-10-29 | #112 | |
 
 > An authenticated admin listener to see the state, block a network by
 > hand and reload the config file, and `SIGHUP` reloading the protection
@@ -59,7 +59,9 @@ restart:
 |---|---|
 | `crates/engine/src/guard.rs` | `Guard::retune`: new limits, attack factor, enforce and challenge mode, table and detector kept |
 | `crates/engine/src/blocks.rs` | `Blocks`: manual blocks with expiry, bounded |
-| `crates/l7/src/rate_limit.rs` | `RateLimitLayer::reload(Policy)`, the block check first |
+| `crates/l7/src/rate_limit.rs` | the block check first, the policy read once per request |
+| `crates/l7/src/control.rs` | `Policy`, `RateLimitLayer::reload(Reload)`, `block`, `unblock`, `blocks`, `status`, `top` |
+| `crates/l7/src/admin.rs` | admin request parsing and the bearer check, apart from serving so the fuzz target reaches it |
 | `crates/dvarapala/src/reload.rs` | read, validate, split the new config into applied keys and restart keys |
 | `crates/dvarapala/src/admin.rs` | the admin listener: auth, endpoints, JSON |
 
@@ -120,10 +122,40 @@ restart:
   most 1 KiB. Requests are answered over HTTP/1.1 with a 5 s header
   timeout and at most 16 connections.
 - `max_blocks` bounds the manual block list; a block is at most
-  `max_block_ttl` long. The block check is a linear scan under 2 us at
-  the default bound.
+  `max_block_ttl` long. The block check is one hash lookup per prefix
+  length in use, under 2 us at the default bound.
 - A reload reads the file the process started with; the API cannot point
   it at another path.
+
+## Implementation notes
+
+Found while building:
+
+- The swappable parts of the layer (trusted proxies, challenge,
+  fingerprint rules, routes, enforce) sit in one `Policy` behind an
+  `RwLock<Arc<_>>`, read once per request; `retune` changes the guard
+  under its existing lock. Both live in `crates/l7/src/control.rs` to keep
+  `rate_limit.rs` under 500 lines.
+- `Blocks` keys a hash map by the network with host bits cleared and
+  counts networks per prefix length, so a lookup tries only the lengths in
+  use: about 75 ns at 4096 `/24` blocks (a linear scan measured 6 us).
+- Admin parsing (`Call`, the query, percent decoding, the bearer check)
+  lives in `crates/l7/src/admin.rs` so the `admin_query` fuzz target
+  reaches it; the binary serves it and writes the JSON by hand (no new
+  dependency). Connections are one request each, so an idle keep-alive
+  cannot hold one of the 16 slots.
+- Cases 9, 10 and 13 run the built binary (`crates/dvarapala/tests/admin.rs`).
+- A reload validates the keys it applies; a changed restart-only key is
+  reported, not validated, until the restart.
+- Reported as needing a restart too: a new rate with a shared `[store]`
+  (the cluster budget is set at start), JA4 turned on after a start
+  without it (the TLS listener computes it only when asked at start). The
+  detector's heavy hitter threshold also keeps the start rate.
+- The challenge keeps its key when `secret` is unchanged, an empty one
+  included, so a `SIGHUP` for a certificate renewal does not void passes.
+- `DELETE /blocks` does not remove an XDP entry: it expires on its own.
+- In forward mode, or with the rate limiter off, `/status` and `/reload`
+  work and the other calls answer `503`.
 
 ## Rollout
 

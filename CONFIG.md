@@ -399,6 +399,45 @@ challenge = false
 | `challenge` | bool | `true` | `false` never shows the challenge; during an attack these requests get the attack limit, as a request without a pass |
 | `max_keys` | integer | `10000` | Keys in the route's table, least recently seen evicted |
 
+## `[admin]`
+
+Admin API and config reload ([RFC 0014](rfc/0014-admin.md)), off by default.
+JSON over HTTP/1.1 on its own listener; every call needs
+`Authorization: Bearer <token>`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `listen` | address | `""` | Admin listener, for example `"127.0.0.1:9091"`; empty turns it off. Bind it to loopback or a management network |
+| `token` | string | `""` | Bearer token, at least 32 bytes, required when `listen` is set. Set it with `DVARAPALA__ADMIN__TOKEN` |
+| `max_blocks` | integer | `4096` | Manual blocks at most; a block over it gets `507` |
+| `max_block_ttl` | duration | `"24h"` | Longest block `ttl`, also the default |
+
+| Call | Answer |
+|---|---|
+| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload` |
+| `POST /reload` | the same as `SIGHUP`: `restart` lists the changed keys that need a restart; `422` with `error` when the file is refused |
+| `GET /top` | the heavy hitters of the last closed window, `cidr` and `count` |
+| `GET /blocks` | manual blocks in force, `cidr` and `ttl_secs` |
+| `POST /blocks?cidr=<net>&ttl=<duration>` | blocks `net` (a CIDR or an address; `/` may be sent as `%2F`): `403` and the connection closed before any bucket, and the XDP block list when `[xdp]` is on |
+| `DELETE /blocks?cidr=<net>` | removes the block, `404` when not listed. An XDP entry stays until its own expiry |
+
+Admin connections: at most 16, one request each, a 5 s header timeout,
+the query string at most 1 KiB, no body read.
+
+### Reload
+
+`SIGHUP` and `POST /reload` read the `--config` file and the environment
+again. A file that does not load or validate is refused whole and the
+running config stays. Applied in place, clients keeping their buckets and
+the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
+`trusted_proxies`, `detection.mode`, `detection.attack_rate_factor`,
+`[challenge]` (passes stay valid while `secret` is unchanged),
+`[fingerprint]` and `[[routes]]` (route tables start empty when the list
+changes). Every other key keeps its running value and is named in the
+log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
+on after a start without it, and a new rate with a shared `[store]` (the
+cluster budget is set at start). `SIGHUP` also reloads the TLS pair.
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -422,6 +461,7 @@ Served on `metrics.listen` at `/metrics`.
 |---|---|
 | `dvarapala_requests_total{verdict,protocol}` | Requests by verdict and client protocol (`http1`, `http2`, `http3`) |
 | `dvarapala_requests_total{verdict,protocol,scope="cluster"}` | Requests refused by the shared cluster count or drop list ([RFC 0010](rfc/0010-shared-state.md)), not the local bucket |
+| `dvarapala_requests_total{verdict="drop",protocol,scope="block"}` | Requests refused by a manual block ([RFC 0014](rfc/0014-admin.md)) |
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream (or forward destination) connect or response failures |
@@ -450,6 +490,9 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
 | `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
 | `dvarapala_route_keys{route}` | Keys in the route's table |
+| `dvarapala_config_reloads_total{result}` | Reloads ([RFC 0014](rfc/0014-admin.md)): `ok`, `failed` |
+| `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`other` for unknown paths) and status, `401` included |
+| `dvarapala_blocks` | Manual blocks in force |
 | `dvarapala_tls_ja4_total{result}` | ClientHellos fingerprinted (`ok`) or not (`unparsed`: not a whole ClientHello within 16 KiB) |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |
 | `dvarapala_tls_handshakes_in_progress` | Handshakes running now |
