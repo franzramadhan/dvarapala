@@ -23,6 +23,7 @@ fn routes() -> Routes {
         key: RouteKey::Client,
         challenge: true,
         max_keys: NonZeroUsize::new(100).unwrap(),
+        waf: true,
     };
     Routes::new((0..32).map(route).collect())
 }

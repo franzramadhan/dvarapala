@@ -22,7 +22,13 @@ pub struct RouteConfig {
     /// `false` exempts the route from the challenge.
     pub challenge: bool,
     pub max_keys: NonZeroUsize,
+    /// `false` skips the WAF (RFC 0017).
+    pub waf: bool,
 }
+
+/// RFC 0017: set on a request whose route skips the WAF.
+#[derive(Debug, Clone, Copy)]
+pub struct NoWaf;
 
 /// The routes in order; the first that matches applies.
 #[derive(Default)]
@@ -33,6 +39,7 @@ pub(crate) struct Route {
     matcher: Matcher,
     pub(crate) deny: bool,
     pub(crate) challenge: bool,
+    pub(crate) waf: bool,
     limits: Option<Limits>,
 }
 
@@ -47,6 +54,7 @@ impl Routes {
                     matcher: r.matcher,
                     deny: r.deny,
                     challenge: r.challenge,
+                    waf: r.waf,
                 })
                 .collect(),
         )
@@ -129,6 +137,7 @@ pub fn fuzz_route_match(data: &[u8]) {
         key: RouteKey::Client,
         challenge: true,
         max_keys: NonZeroUsize::MIN,
+        waf: true,
     }]);
     let _ = routes.find(
         &req,
@@ -153,6 +162,7 @@ mod tests {
             key: RouteKey::Client,
             challenge: true,
             max_keys: NonZeroUsize::new(10).unwrap(),
+            waf: true,
         }
     }
 

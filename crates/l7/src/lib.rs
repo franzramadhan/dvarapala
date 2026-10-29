@@ -15,6 +15,8 @@ mod replay;
 mod reply;
 mod routes;
 mod session;
+#[cfg(feature = "waf")]
+mod waf;
 
 pub use admin::{
     Call, MAX_QUERY, Refusal, authorized, cookie, csrf_ok, fuzz_admin_query, parse as parse_admin,
@@ -36,5 +38,9 @@ pub use rate_limit::{RateLimit, RateLimitConfig, RateLimitLayer};
 #[cfg(feature = "replay")]
 pub use replay::{Line, MAX_HEADERS, MAX_LINE, fuzz_replay_line};
 pub use reply::totals as request_totals;
-pub use routes::{Host, Matcher, PathMatch, RouteConfig, RouteKey, Routes, fuzz_route_match};
+pub use routes::{
+    Host, Matcher, NoWaf, PathMatch, RouteConfig, RouteKey, Routes, fuzz_route_match,
+};
 pub use session::{Method as LoginMethod, Session, Sessions};
+#[cfg(feature = "waf")]
+pub use waf::{Endpoint, HEADROOM, Waf, WafBody, WafConfig, WafLayer, fuzz_waf_frame};

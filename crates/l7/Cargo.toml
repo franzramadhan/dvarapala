@@ -25,17 +25,28 @@ ring.workspace = true
 # RFC 0016: access log lines for dvarapala replay; RFC 0018: OIDC claims
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# RFC 0017: the SPOP client to the WAF agent; both already in the tree
+http-body = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["io-util", "net", "sync", "time"] }
 
 [features]
 replay = ["dep:serde", "dep:serde_json"]
 # RFC 0018: OIDC login for the admin console
 ui = ["dep:serde_json"]
+waf = ["dep:http-body", "dep:tokio"]
 
 [dev-dependencies]
 criterion.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
+# RFC 0017: the counters the WAF tests read
+metrics-exporter-prometheus.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 tower = { workspace = true, features = ["util"] }
 
 [[bench]]
 name = "routes"
 harness = false
+
+[[bench]]
+name = "waf"
+harness = false
+required-features = ["waf"]

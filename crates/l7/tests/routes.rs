@@ -31,6 +31,7 @@ fn route(path: &str) -> RouteConfig {
         key: RouteKey::Client,
         challenge: true,
         max_keys: NonZeroUsize::new(100).unwrap(),
+        waf: true,
     }
 }
 

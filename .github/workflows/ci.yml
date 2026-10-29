@@ -68,8 +68,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-26.04
-    # RFC 0010: the shared store backends. The store tests fail in CI
-    # when a URL is unset, and skip locally.
+    # RFC 0010: the shared store backends, RFC 0017: the WAF agent. Their
+    # tests fail in CI when a URL is unset, and skip locally.
     services:
       redis:
         image: redis@sha256:4764ce37931aac77c0d033680b339b19b4a4a81772204d268947cb851212d0ac # 7.4.12-alpine
@@ -91,7 +91,13 @@ jobs:
           AUTH_TYPE: trust
           MAX_PREPARED_STATEMENTS: "0"
         ports: ["6432:5432"]
+      # RFC 0017 case 12: the image's own config runs the built-in CRS
+      # at paranoia 1 on :9000. Keep the version in step with examples/waf/.
+      coraza:
+        image: ghcr.io/corazawaf/coraza-spoa@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e # 0.9.1
+        ports: ["9000:9000"]
     env:
+      DVARAPALA_TEST_CORAZA: 127.0.0.1:9000
       DVARAPALA_TEST_REDIS: redis://127.0.0.1:6379/0
       DVARAPALA_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/dvarapala?sslmode=disable
       DVARAPALA_TEST_PGBOUNCER: postgres://postgres@127.0.0.1:6432/dvarapala?sslmode=disable
