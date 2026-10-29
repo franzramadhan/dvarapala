@@ -124,7 +124,8 @@ impl Store for Postgres {
     }
 
     async fn round(&mut self, r: &Round<'_>) -> Result<Reply, Error> {
-        let sweep = self.rounds.is_multiple_of(SWEEP_EVERY);
+        // not the first round: a starting replica waits on it
+        let sweep = self.rounds % SWEEP_EVERY == SWEEP_EVERY - 1;
         let timeout = self.timeout.as_millis().max(1);
         let result = async {
             let client = self.client().await?;
