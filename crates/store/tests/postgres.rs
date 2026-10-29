@@ -223,3 +223,85 @@ async fn first_round_does_not_sweep() {
     }
     assert_eq!(count().await, 0);
 }
+
+// a broken hand-made schema fails the round with the server's message and
+// SQLSTATE, and the next round tries again
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broken_schema_reports_the_sqlstate() {
+    let Some(url) = fresh().await else { return };
+    let c = client(&url).await;
+    c.batch_execute(&render(0)).await.unwrap();
+    c.batch_execute("DROP TABLE dvarapala.marks").await.unwrap();
+    let mut s = store(&url, false);
+    for _ in 0..2 {
+        let e = round(&mut s).await.unwrap_err();
+        assert!(e.0.starts_with("postgres: "), "{e}");
+        assert!(e.0.ends_with("(42P01)"), "{e}");
+    }
+}
+
+// rows another writer left that this binary does not know are skipped
+#[tokio::test(flavor = "multi_thread")]
+async fn unknown_marks_are_skipped() {
+    let Some(url) = fresh().await else { return };
+    let mut s = store(&url, true);
+    round(&mut s).await.unwrap();
+    client(&url)
+        .await
+        .batch_execute(
+            "INSERT INTO dvarapala.marks (cluster, kind, key, expires_at) VALUES \
+               ('c', 'heavy', '192.0.2.0/24', now() + interval '1 hour'), \
+               ('c', 'heavy', 'not a network', now() + interval '1 hour'), \
+               ('c', 'other', 'x', now() + interval '1 hour'), \
+               ('c', 'pause', 'p', now() + interval '1 hour')",
+        )
+        .await
+        .unwrap();
+    let batch = Batch::default();
+    let reply = s
+        .round(&Round {
+            cluster: "c",
+            replica: "r",
+            heartbeat: Duration::from_secs(1),
+            window: Duration::from_secs(1),
+            max_list: 10,
+            batch: &batch,
+        })
+        .await
+        .unwrap();
+    let heavy: Vec<String> = reply.heavy.iter().map(|(n, _)| n.to_string()).collect();
+    assert_eq!(heavy, ["192.0.2.0/24"]);
+    let pauses: Vec<&str> = reply.pauses.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(pauses, ["p"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_migration_reports_the_error() {
+    let Some(url) = fresh().await else { return };
+    let mut c = client(&url).await;
+    let bad = Migration {
+        version: 1,
+        sql: "CREATE TABL dvarapala.x (x int)",
+    };
+    let e = apply(&mut c, &[bad]).await.unwrap_err();
+    assert!(e.0.ends_with("(42601)"), "{e}");
+    assert_eq!(versions_or_none(&c).await, None, "rolled back");
+    // a lost connection is an error too, without a SQLSTATE
+    let (mut gone, conn) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+    drop(conn);
+    let e = apply(&mut gone, MIGRATIONS).await.unwrap_err();
+    assert!(e.0.starts_with("postgres: "), "{e}");
+    assert!(!e.0.ends_with(')'), "{e}");
+}
+
+async fn versions_or_none(c: &Client) -> Option<Vec<i32>> {
+    let exists: bool = c
+        .query_one(
+            "SELECT to_regclass('dvarapala.schema_version') IS NOT NULL",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    if exists { Some(versions(c).await) } else { None }
+}

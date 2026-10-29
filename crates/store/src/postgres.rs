@@ -309,3 +309,36 @@ impl std::fmt::Debug for Postgres {
         f.write_str("Postgres { .. }")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const URL: &str = "postgres://u:<token>@127.0.0.1:5432/d?sslmode=verify-full";
+
+    fn new(url: &str, ca: Option<&[u8]>) -> Result<Postgres, Error> {
+        Postgres::new(url, ca, false, Duration::from_secs(1))
+    }
+
+    #[test]
+    fn debug_hides_the_password() {
+        let p = new(URL, Some(b"")).unwrap();
+        assert_eq!(format!("{p:?}"), "Postgres { .. }");
+    }
+
+    #[test]
+    fn a_bad_url_is_refused() {
+        let e = new("postgres://u@127.0.0.1:5432/d?sslmode=bogus", None).unwrap_err();
+        assert!(e.0.starts_with("store.url is not a PostgreSQL URL"), "{e}");
+    }
+
+    #[test]
+    fn a_bad_ca_file_is_refused() {
+        let not_base64 = b"-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n";
+        let not_der = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+        for pem in [&not_base64[..], &not_der[..]] {
+            let e = new(URL, Some(pem)).unwrap_err();
+            assert!(e.0.starts_with("store.ca_file: "), "{e}");
+        }
+    }
+}
