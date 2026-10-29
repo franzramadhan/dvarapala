@@ -78,7 +78,10 @@ that pattern, so dvarapala should use it.
   `DVARAPALA__METRICS__LISTEN=0.0.0.0:15090`,
   `DVARAPALA__CONFIG_WATCH=10s`. The sidecar runs as non-root with a
   read-only root file system and no capabilities, so it passes the
-  `restricted` Pod Security Standard.
+  `restricted` Pod Security Standard. It has a startup probe (the
+  application starts only once it passes), resource requests and limits,
+  and fixed container names (`dvarapala`, `dvarapala-egress`,
+  `dvarapala-init`), so policy engines can match it (see Policy engines).
 - **Which port**: annotation `dvarapala.franzramadhan.dev/port: <name or number>`,
   one container port per pod. Without it: the only TCP container port of
   the pod; a pod with several is refused with a message asking for the
@@ -94,7 +97,8 @@ that pattern, so dvarapala should use it.
     during a rollout keep the name on the application port, so mixed
     EndpointSlices route right. Not covered: a Service with a numeric
     `targetPort`, and clients that dial the pod IP and port directly.
-    The controller lists those Services in the policy's status.
+    The controller lists those Services in the policy's status (see the
+    open question on Service mutation).
     To check first (case 16): that a named `targetPort` resolves to a
     port declared on a native sidecar (a restartable init container), not
     only on a regular container. If the cluster versions we support do
@@ -108,7 +112,14 @@ that pattern, so dvarapala should use it.
     through `OUTPUT`, so it does not loop. Needs `NET_ADMIN` and
     `NET_RAW` on the init container, which the `baseline` and
     `restricted` Pod Security Standards refuse. Kubelet probes to that
-    port go through the sidecar too.
+    port go through the sidecar too. The rules live in the pod's own
+    network namespace, after the Service has been resolved to a pod IP
+    and port, so they work the same with kube-proxy and with a kube-proxy
+    replacement (Cilium with `kubeProxyReplacement`, socket load balancing
+    included): neither rewrites a packet once it is inside the pod. No
+    outbound traffic is redirected (egress uses `HTTP_PROXY`), so Cilium's
+    `socketLB.hostNamespaceOnly`, which Istio needs for its outbound
+    redirect, is not required.
 - **Egress** (opt-in), annotation `dvarapala.franzramadhan.dev/egress: <policy>`:
   a second native sidecar in `mode = "forward"` (RFC 0007) on
   `127.0.0.1:15081`, and `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`,
@@ -148,14 +159,97 @@ that pattern, so dvarapala should use it.
   anything else. `deploy/operator.yaml` documents switching to `Ignore`
   for those who prefer availability; pods admitted while the webhook is
   down then run without the sidecar and are not in `injectedPods`.
+- **Webhook ordering**: `reinvocationPolicy: IfNeeded`, so a later
+  mutating webhook (a Kyverno mutate policy, for example) that changes the
+  pod gets the sidecar re-checked; injection is idempotent (case 6).
 - **Webhook TLS**: the operator generates a self-signed CA and serving
   certificate at start, keeps them in a Secret in its namespace, and
   patches the CA into the `MutatingWebhookConfiguration`. No cert-manager
   needed.
 - **Versions**: the sidecar image is
   `ghcr.io/franzramadhan/dvarapala:<operator version>`, overridable with
-  `--sidecar-image`. Kubernetes 1.29 or later (native sidecars on by
+  `--sidecar-image` (a digest reference is accepted, for policies that
+  require one). Kubernetes 1.29 or later (native sidecars on by
   default).
+
+### Policy engines
+
+Admission policy and runtime enforcement see the injected containers like
+any other, so a cluster that runs them needs the sidecar allowed. The
+operator never edits those policies; `examples/kubernetes/` ships the
+exceptions below and the docs page links them.
+
+**Kyverno**
+
+- Kyverno's validate rules run in a validating webhook, which the API
+  server calls after every mutating webhook: they see the pod with the
+  sidecar. In `port-name` mode the sidecar passes the `restricted` Pod
+  Security profile and the common library policies (no `latest` tag,
+  resources set, probes, non-root). A policy that allows only some
+  registries needs `ghcr.io/franzramadhan/*` added, or the sidecar image
+  mirrored and set with `--sidecar-image`. A native sidecar is in
+  `spec.initContainers`; custom policies that walk only
+  `spec.containers` miss it, which is harmless for the sidecar but worth
+  knowing.
+- `iptables` mode fails the `Capabilities` control of the `baseline`
+  profile. It needs a `PolicyException`, scoped to the init container's
+  image, field and values:
+
+  ```yaml
+  apiVersion: kyverno.io/v2
+  kind: PolicyException
+  metadata: { name: dvarapala-init, namespace: kyverno-exceptions }
+  spec:
+    exceptions:
+      - policyName: <pod security policy>
+        ruleNames: [<baseline or restricted rule>]
+    match:
+      any:
+        - resources: { kinds: [Pod], namespaces: [<opted-in namespaces>] }
+    podSecurity:
+      - controlName: Capabilities
+        images: ["ghcr.io/franzramadhan/dvarapala-operator*"]
+        restrictedField: spec.initContainers[*].securityContext.capabilities.add
+        values: [NET_ADMIN, NET_RAW]
+  ```
+
+  Prerequisites: Kyverno started with `enablePolicyException=true` and
+  the exception's namespace in `exceptionNamespace` (exceptions are off
+  by default). `kyverno.io/v2` exceptions are deprecated from Kyverno
+  1.19; on CEL `ValidatingPolicy` (1.14 and later) the equivalent is a
+  `policies.kyverno.io` `PolicyException` with `images`, which the policy
+  reads as `exceptions.allowedImages`. The example ships both.
+- The built-in Pod Security Admission has no per-container exception: a
+  namespace enforcing `baseline` or `restricted` through PSA cannot run
+  `iptables` mode at all.
+
+**Tetragon**
+
+- `TracingPolicy` and `TracingPolicyNamespaced` select pods by
+  `podSelector`, then containers by `containerSelector` (fields `name`
+  and `repo`). An enforcement policy written for the application (a
+  `Sigkill` on any binary but the application's, a ban on
+  `CAP_NET_ADMIN` use, a connect allowlist) also hits the sidecar
+  process `/dvarapala` and, in `iptables` mode, `iptables` in the init
+  container. Exclude them by container name:
+
+  ```yaml
+  containerSelector:
+    matchExpressions:
+      - key: name
+        operator: NotIn
+        values: [dvarapala, dvarapala-egress, dvarapala-init]
+  ```
+
+  or, for a binary allowlist, add `/dvarapala` to the `matchBinaries`
+  values. A connect allowlist for the application must also allow the
+  sidecar's connection to `127.0.0.1:<app port>`, and the egress
+  sidecar's connections to the destinations the application calls.
+- Prerequisites: Tetragon's policy filtering on (the agent logs
+  `Enabling policy filtering`) for `podSelector` and `containerSelector`
+  to apply, and the OCI runtime hooks, without which Tetragon applies
+  them best effort from the API server, so a just-started container can
+  run briefly before the policy covers it.
 
 ### Domain
 
@@ -237,7 +331,9 @@ New dvarapala key (in `CONFIG.md`, `examples/dvarapala.toml`):
 | 17 | the same, policy edited to `rate = 100` | requests after the kubelet sync | `200`; the pod not restarted | e2e (`kind` job) |
 | 18 | the same, a Service with numeric `targetPort` | reconcile | listed in `bypassingServices` | e2e (`kind` job) |
 | 19 | a namespace enforcing the `restricted` Pod Security Standard | an annotated pod in `port-name` mode | admitted and running | e2e (`kind` job) |
-| 20 | the operator Deployment scaled to zero, `failurePolicy: Fail` | create an opted-in pod, then a pod in another namespace | the first refused, the second created | e2e (`kind` job) |
+| 20 | a kind cluster with Cilium, `kubeProxyReplacement=true`, no kube-proxy | an annotated pod in `iptables` mode, requests through a Service with a numeric `targetPort` and to the pod IP | both reach the sidecar (second request `429` at `rate = 1`) | e2e (`kind` job, Cilium) |
+| 21 | Kyverno enforcing the `baseline` pod security policy, the shipped `PolicyException` | an annotated pod in `port-name` mode, then one in `iptables` mode | both admitted; without the exception the second is refused naming `Capabilities` | e2e (`kind` job) |
+| 22 | the operator Deployment scaled to zero, `failurePolicy: Fail` | create an opted-in pod, then a pod in another namespace | the first refused, the second created | e2e (`kind` job) |
 
 ## Alternatives
 
@@ -279,6 +375,31 @@ New dvarapala key (in `CONFIG.md`, `examples/dvarapala.toml`):
   RFC's measured budget.
 - `config_watch` reads one file per interval, at least `1s`.
 
+## Open questions
+
+- **Service mutation for a numeric `targetPort`.** `port-name` mode does
+  not cover a Service that targets the application port by number. The
+  operator could rewrite that Service's `targetPort` to the sidecar's
+  port name, opted in with a Service annotation:
+  - In an admission webhook on Service create and update (not a
+    controller patch), GitOps tools that diff server side (Flux, Argo CD
+    with `ServerSideDiff=true`) see no drift; Argo CD's client-side diff
+    needs `ignoreDifferences` on `targetPort`.
+  - A named `targetPort` drops every selected pod that lacks the name
+    from the EndpointSlices. Flipping the Service while pods without the
+    sidecar still serve is a partial or full outage. The webhook would
+    refuse the annotation until every selected pod is injected and
+    ready, so the order is: annotate and roll out the pods, then
+    annotate the Service.
+  - Undoing it means removing the annotation before the pods lose the
+    sidecar, the same order in reverse.
+  - Kyverno policies on Services rarely look at `targetPort`; Tetragon
+    does not see Service objects.
+
+  To decide before acceptance: ship it in this RFC, in a follow-up, or
+  not at all (numeric `targetPort` users switch to a named port or use
+  `iptables` mode).
+
 ## Rollout
 
 - **Rollout:** a minor release after acceptance. Nothing changes for
@@ -288,7 +409,10 @@ New dvarapala key (in `CONFIG.md`, `examples/dvarapala.toml`):
   create a policy, label a namespace or annotate a pod template, roll
   out. The `title` check gains the scope `operator`; `release.yml` builds
   the operator image and attaches `operator.yaml`; a `kind` e2e job runs
-  when `crates/operator`, `deploy/` or the sidecar's config path changes.
+  when `crates/operator`, `deploy/` or the sidecar's config path changes,
+  once with kube-proxy and once with Cilium replacing it.
+  `examples/kubernetes/` holds a policy, an annotated Deployment, and the
+  Kyverno and Tetragon exceptions.
 - **Off switch:** remove the annotation or the namespace label and roll
   out: new pods come without the sidecar and the Service reaches the
   application port again by its name. Deleting the operator leaves
