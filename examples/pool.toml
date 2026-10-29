@@ -1,0 +1,40 @@
+# Three app servers behind one gateway, no load balancer in between.
+#
+# Use case: a stateless app runs on three hosts. The gateway spreads
+# requests to the one with the fewest in flight, so a host that slows down
+# under an attack gets less, not the same share. /healthz takes a host out
+# after three failed checks; five failed requests in a row eject it for
+# 30 s even between checks. A GET that never reached a host goes to
+# another one, within a budget of a fifth of the traffic, so a dead host
+# does not turn into errors for a third of the clients.
+#
+# Placeholders: app1.example to app3.example.
+
+listen = "0.0.0.0:8080"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[pool]
+upstreams = [
+  "http://app1.example:8081",
+  "http://app2.example:8081",
+  "http://app3.example:8081",
+]
+balance = "least_requests"
+health_path = "/healthz"
+health_interval = "2s"
+health_timeout = "500ms"
+unhealthy_after = 3
+healthy_after = 2
+eject_after = 5
+eject_time = "30s"
+retries = 1
+retry_budget = 0.2

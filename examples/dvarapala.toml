@@ -157,6 +157,21 @@ prefix_v6 = 64
 # max_blocks = 4096
 # max_block_ttl = "24h"
 
+# Upstream pool (RFC 0015): in place of upstream, not together with it.
+# See pool.toml.
+# [pool]
+# upstreams = ["http://192.0.2.10:8081", "http://192.0.2.11:8081"]
+# balance = "round_robin"
+# health_path = "/healthz"
+# health_interval = "5s"
+# health_timeout = "1s"
+# unhealthy_after = 3
+# healthy_after = 2
+# eject_after = 5
+# eject_time = "30s"
+# retries = 1
+# retry_budget = 0.2
+
 # JA4 TLS fingerprints (RFC 0012), on the TLS listener.
 # [fingerprint]
 # deny = []

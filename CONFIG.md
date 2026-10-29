@@ -23,7 +23,7 @@ Top-level keys go above the first `[section]` in the file.
 |---|---|---|---|
 | `mode` | `"reverse"` or `"forward"` | `"reverse"` | `"forward"` runs an egress forward proxy ([RFC 0007](rfc/0007-forward-proxy.md)), see [`[forward]`](#forward) |
 | `listen` | address | `"0.0.0.0:8080"` | Proxy listen address |
-| `upstream` | URL | required in reverse mode | Upstream base URL, `http://` or `https://`; ignored in forward mode |
+| `upstream` | URL | required in reverse mode without `pool.upstreams` | Upstream base URL, `http://` or `https://`; ignored in forward mode. Not together with `pool.upstreams` |
 | `upstream_protocol` | `"http1"`, `"http2"` or `"auto"` | `"http1"` | Protocol to the upstream ([RFC 0004](rfc/0004-http2-grpc.md)): `http2` is h2c with prior knowledge for `http://` and ALPN `h2` for `https://` (an upstream that cannot speak it gets 502); `auto` lets ALPN choose for `https://` and keeps HTTP/1.1 for `http://` |
 | `trusted_proxies` | list of CIDRs | `[]` | Peers allowed to set `X-Forwarded-For`; others are keyed by their own address |
 
@@ -438,6 +438,33 @@ log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
 on after a start without it, and a new rate with a shared `[store]` (the
 cluster budget is set at start). `SIGHUP` also reloads the TLS pair.
 
+## `[pool]`
+
+Several upstreams with health checks, ejection and retries ([RFC 0015](rfc/0015-upstream-pools.md)),
+in reverse mode. `pool.upstreams` replaces `upstream`; the endpoints share
+`upstream_protocol`, `[upgrade]` and `[upstream_tls]`, and the TCP and
+HTTP/3 listeners share one pool and its health. With `upstream` alone,
+the proxy sends to it as before: every other `[pool]` key must stay at
+its default.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `upstreams` | list of URLs | `[]` | Base URLs, `http://` or `https://`, each with its own path. At most 64 |
+| `balance` | string | `"round_robin"` | Or `"least_requests"`: the endpoint with the fewest requests in flight, ties in turn |
+| `health_path` | string | `""` | Path of the active check, for example `"/healthz"`, joined onto each base URL; empty turns active checks off |
+| `health_interval` | duration | `"5s"` | Time between two checks of one endpoint |
+| `health_timeout` | duration | `"1s"` | One check at most; a `2xx` or `3xx` in time is a pass |
+| `unhealthy_after` | integer | `3` | Failed checks in a row that take an endpoint out |
+| `healthy_after` | integer | `2` | Passed checks in a row that bring it back |
+| `eject_after` | integer | `5` | Failed requests in a row (connect error, timeout, `502` to `504`) that eject an endpoint; `0` turns ejection off |
+| `eject_time` | duration | `"30s"` | How long an ejection lasts; one failure after it ejects again |
+| `retries` | integer | `1` | Retries on another endpoint of a `GET`, `HEAD` or `OPTIONS` without a body that failed to connect; `0` turns retries off |
+| `retry_budget` | float | `0.2` | Retries earned per request, in `[0, 1]`; at most 10 banked |
+
+With no endpoint up, the pool picks among all of them (fail open), logs
+`pool degraded` at most once a second and counts it. Health and ejection
+state is per process.
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -465,6 +492,12 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_limiter_clients` | Clients in the limiter table |
 | `dvarapala_limiter_evictions_total` | Evictions; a steady rise means `max_clients` is too small or a spoofed flood |
 | `dvarapala_upstream_errors_total` | Upstream (or forward destination) connect or response failures |
+| `dvarapala_upstream_requests_total{upstream,result}` | Requests per pool endpoint ([RFC 0015](rfc/0015-upstream-pools.md)): `ok`, `error` (connect error, timeout, `502` to `504`); `upstream` is the endpoint's `host:port` |
+| `dvarapala_upstream_healthy{upstream}` | 1 when the endpoint is up, 0 when checks or an ejection took it out |
+| `dvarapala_upstream_in_flight{upstream}` | Requests in flight per endpoint, until the response headers |
+| `dvarapala_upstream_ejections_total{upstream}` | Passive ejections |
+| `dvarapala_upstream_retries_total{result}` | Retries `sent`, or refused by the `budget` |
+| `dvarapala_upstream_degraded_total` | Picks made with no endpoint up |
 | `dvarapala_grpc_local_responses_total{status}` | gRPC errors answered locally: `resource_exhausted`, `permission_denied`, `unavailable` |
 | `dvarapala_tunnels_open{protocol}` | Open tunnels (`protocol="connect"` for forward mode `CONNECT`); compare with `upgrade.max_tunnels` |
 | `dvarapala_tunnels_total{protocol,end}` | Closed tunnels by `end`: `client` or `upstream` (that side closed first), `idle`, `lifetime`, `shutdown` |

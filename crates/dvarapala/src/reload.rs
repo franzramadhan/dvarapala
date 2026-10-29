@@ -128,6 +128,10 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
                 .map_err(|e| format!("trusted_proxies: {e}"))
         })
         .collect::<Result<_, _>>()?;
+    // RFC 0015: needs a restart, but a bad [pool] still refuses the file
+    if cfg.mode == config::ProxyMode::Reverse {
+        cfg.pool.config(cfg.upstream.as_deref())?;
+    }
     Ok(Reload {
         limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)
             .map_err(|e| format!("rate_limit: {e}"))?,
@@ -181,6 +185,7 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
         ("store", start.store != new.store),
         ("xdp", start.xdp != new.xdp),
         ("admin", start.admin != new.admin),
+        ("pool", start.pool != new.pool),
     ]
     .into_iter()
     .filter_map(|(k, changed)| changed.then_some(k))
