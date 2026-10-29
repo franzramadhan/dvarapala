@@ -206,8 +206,13 @@ pub fn check(cfg: &OidcConfig, id_token: &str, nonce: &str, now: u64) -> Result<
     if c["nonce"].as_str() != Some(nonce) {
         return Err(bad("nonce mismatch"));
     }
-    let verified = matches!(&c["email_verified"], Value::Bool(true))
-        || c["email_verified"].as_str() == Some("true");
+    // an explicit `false` always denies; only a missing claim is trusted
+    let verified = match &c["email_verified"] {
+        Value::Bool(v) => *v,
+        Value::String(v) => v == "true",
+        Value::Null => cfg.trust_email,
+        _ => false,
+    };
     let email = c["email"].as_str().filter(|_| verified);
     let sub = c["sub"].as_str().unwrap_or("");
     let subject = email.unwrap_or(sub).to_owned();
