@@ -8,6 +8,7 @@ mod reload;
 #[cfg(feature = "replay")]
 mod replay;
 mod store;
+mod waf;
 mod xdp;
 
 use std::convert::Infallible;
@@ -143,7 +144,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             cluster,
         })?;
         let listener = bind(&cfg, block).await?;
-        control(&cfg, config, admin, None, false).await?;
+        let waf = waf::Layer::new(waf::config(&cfg)?);
+        control(&cfg, config, admin, None, waf, false).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
         listen(listener, tls, h2, proxy).await;
         tracing::info!("stopped");
@@ -170,7 +172,9 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         #[cfg(feature = "tls")]
         tls: upstream_tls,
     };
-    let proxy = ReverseProxy::<Incoming>::with_pool(pool.clone(), &upstream)?;
+    // RFC 0017: under the limiter, so routes can skip it
+    let waf = waf::Layer::new(waf::config(&cfg)?);
+    let proxy = ReverseProxy::<waf::Body<Incoming>>::with_pool(pool.clone(), &upstream)?;
     spawn_health(&pool, &upstream)?;
     let limiter = if cfg.rate_limit.enabled {
         let mut c = layer::config(&cfg, Instant::now)?;
@@ -187,10 +191,25 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         None
     };
     let listener = bind(&cfg, block).await?;
-    control(&cfg, config, admin, limiter.clone(), layered && ja4).await?;
+    control(
+        &cfg,
+        config,
+        admin,
+        limiter.clone(),
+        waf.clone(),
+        layered && ja4,
+    )
+    .await?;
     #[cfg(feature = "http3")]
     let h3 = match (&quic, &tls) {
-        (Some(q), Some(t)) => Some(quic::start(q, t, pool, &upstream, limiter.clone())?),
+        (Some(q), Some(t)) => Some(quic::start(
+            q,
+            t,
+            pool,
+            &upstream,
+            limiter.clone(),
+            waf.clone(),
+        )?),
         _ => None,
     };
     // the plan refuses quic.listen without the http3 feature
@@ -200,8 +219,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let alt_svc = quic.and_then(|q| q.alt_svc);
     let tcp = async {
         match limiter {
-            Some(l) => listen_tcp(listener, tls, h2, l.layer(proxy), alt_svc).await,
-            None => listen_tcp(listener, tls, h2, proxy, alt_svc).await,
+            Some(l) => listen_tcp(listener, tls, h2, l.layer(waf.layer(proxy)), alt_svc).await,
+            None => listen_tcp(listener, tls, h2, waf.layer(proxy), alt_svc).await,
         }
     };
     match h3 {
@@ -234,9 +253,16 @@ async fn control(
     path: Option<PathBuf>,
     admin: Option<std::net::SocketAddr>,
     layer: Option<RateLimitLayer>,
+    waf: waf::Layer,
     ja4: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let reloader = Arc::new(reload::Reloader::new(path, layer.clone(), ja4, cfg.clone()));
+    let reloader = Arc::new(reload::Reloader::new(
+        path,
+        layer.clone(),
+        waf,
+        ja4,
+        cfg.clone(),
+    ));
     reload::on_hangup(reloader.clone())?;
     if let Some(addr) = admin {
         let a = admin::Admin {

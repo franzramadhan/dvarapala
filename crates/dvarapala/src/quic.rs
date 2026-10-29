@@ -23,6 +23,7 @@ pub fn start(
     pool: Arc<Pool>,
     upstream: &UpstreamConfig,
     limiter: Option<RateLimitLayer>,
+    waf: crate::waf::Layer,
 ) -> Result<Server, Box<dyn Error>> {
     let q = &plan.quic;
     let mut c = QuicConfig::new(plan.listen);
@@ -40,10 +41,10 @@ pub fn start(
     let listener = QuicListener::bind(c, tls)?;
     // own connections (the body type differs from TCP's), the TCP pool's
     // health (RFC 0015)
-    let proxy = ReverseProxy::<H3Body>::with_pool(pool, upstream)?;
+    let proxy = ReverseProxy::<crate::waf::Body<H3Body>>::with_pool(pool, upstream)?;
     tracing::info!(listen = %listener.local_addr(), retry = ?q.retry, "http3 listening");
     Ok(match limiter {
-        Some(l) => Box::pin(listener.serve(l.layer(proxy), crate::shutdown())),
-        None => Box::pin(listener.serve(proxy, crate::shutdown())),
+        Some(l) => Box::pin(listener.serve(l.layer(waf.layer(proxy)), crate::shutdown())),
+        None => Box::pin(listener.serve(waf.layer(proxy), crate::shutdown())),
     })
 }

@@ -22,6 +22,8 @@ pub struct Reloader {
     /// The file the process started with; `None` reads the environment only.
     path: Option<PathBuf>,
     layer: Option<RateLimitLayer>,
+    /// RFC 0017: off until a reload turns it on, when built
+    waf: crate::waf::Layer,
     /// whether the TLS listener computes JA4
     ja4: bool,
     /// restart keys are compared with this, the config they still hold
@@ -35,12 +37,14 @@ impl Reloader {
     pub fn new(
         path: Option<PathBuf>,
         layer: Option<RateLimitLayer>,
+        waf: crate::waf::Layer,
         ja4: bool,
         start: Config,
     ) -> Self {
         Self {
             path,
             layer,
+            waf,
             ja4,
             routes: Mutex::new(start.routes.clone()),
             start,
@@ -79,6 +83,7 @@ impl Reloader {
     fn apply(&self) -> Result<Vec<&'static str>, String> {
         let new = config::load(self.path.as_deref()).map_err(|e| e.to_string())?;
         let mut reload = policy(&new)?;
+        let waf = crate::waf::config(&new)?;
         let mut restart = restart(&self.start, &new);
         let ja4 = reload.fingerprints.enabled()
             || reload
@@ -96,6 +101,7 @@ impl Reloader {
         if let Some(l) = &self.layer {
             l.reload(reload).map_err(|e| e.to_string())?;
         }
+        self.waf.reload(waf);
         *routes = new.routes;
         Ok(restart)
     }
@@ -228,7 +234,13 @@ mod tests {
             max_blocks: 4,
         })
         .unwrap();
-        Reloader::new(Some(path.into()), Some(layer), false, start)
+        Reloader::new(
+            Some(path.into()),
+            Some(layer),
+            Default::default(),
+            false,
+            start,
+        )
     }
 
     // RFC 0014 case 7

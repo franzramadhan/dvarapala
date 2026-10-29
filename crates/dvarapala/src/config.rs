@@ -20,6 +20,7 @@ mod quic;
 mod routes;
 mod store;
 mod tls;
+mod waf;
 mod xdp;
 pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
@@ -33,6 +34,9 @@ pub use quic::{QuicPlan, QuicRetry};
 pub use routes::{Route, routes};
 pub use store::{Backend, Store};
 pub use tls::{Tls, UpstreamTls};
+#[cfg(feature = "waf")]
+pub use waf::Fallback;
+pub use waf::Waf;
 pub use xdp::{Xdp, XdpPlan};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -84,6 +88,8 @@ pub struct Config {
     pub admin: Admin,
     #[serde(default)]
     pub pool: Pool,
+    #[serde(default)]
+    pub waf: Waf,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

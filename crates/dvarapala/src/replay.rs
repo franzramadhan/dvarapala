@@ -16,22 +16,23 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use dvarapala_l7::{Line, MAX_LINE, RateLimitLayer};
 use http::{Request, Response, StatusCode};
-use http_body_util::Full;
+use http_body_util::{Empty, Full};
 use tower_layer::Layer;
 use tower_service::Service;
 use tracing_subscriber::EnvFilter;
 
-use crate::{config, layer, metrics};
+use crate::{config, layer, metrics, waf};
 
 const USAGE: &str = "dvarapala replay --config <file> [--out <file>] <log | ->";
 
 /// Series in the report, by name prefix.
-const REPORT: [&str; 5] = [
+const REPORT: [&str; 6] = [
     "dvarapala_requests_total",
     "dvarapala_challenges_total",
     "dvarapala_fingerprint_matches_total",
     "dvarapala_route_requests_total",
     "dvarapala_detection_",
+    "dvarapala_waf_",
 ];
 
 /// Skip reasons kept for the report.
@@ -50,7 +51,7 @@ fn now() -> Instant {
 #[derive(Clone)]
 struct Answer;
 
-impl Service<Request<()>> for Answer {
+impl<B> Service<Request<B>> for Answer {
     type Response = Response<Full<Bytes>>;
     type Error = Infallible;
     type Future = Ready<Result<Self::Response, Infallible>>;
@@ -59,7 +60,7 @@ impl Service<Request<()>> for Answer {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _: Request<()>) -> Self::Future {
+    fn call(&mut self, _: Request<B>) -> Self::Future {
         ready(Ok(Response::new(Full::default())))
     }
 }
@@ -128,7 +129,9 @@ fn run(a: Args) -> Result<(), Box<dyn Error>> {
         tracing::warn!(msg = "replay ignores", keys = ?ignored, "no network in a replay");
     }
     let handle = metrics::install()?;
-    let mut svc = RateLimitLayer::new(layer::config(&cfg, now)?)?.layer(Answer);
+    // RFC 0017: the agent sees the request line and headers, no body
+    let waf = waf::Layer::new(waf::config(&cfg)?);
+    let mut svc = RateLimitLayer::new(layer::config(&cfg, now)?)?.layer(waf.layer(Answer));
     let input: Box<dyn Read> = match a.log.as_str() {
         "-" => Box::new(io::stdin()),
         p => Box::new(File::open(p).map_err(|e| format!("{p}: {e}"))?),
@@ -141,7 +144,7 @@ fn run(a: Args) -> Result<(), Box<dyn Error>> {
         None => None,
     };
     let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
+        .enable_all()
         .build()?;
     let (mut n, mut replayed, mut reasons) = (0u64, 0u64, Vec::new());
     let (mut first, mut clock) = (None::<f64>, 0f64);
@@ -169,8 +172,10 @@ fn run(a: Args) -> Result<(), Box<dyn Error>> {
         clock = clock.max(line.ts - *first.get_or_insert(line.ts));
         NANOS.store((clock * 1e9) as u64, Ordering::Relaxed);
         let status = rt.block_on(async {
-            poll_fn(|cx| svc.poll_ready(cx)).await?;
-            svc.call(line.request).await.map(|r| r.status())
+            poll_fn(|cx| Service::<Request<Empty<Bytes>>>::poll_ready(&mut svc, cx)).await?;
+            svc.call(line.request.map(|()| Empty::<Bytes>::new()))
+                .await
+                .map(|r| r.status())
         });
         let status = status.unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         replayed += 1;

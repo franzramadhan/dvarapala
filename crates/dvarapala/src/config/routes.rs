@@ -34,6 +34,9 @@ pub struct Route {
     pub challenge: bool,
     #[serde(default = "max_keys")]
     pub max_keys: usize,
+    /// `false` skips the WAF (RFC 0017).
+    #[serde(default = "yes")]
+    pub waf: bool,
 }
 
 fn client() -> String {
@@ -94,7 +97,7 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 challenge: r.challenge,
                 max_keys: NonZeroUsize::new(r.max_keys)
                     .ok_or_else(|| err("max_keys", "must be above 0".into()))?,
-                waf: true,
+                waf: r.waf,
             })
         })
         .collect()
@@ -117,6 +120,7 @@ mod tests {
             key: client(),
             challenge: true,
             max_keys: max_keys(),
+            waf: true,
         }
     }
 

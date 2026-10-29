@@ -398,6 +398,7 @@ challenge = false
 | `key` | string | `"client"` | What the route's bucket counts per: `"client"`, `"header:<name>"` (the first value, hashed with a per-process seed; the client without it) or `"ja4"` (the client without a fingerprint; turns JA4 on at the TLS listener) |
 | `challenge` | bool | `true` | `false` never shows the challenge; during an attack these requests get the attack limit, as a request without a pass |
 | `max_keys` | integer | `10000` | Keys in the route's table, least recently seen evicted |
+| `waf` | bool | `true` | `false` sends the route's requests on without asking the `[waf]` agent, for example a gRPC or upload endpoint the rules do not fit |
 
 ## `[admin]`
 
@@ -485,8 +486,9 @@ running config stays. Applied in place, clients keeping their buckets and
 the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
 `trusted_proxies`, `detection.mode`, `detection.attack_rate_factor`,
 `[challenge]` (passes stay valid while `secret` is unchanged),
-`[fingerprint]` and `[[routes]]` (route tables start empty when the list
-changes). Every other key keeps its running value and is named in the
+`[fingerprint]`, `[[routes]]` (route tables start empty when the list
+changes) and `[waf]` (the agent connections stay while `endpoint`,
+`max_body` and `max_concurrent` do). Every other key keeps its running value and is named in the
 log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
 on after a start without it, and a new rate with a shared `[store]` (the
 cluster budget is set at start). `SIGHUP` also reloads the TLS pair.
@@ -517,6 +519,57 @@ its default.
 With no endpoint up, the pool picks among all of them (fail open), logs
 `pool degraded` at most once a second and counts it. Health and ejection
 state is per process.
+
+## `[waf]`
+
+A web application firewall in an external agent ([RFC 0017](rfc/0017-waf.md)),
+off by default. dvarapala sends each request to the agent over SPOP, the
+protocol of HAProxy's SPOE, and blocks or forwards on its answer. The
+agent is [`coraza-spoa`](https://github.com/corazawaf/coraza-spoa): OWASP
+Coraza with the OWASP Core Rule Set built in. The rules, their paranoia
+level, exclusions and rule reloads are the agent's config; see
+`examples/waf/` for a pod with both containers.
+
+Reverse mode only. The WAF runs after the rate limiter (and after
+`[challenge]`, `[fingerprint]` and `[[routes]]`), so a flood is refused
+before it costs an inspection, and before the proxy. The agent gets the
+client address (after `trusted_proxies`), the method, path, query,
+protocol version, headers and up to `max_body` bytes of the body. gRPC
+requests are sent without their body. In builds with the `waf` feature
+(on by default); a build without it refuses `waf.enabled`.
+
+```toml
+[waf]
+enabled = true
+mode = "observe"
+endpoint = "unix:/run/coraza-spoa/coraza.sock"
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `false` | Turns the WAF stage on |
+| `mode` | string | `"observe"` | `"observe"` logs and counts what the agent would block and forwards; `"enforce"` blocks |
+| `endpoint` | string | `""` | The agent: `"host:port"` or `"unix:/absolute/path"`, required when `enabled`. Requests cross it in clear: keep it on loopback or a Unix socket (anything else logs a warning at start) |
+| `app` | string | `"default"` | The agent's application, the rule set to apply; `coraza-spoa` falls back to its `default_application` for an unknown name |
+| `timeout` | duration | `"250ms"` | Waiting for a connection plus the round trip; over it the request counts as an `error` |
+| `on_error` | string | `"block"` | When the agent is down, slow or answers garbage, in `enforce`: `"block"` answers `503`, `"pass"` forwards. `observe` always forwards |
+| `max_body` | size | `"16KiB"` | Body bytes buffered and sent at most, as bytes or with `B`, `KiB` or `MiB`, up to 64 MiB; `0` sends headers only. The agent's frame is `max_body` plus 16 KiB |
+| `body_limit_action` | string | `"reject"` | A body over `max_body` in `enforce`: `"reject"` answers `413` without asking; `"pass"` sends the request to the agent without its body, then the whole body upstream. `observe` always does as `"pass"` |
+| `max_concurrent` | integer | `64` | Connections to the agent, one request each at a time; a request waits for a free one within `timeout` |
+
+A blocked request gets the agent's status when it is `400` to `599`,
+`403` otherwise, with `Connection: close` on a `403` (gRPC: status 7, or
+14 for `503`). The body is read before the agent is asked, then sent
+upstream as it came. The first match of a client in a second is logged
+as `waf match` with the rule, the matched rule IDs, the anomaly score and
+the agent's transaction ID; agent failures are logged as `waf agent` at
+most once a second.
+
+The agent's time grows with the body: with the CRS at paranoia 1, about
+1 ms for a GET and up to 200 ms for a 16 KiB form of many short fields
+([RFC 0017](rfc/0017-waf.md) has the numbers). Set `timeout` for the
+largest body `max_body` lets through, or skip upload routes with
+`waf = false`.
 
 ## gRPC
 
@@ -558,8 +611,10 @@ has over 64 headers is skipped and counted; the first ten are logged as
 `line skipped` and listed in the report. The report has the line counts,
 the virtual time span, then the `dvarapala_requests_total`,
 `dvarapala_challenges_total`, `dvarapala_fingerprint_matches_total`,
-`dvarapala_route_requests_total` and `dvarapala_detection_*` series as
-`/metrics` shows them. `--out` writes `{"line":N,"status":S}` per replayed
+`dvarapala_route_requests_total`, `dvarapala_detection_*` and
+`dvarapala_waf_*` series as `/metrics` shows them. With `[waf]` enabled,
+each line is sent to the agent too, without a body: a rule set can be
+tried on a past log before `mode = "enforce"`. `--out` writes `{"line":N,"status":S}` per replayed
 line. `upstream`, `[pool]`, `[tls]`, `[quic]`, `[l4]`, `[store]`, `[xdp]` and
 `[admin]` are ignored, named in one `replay ignores` warning. A config that
 does not load or a log that cannot be opened exits with status 2.
@@ -607,6 +662,10 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
 | `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
 | `dvarapala_route_keys{route}` | Keys in the route's table |
+| `dvarapala_waf_requests_total{verdict}` | Requests seen by the WAF ([RFC 0017](rfc/0017-waf.md)): `pass`, `block`, `would_block` (`observe`), `skipped` (a route with `waf = false`), `error` (no answer from the agent), `body_over_limit` (counted besides the verdict with `body_limit_action = "pass"`) |
+| `dvarapala_waf_errors_total{reason}` | Agent failures: `connect`, `timeout`, `protocol` (a bad or oversized frame), `disconnect` |
+| `dvarapala_waf_rule_matches_total{rule}` | Blocks and would-blocks by the agent's rule ID; the first 256 IDs get a label, later ones count as `other` |
+| `dvarapala_waf_inspect_seconds` | Histogram of the round trip to the agent |
 | `dvarapala_config_reloads_total{result}` | Reloads ([RFC 0014](rfc/0014-admin.md)): `ok`, `failed` |
 | `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`ui`, `session` and `oidc` for the console, `other` for unknown paths) and status, `401` included |
 | `dvarapala_admin_logins_total{method,result}` | Console logins ([RFC 0018](rfc/0018-admin-ui.md)): `method` `token` or `oidc`, `result` `ok`, `denied` (not in the allow lists) or `failed` |

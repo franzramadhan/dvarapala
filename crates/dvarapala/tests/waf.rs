@@ -100,7 +100,6 @@ fn reload(p: &Proxy, endpoint: &str) -> (u16, String) {
 
 // case 11
 #[test]
-#[ignore = "rfc 0017"]
 fn reload_moves_the_endpoint_and_refuses_a_bad_one() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (deny, _) = rt.block_on(fake_agent::spawn(Behavior::reply(Reply::Deny(403, 941100))));
