@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 mod fake_agent;
 
 use fake_agent::{Behavior, Reply};
+mod ready;
 mod stop;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
@@ -64,7 +65,7 @@ fn start(endpoint: SocketAddr) -> Proxy {
         config,
     };
     let deadline = Instant::now() + Duration::from_secs(10);
-    while TcpStream::connect(("127.0.0.1", p.admin)).is_err() {
+    while !ready::answers(p.admin) {
         assert!(Instant::now() < deadline, "admin listener did not start");
         std::thread::sleep(Duration::from_millis(50));
     }

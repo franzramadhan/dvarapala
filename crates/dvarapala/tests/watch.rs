@@ -6,6 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+mod ready;
 
 struct Proxy {
     child: Child,
@@ -73,7 +74,7 @@ fn start(dir: PathBuf, config: &Path, listen: u16) -> Proxy {
         .unwrap();
     let p = Proxy { child, listen, dir };
     let deadline = Instant::now() + Duration::from_secs(10);
-    while TcpStream::connect(("127.0.0.1", p.listen)).is_err() {
+    while !ready::answers(p.listen) {
         assert!(Instant::now() < deadline, "proxy did not start");
         std::thread::sleep(Duration::from_millis(50));
     }
