@@ -217,7 +217,6 @@ mod tests {
 
     // RFC 0020 case 6
     #[test]
-    #[ignore = "rfc 0020"]
     fn email_verified_required_by_default() {
         // `#[serde(default)]` fills a missing key from `Default`
         assert!(Admin::default().oidc.require_email_verified);

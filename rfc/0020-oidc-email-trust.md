@@ -98,3 +98,11 @@ next to the key. No CPU or memory change.
   nothing. Cloudflare Access users set `require_email_verified = false`.
 - **Off switch:** remove the key or set it to `true` (applies on restart;
   `[admin]` keys are not reloaded).
+
+## Implementation notes
+
+- In `crates/l7`, the switch is `OidcConfig.trust_email` (default
+  `false`, the safe value for embedders building the struct by hand); the
+  binary maps `require_email_verified = false` to `trust_email = true`.
+- A denied login names the `email` claim as the subject when one is
+  present, as RFC 0018 already did for `email_verified: false`.

@@ -448,7 +448,6 @@ fn oidc_denied_and_replayed() {
 
 // RFC 0020 case 7: an issuer that never sends `email_verified`
 #[test]
-#[ignore = "rfc 0020"]
 fn oidc_email_trusted_without_the_claim() {
     let i = issuer();
     i.claims.lock().unwrap().2 = true;
