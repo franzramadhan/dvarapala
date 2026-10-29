@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-29 | #N | |
+| draft | 2026-10-29 | #140 | |
 
 > A Kubernetes operator that puts dvarapala in front of an existing
 > workload when its pod template carries an annotation: a mutating
