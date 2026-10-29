@@ -20,6 +20,7 @@ C ABI). The design and the milestones are in
 | `crates/xdp-ebpf` | the XDP program, its own workspace (nightly, `bpf-linker`); the object is checked in |
 | `crates/ffi` | C ABI for non-Rust embedders |
 | `crates/node` | N-API addon over the C ABI for `sdk/js` |
+| `ui/` | the admin web console (RFC 0018): SolidJS, TanStack Router and Query, Tailwind; the built `dist/` is checked in and embedded by `crates/dvarapala` (`npm run build`, `npm run check`) |
 | `sdk/` | Go, Python and JavaScript packages over the C ABI (RFC 0008) |
 | `crates/dvarapala` | the binary |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
@@ -110,12 +111,14 @@ comma, colon, parentheses or a new sentence.
   `cargo deny check` (`deny.toml`), the fuzz targets and one job per SDK
   (`go`, `python`, `js`), plus the `footprint` job (release build, idle RSS
   under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`, `sdk/`,
-  Cargo files, `deny.toml`, toolchain). Release PRs also get
+  `ui/dist/`, Cargo files, `deny.toml`, toolchain), and the `ui` job
+  (console tests, bundle budget, `ui/dist` matching a fresh build) when
+  `ui/` changed. Release PRs also get
   `release-check`. Docs-only PRs skip the Rust jobs (skipped required
   checks count as passing).
 - `main` is protected by a ruleset: PRs only, squash merge only, signed
   commits, no force push or deletion, required checks `secrets`, `test`,
-  `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `release-check` and `title`. A new job that must gate
+  `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `ui`, `release-check` and `title`. A new job that must gate
   merges is added to the ruleset in the same PR.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest

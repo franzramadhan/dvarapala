@@ -239,11 +239,43 @@ All `[admin]` keys, these included, need a restart, as in RFC 0014.
 - Bounds: `max_sessions` (64) sessions of about 200 bytes, 64 pending
   logins, the 16 connection cap of RFC 0014 shared with the console.
   Polling at 2 s from a few tabs is a few requests a second.
-- The CSPRNG is `getrandom`, SHA-256 is `sha2`, JSON is `serde_json`,
-  base64 is `base64` and the HTTPS client is `hyper-rustls`: all already
-  in the lock file, so no new Rust dependency. The UI's npm dependencies
+- The CSPRNG and SHA-256 are `ring`, JSON is `serde_json` and the HTTPS
+  client is `hyper-rustls`: all already in the lock file, so no new Rust
+  dependency. The UI's npm dependencies
   are pinned by `package-lock.json` and only reach the repo as the built
   bundle, reviewed in the PR that changes it.
+
+## Implementation notes
+
+Found while building:
+
+- Failed and denied OIDC logins (cases 6 and 14) answer `303` to
+  `/ui/login?error=<reason>` rather than a `403` page, so the console
+  shows the reason next to the login buttons. No cookie is set either way.
+- The bundle is `ui/dist/index.html.gz`, `app.js.gz` and `app.css.gz`,
+  served at `/ui/`, `/ui/app.js` and `/ui/app.css` with fixed names, so
+  they revalidate with an `ETag` and `Cache-Control: no-cache` instead of
+  a long cache. CI's stale check compares the decompressed files with a
+  fresh build: gzip bytes differ between platforms. 61 KiB gzip at first.
+- `admin.oidc.issuer` and the discovery endpoints may be `http` on a
+  loopback host, like `public_url`: a local IdP, and the mock issuer of
+  cases 13 to 15.
+- Sessions are keyed by the SHA-256 of their id, so a lookup's timing says
+  nothing about the ids held (case 2). The CSRF value and the bearer token
+  are compared in constant time.
+- The reload answer only lists the keys waiting for a restart (RFC 0014),
+  so the console shows those and "applied in place" for the rest.
+- A failed discovery is tried again at a login at most every 10 s. The
+  gateway starts when the issuer is down; the OIDC button then reports it.
+- The token exchange uses `client_secret_post`.
+- The axe scan (case 20) runs in jsdom, which cannot compute colours, so
+  only its `color-contrast` rule is off there; the theme tokens were
+  checked by ratio (at least 5.5:1 for text in both themes).
+- `ui` is a cargo feature in the default build (on `tls`); a build
+  without it refuses `ui_enabled = true` at start.
+- RSA and EC verification, `getrandom`, `sha2` and `base64` were not
+  needed: `ring` (already in `l7`) gives SHA-256 and the CSPRNG, and
+  base64url is a few lines in `l7::oidc`.
 
 ## Rollout
 

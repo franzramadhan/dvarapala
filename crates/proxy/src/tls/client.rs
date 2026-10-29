@@ -18,17 +18,13 @@ pub struct UpstreamTls {
     pub server_name: Option<String>,
 }
 
-pub(crate) type Connector = HttpsConnector<HttpConnector>;
+pub type Connector = HttpsConnector<HttpConnector>;
 
 impl UpstreamTls {
     /// A connector for `http://` and `https://`. Roots are only loaded when
     /// `https` is set, so a cleartext upstream costs no root store. ALPN
     /// offers what `protocol` allows (RFC 0004).
-    pub(crate) fn connector(
-        &self,
-        https: bool,
-        protocol: UpstreamProtocol,
-    ) -> Result<Connector, String> {
+    pub fn connector(&self, https: bool, protocol: UpstreamProtocol) -> Result<Connector, String> {
         let roots = if https {
             self.roots()?
         } else {

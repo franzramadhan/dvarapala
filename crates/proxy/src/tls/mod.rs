@@ -10,8 +10,7 @@ mod pair;
 mod prefixed;
 
 pub use acceptor::{Tls, TlsConfig};
-pub(crate) use client::Connector;
-pub use client::UpstreamTls;
+pub use client::{Connector, UpstreamTls};
 #[doc(hidden)]
 pub use expiry::not_after as cert_not_after;
 pub use pair::{CertPair, TlsError};
