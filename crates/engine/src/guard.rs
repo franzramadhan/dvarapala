@@ -132,6 +132,7 @@ impl<V: Default> Guard<V> {
         let before = self.table.evictions();
         let passed = pass == Pass::Valid;
         let challenge = match self.challenge {
+            _ if pass == Pass::Exempt => false,
             ChallengeMode::Off => false,
             ChallengeMode::Always => true,
             ChallengeMode::Attack => pass == Pass::Required || (attack && self.enforce),
@@ -288,7 +289,6 @@ mod tests {
 
     // RFC 0013 case 10
     #[test]
-    #[ignore = "rfc 0013"]
     fn exempt_gets_the_attack_limit_never_a_challenge() {
         let mut g = challenging(ChallengeMode::Attack, true);
         let t = attack(&mut g);
