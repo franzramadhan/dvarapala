@@ -101,7 +101,15 @@ mod tests {
     fn key_of_another_certificate_is_refused() {
         let (cert, _) = leaf(None);
         let (_, other_key) = leaf(None);
-        assert!(CertPair::from_pem(cert.as_bytes(), other_key.as_bytes()).is_err());
+        let e = CertPair::from_pem(cert.as_bytes(), other_key.as_bytes()).unwrap_err();
+        assert!(e.to_string().starts_with("certificate and key: "), "{e}");
+    }
+
+    #[test]
+    fn empty_chain_says_so() {
+        let (_, key) = leaf(None);
+        let e = CertPair::from_pem(b"", key.as_bytes()).unwrap_err();
+        assert_eq!(e.to_string(), "no certificate in the PEM");
     }
 
     #[test]

@@ -82,6 +82,12 @@ mod tests {
         let (seen, f) = read(&mut &wire[..]).await.unwrap();
         assert!(f.is_none());
         assert!(seen.len() <= MAX_HELLO + 10);
+        // one record over the limit: only its header is read
+        let mut one = vec![0x16, 3, 1];
+        one.extend_from_slice(&((MAX_HELLO + 5) as u16).to_be_bytes());
+        one.resize(one.len() + MAX_HELLO + 5, 0);
+        let (seen, f) = read(&mut &one[..]).await.unwrap();
+        assert_eq!((seen.as_slice(), f), (&one[..5], None));
         let (seen, f) = read(&mut &b"GET / HTTP/1.1\r\n"[..]).await.unwrap();
         assert_eq!((seen.as_slice(), f), (&b"GET /"[..], None));
     }
