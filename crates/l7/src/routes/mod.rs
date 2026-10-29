@@ -8,4 +8,4 @@ pub use limits::RouteKey;
 pub use matcher::{Host, Matcher, PathMatch};
 #[doc(hidden)]
 pub use policy::fuzz_route_match;
-pub use policy::{RouteConfig, Routes};
+pub use policy::{NoWaf, RouteConfig, Routes};

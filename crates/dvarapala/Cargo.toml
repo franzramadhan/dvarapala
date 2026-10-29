@@ -23,6 +23,8 @@ postgres = ["dvarapala-store/postgres"]
 replay = ["dvarapala-l7/replay"]
 # Admin web console with token and OIDC login (RFC 0018).
 ui = ["tls", "dvarapala-l7/ui"]
+# WAF over an SPOP agent such as coraza-spoa (RFC 0017).
+waf = ["dvarapala-l7/waf"]
 # XDP fast path (RFC 0011), Linux only.
 xdp = ["dvarapala-xdp/load"]
 

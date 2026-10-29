@@ -140,6 +140,7 @@ async fn reload_adds_a_deny_route() {
         key: RouteKey::Client,
         challenge: true,
         max_keys: NonZeroUsize::new(16).unwrap(),
+        waf: true,
     };
     l.reload(reload(Limit::new(100, 100).unwrap(), Some(vec![deny])))
         .unwrap();

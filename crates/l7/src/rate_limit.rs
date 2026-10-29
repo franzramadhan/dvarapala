@@ -246,6 +246,9 @@ where
             Verdict::Allow => {
                 if let Some(r) = route {
                     r.count("allow");
+                    if !r.waf {
+                        req.extensions_mut().insert(crate::NoWaf);
+                    }
                 }
                 policy.fingerprints.forward(req.headers_mut(), fp);
                 count("allow", protocol);
@@ -365,7 +368,7 @@ fn accepts_html(headers: &HeaderMap) -> bool {
 
 /// All `X-Forwarded-For` lines as one list. Non-UTF-8 counts as absent, so
 /// the key falls back to the peer.
-fn forwarded_for(headers: &HeaderMap) -> Option<Cow<'_, str>> {
+pub(crate) fn forwarded_for(headers: &HeaderMap) -> Option<Cow<'_, str>> {
     let mut values = headers.get_all("x-forwarded-for").iter();
     let first = values.next()?.to_str().ok()?;
     let mut joined: Cow<'_, str> = Cow::Borrowed(first);
