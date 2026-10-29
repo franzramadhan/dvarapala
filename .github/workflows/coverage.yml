@@ -28,6 +28,39 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: write
+    # The same services as the `test` job in ci.yml: the store and WAF
+    # tests fail in CI when their URL is unset. Keep the two in step.
+    services:
+      redis:
+        image: redis@sha256:4764ce37931aac77c0d033680b339b19b4a4a81772204d268947cb851212d0ac # 7.4.12-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-retries 15
+      postgres:
+        image: postgres@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4 # 17.11-alpine
+        # no password: the service is reachable from this job only
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: dvarapala
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 2s --health-retries 15
+      pgbouncer:
+        image: edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d # 1.26.1
+        env:
+          DATABASE_URL: postgres://postgres@postgres:5432/dvarapala
+          POOL_MODE: transaction
+          AUTH_TYPE: trust
+          MAX_PREPARED_STATEMENTS: "0"
+        ports: ["6432:5432"]
+      # RFC 0017 case 12: the image's own config runs the built-in CRS
+      # at paranoia 1 on :9000. Keep the version in step with examples/waf/.
+      coraza:
+        image: ghcr.io/corazawaf/coraza-spoa@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e # 0.9.1
+        ports: ["9000:9000"]
+    env:
+      DVARAPALA_TEST_CORAZA: 127.0.0.1:9000
+      DVARAPALA_TEST_REDIS: redis://127.0.0.1:6379/0
+      DVARAPALA_TEST_POSTGRES: postgres://postgres@127.0.0.1:5432/dvarapala?sslmode=disable
+      DVARAPALA_TEST_PGBOUNCER: postgres://postgres@127.0.0.1:6432/dvarapala?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +75,7 @@ jobs:
       - name: Test with coverage
         run: |
           set -o pipefail
-          cargo llvm-cov --locked --workspace --json --summary-only --output-path cov.json 2>&1 | tee test.log
+          cargo llvm-cov --locked --workspace --all-features --exclude dvarapala-node --json --summary-only --output-path cov.json 2>&1 | tee test.log
           passed=$(grep -oE 'test result: ok\. [0-9]+ passed' test.log | awk '{s+=$4} END {print s+0}')
           percent=$(jq -r '.data[0].totals.lines.percent | floor' cov.json)
           echo "PASSED=$passed" >> "$GITHUB_ENV"

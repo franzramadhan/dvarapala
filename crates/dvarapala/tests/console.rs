@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+mod stop;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
@@ -22,8 +23,7 @@ struct Proxy {
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        stop::stop(&mut self.child);
         let _ = std::fs::remove_file(&self.config);
     }
 }
