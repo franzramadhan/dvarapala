@@ -89,9 +89,14 @@ jobs:
           percent=$(jq -r '.data[0].totals.lines.percent | floor' cov.json)
           echo "PASSED=$passed" >> "$GITHUB_ENV"
           echo "PERCENT=$percent" >> "$GITHUB_ENV"
-          echo "$passed tests passed, $percent% lines covered" >> "$GITHUB_STEP_SUMMARY"
-          jq -r '.data[0].files[] | [(.summary.lines.count - .summary.lines.covered), .filename] | @tsv' cov.json \
-            | sort -rn | head -20 | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "$passed tests passed, $percent% lines covered"
+            echo
+            echo "Uncovered lines per file, most first:"
+            echo
+            jq -r '.data[0].files[] | [(.summary.lines.count - .summary.lines.covered), .filename] | @tsv' cov.json \
+              | sort -rn | head -20 | sed 's/^/    /'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Publish badges
         if: github.ref == 'refs/heads/main'
         env:
