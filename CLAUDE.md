@@ -19,14 +19,16 @@ C ABI). The design and the milestones are in
 | `crates/xdp-common` | `no_std` packet parser and map layouts, shared with the program |
 | `crates/xdp-ebpf` | the XDP program, its own workspace (nightly, `bpf-linker`); the object is checked in |
 | `crates/ffi` | C ABI for non-Rust embedders |
+| `crates/operator` | Kubernetes operator (RFC 0019): policy CRD, gateway per labeled backend, route-rewrite webhook |
 | `crates/node` | N-API addon over the C ABI for `sdk/js` |
 | `ui/` | the admin web console (RFC 0018): SolidJS, TanStack Router and Query, Tailwind; the built `dist/` is checked in and embedded by `crates/dvarapala` (`npm run build`, `npm run check`) |
 | `sdk/` | Go, Python and JavaScript packages over the C ABI (RFC 0008) |
 | `crates/dvarapala` | the binary |
+| `deploy/` | `operator.yaml` (CRD, RBAC, operator, webhook; the release attaches it with its version) and the `kind` e2e in `e2e/` |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
 | `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/`, and `install.sh` (served at `/install.sh`) |
 | `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release |
-| `Dockerfile` | the release image: `FROM scratch` plus the musl binary with the Redis and PostgreSQL stores from `dist/<arch>/` (built in `release.yml`) |
+| `Dockerfile` | the release images: `FROM scratch` plus the musl binary with the Redis and PostgreSQL stores from `dist/<arch>/` (built in `release.yml`); `--target operator` builds the operator image |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
 crates ahead of time.
@@ -112,7 +114,8 @@ comma, colon, parentheses or a new sentence.
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
   `cargo test` (also the binary with `--no-default-features`), the file-size check, the stale C header check (`cbindgen`),
   `cargo deny check` (`deny.toml`), the fuzz targets the change touches and one job per SDK
-  (`go`, `python`, `js`), plus the `footprint` job (release build, idle RSS
+  (`go`, `python`, `js`), `operator-e2e` (RFC 0019 on `kind`) when the
+  operator, the binary or `deploy/` changed, plus the `footprint` job (release build, idle RSS
   under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`, `sdk/`,
   `ui/dist/`, Cargo files, `deny.toml`, toolchain), and the `ui` job
   (console tests, bundle budget, `ui/dist` matching a fresh build) when
@@ -121,7 +124,7 @@ comma, colon, parentheses or a new sentence.
   checks count as passing).
 - `main` is protected by a ruleset: PRs only, squash merge only, signed
   commits, no force push or deletion, required checks `secrets`, `test`,
-  `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `ui`, `release-check` and `title`. A new job that must gate
+  `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `ui`, `operator-e2e`, `release-check` and `title`. A new job that must gate
   merges is added to the ruleset in the same PR.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest
@@ -139,8 +142,10 @@ comma, colon, parentheses or a new sentence.
   binaries, pushes the container image `ghcr.io/franzramadhan/dvarapala`
   (`<version>` and `<major>.<minor>`, linux/amd64 and linux/arm64, built
   by `Dockerfile` from musl binaries built with `--features redis,postgres`;
-  the tarballs stay without them), and publishes a GitHub release
-  with `SHA256SUMS` and the notes from `CHANGELOG.md`. Merges to `main`
+  the tarballs stay without them) and `ghcr.io/franzramadhan/dvarapala-operator`
+  (same tags, `Dockerfile` target `operator`), and publishes a GitHub release
+  with `SHA256SUMS`, `operator.yaml` (`deploy/operator.yaml` at
+  the version) and the notes from `CHANGELOG.md`. Merges to `main`
   publish nothing.
 - `.github/workflows/title-check.yml` checks every PR title (it becomes the
   squash commit): `type(scope): subject`, types `feat fix docs ci test

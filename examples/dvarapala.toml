@@ -14,6 +14,10 @@ upstream = "http://127.0.0.1:8081"
 # above the first [section].
 # trusted_proxies = ["192.0.2.0/24"]
 
+# Reread the --config file this often and reload when it changed, as SIGHUP
+# does (RFC 0019): for a file mounted from a ConfigMap. Top-level key.
+# config_watch = "10s"
+
 [metrics]
 listen = "127.0.0.1:9090"
 

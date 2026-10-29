@@ -103,7 +103,6 @@ fn limited_within(p: &Proxy, limit: Duration) -> bool {
 
 // case 12
 #[test]
-#[ignore = "rfc 0019"]
 fn rewritten_file_applies_without_a_restart() {
     let d = dir("rate");
     let config = d.join("d.toml");
@@ -126,7 +125,6 @@ fn rewritten_file_applies_without_a_restart() {
 
 // case 13
 #[test]
-#[ignore = "rfc 0019"]
 fn invalid_file_keeps_the_running_config() {
     let d = dir("invalid");
     let config = d.join("d.toml");
@@ -142,7 +140,6 @@ fn invalid_file_keeps_the_running_config() {
 
 // case 14
 #[test]
-#[ignore = "rfc 0019"]
 fn symlink_swap_reloads_once() {
     let d = dir("swap");
     let listen = port();

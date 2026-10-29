@@ -10,6 +10,17 @@
 # emulation for the other arch.
 FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS certs
 
+# RFC 0019: the operator, from the same job (dist/<arch>/dvarapala-operator).
+# Build it with --target operator; the default target is the gateway below.
+# No CA bundle: it only talks to the API server, whose CA comes with the
+# service account.
+FROM scratch AS operator
+ARG TARGETARCH
+COPY --chmod=0755 dist/${TARGETARCH}/dvarapala-operator /dvarapala-operator
+USER 10001:10001
+ENTRYPOINT ["/dvarapala-operator"]
+CMD ["run"]
+
 FROM scratch
 ARG TARGETARCH
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

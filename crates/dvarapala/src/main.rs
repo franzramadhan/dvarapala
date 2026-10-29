@@ -9,6 +9,7 @@ mod reload;
 mod replay;
 mod store;
 mod waf;
+mod watch;
 mod xdp;
 
 use std::convert::Infallible;
@@ -257,13 +258,14 @@ async fn control(
     ja4: bool,
 ) -> Result<(), Box<dyn Error>> {
     let reloader = Arc::new(reload::Reloader::new(
-        path,
+        path.clone(),
         layer.clone(),
         waf,
         ja4,
         cfg.clone(),
     ));
     reload::on_hangup(reloader.clone())?;
+    watch::start(path.as_deref(), cfg.config_watch, reloader.clone())?;
     if let Some(addr) = admin {
         let a = admin::Admin {
             token: cfg.admin.token.clone(),
