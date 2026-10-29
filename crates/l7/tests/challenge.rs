@@ -37,6 +37,7 @@ fn layer() -> RateLimitLayer {
             unix: unix_now,
         }),
         fingerprints: Default::default(),
+        routes: Vec::new(),
     })
     .unwrap()
 }

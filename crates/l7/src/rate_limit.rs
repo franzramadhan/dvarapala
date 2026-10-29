@@ -12,7 +12,7 @@ use dvarapala_engine::{
     BlockSink, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig,
     GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
 };
-use http::header::{ACCEPT, CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
+use http::header::{ACCEPT, HeaderMap};
 use http::{Request, Response, StatusCode, Version};
 use tower_layer::Layer;
 use tower_service::Service;
@@ -20,9 +20,10 @@ use tower_service::Service;
 use crate::challenge::{Challenge, VERIFY_PATH};
 use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
+use crate::reply::{Scope, count, reject};
 use crate::{
-    ChallengeConfig, Detection, Fingerprints, GrpcStatus, Ja4, PageBody, PeerAddr, Scoring,
-    grpc_response, is_grpc,
+    ChallengeConfig, Detection, Fingerprints, Ja4, PageBody, PeerAddr, RouteConfig, Scoring,
+    is_grpc,
 };
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,8 @@ pub struct RateLimitConfig {
     pub challenge: Option<ChallengeConfig>,
     /// RFC 0012 rules on the JA4 fingerprint.
     pub fingerprints: Fingerprints,
+    /// RFC 0013 routes, in order; empty applies the global policy only.
+    pub routes: Vec<RouteConfig>,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the
@@ -227,65 +230,6 @@ where
     }
 }
 
-fn count(verdict: &'static str, protocol: &'static str) {
-    metrics::counter!("dvarapala_requests_total", "verdict" => verdict, "protocol" => protocol)
-        .increment(1);
-}
-
-/// Who decided a rejection: this replica's bucket, or the cluster (RFC 0010).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Scope {
-    Local,
-    Cluster,
-}
-
-/// The local answer to a rejected request (RFC 0004): trailers-only gRPC
-/// for gRPC clients, an HTTP status otherwise.
-fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str, scope: Scope) -> Response<R> {
-    use GrpcStatus::{PermissionDenied, ResourceExhausted};
-    let (label, code, grpc_status, retry_after) = match v {
-        Verdict::Throttle { retry_after } => (
-            "throttle",
-            StatusCode::TOO_MANY_REQUESTS,
-            ResourceExhausted,
-            Some(retry_after),
-        ),
-        // a client that cannot show the page (no `text/html`, gRPC): a 429
-        // without Retry-After is the closest honest answer
-        Verdict::Challenge => (
-            "challenge",
-            StatusCode::TOO_MANY_REQUESTS,
-            ResourceExhausted,
-            None,
-        ),
-        // `Allow` never gets here; fail closed if it ever does
-        Verdict::Drop | Verdict::Allow => ("drop", StatusCode::FORBIDDEN, PermissionDenied, None),
-    };
-    match scope {
-        Scope::Local => count(label, protocol),
-        Scope::Cluster => metrics::counter!(
-            "dvarapala_requests_total",
-            "verdict" => label,
-            "protocol" => protocol,
-            "scope" => "cluster"
-        )
-        .increment(1),
-    }
-    if grpc {
-        return grpc_response(grpc_status, retry_after);
-    }
-    let mut res = Response::new(R::default());
-    *res.status_mut() = code;
-    if let Some(d) = retry_after {
-        res.headers_mut().insert(RETRY_AFTER, retry_after_secs(d));
-    }
-    if code == StatusCode::FORBIDDEN {
-        res.headers_mut()
-            .insert(CONNECTION, HeaderValue::from_static("close"));
-    }
-    res
-}
-
 impl Shared {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // a panic while holding the lock leaves a consistent table (every
@@ -363,11 +307,6 @@ fn accepts_html(headers: &HeaderMap) -> bool {
             .windows(9)
             .any(|w| w.eq_ignore_ascii_case(b"text/html"))
     })
-}
-
-/// Whole seconds, rounded up, at least 1 (`Retry-After: 0` invites a retry storm).
-pub(crate) fn retry_after_secs(d: Duration) -> HeaderValue {
-    HeaderValue::from(d.as_secs_f64().ceil().max(1.0) as u64)
 }
 
 /// All `X-Forwarded-For` lines as one list. Non-UTF-8 counts as absent, so
@@ -451,14 +390,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use http::header::HeaderValue;
 
-    #[test]
-    fn retry_after_rounds_up_and_is_never_zero() {
-        assert_eq!(retry_after_secs(Duration::from_millis(1)), "1");
-        assert_eq!(retry_after_secs(Duration::from_millis(1500)), "2");
-        assert_eq!(retry_after_secs(Duration::ZERO), "1");
-    }
+    use super::*;
 
     #[test]
     fn forwarded_for_joins_repeated_headers() {

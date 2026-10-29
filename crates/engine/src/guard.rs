@@ -47,6 +47,9 @@ pub enum Pass {
     Valid,
     /// No pass, and a rule asks for one whatever the detector says.
     Required,
+    /// No pass, and a route exempts the request from the challenge
+    /// (RFC 0013): never `Challenge`, the attack limit during an attack.
+    Exempt,
 }
 
 /// The decision for one request and what the caller reports about it.
@@ -255,8 +258,8 @@ mod tests {
         assert_eq!(g.check(key(9), t).verdict, Verdict::Challenge);
         // the attack limit (factor 0.1) still lets the burst through; a
         // pass is checked against the normal rate after it
-        let passed: Vec<_> = (0..21)
-            .map(|i| g.check_passed(key(10), t + Duration::from_millis(100 * i), Pass::Valid))
+        let passed: Vec<_> = (0..35)
+            .map(|i| g.check_passed(key(10), t + Duration::from_millis(50 * i), Pass::Valid))
             .map(|d| d.verdict)
             .collect();
         assert!(passed.iter().all(|v| *v == Verdict::Allow), "{passed:?}");
@@ -281,6 +284,28 @@ mod tests {
         assert!(g.detector().unwrap().is_heavy(key(1).into()));
         let d = g.check_passed(key(1), t, Pass::Valid);
         assert_eq!(d.verdict, Verdict::Drop);
+    }
+
+    // RFC 0013 case 10
+    #[test]
+    #[ignore = "rfc 0013"]
+    fn exempt_gets_the_attack_limit_never_a_challenge() {
+        let mut g = challenging(ChallengeMode::Attack, true);
+        let t = attack(&mut g);
+        let verdicts: Vec<_> = (0..35)
+            .map(|i| g.check_passed(key(10), t + Duration::from_millis(50 * i), Pass::Exempt))
+            .map(|d| d.verdict)
+            .collect();
+        assert!(!verdicts.contains(&Verdict::Challenge), "{verdicts:?}");
+        assert!(
+            verdicts
+                .iter()
+                .any(|v| matches!(v, Verdict::Throttle { .. })),
+            "{verdicts:?}"
+        );
+        let mut g = challenging(ChallengeMode::Always, false);
+        let d = g.check_passed(key(1), Instant::now(), Pass::Exempt);
+        assert_eq!(d.verdict, Verdict::Allow);
     }
 
     #[test]

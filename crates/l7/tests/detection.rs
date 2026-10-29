@@ -70,6 +70,7 @@ fn layer_in(
         block,
         challenge: None,
         fingerprints: Default::default(),
+        routes: Vec::new(),
     })
     .unwrap()
 }
