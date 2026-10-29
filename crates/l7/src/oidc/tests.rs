@@ -197,7 +197,6 @@ fn discovery_and_urls() {
 
 // RFC 0020 cases 1 to 5
 #[test]
-#[ignore = "rfc 0020"]
 fn trusted_email_without_the_claim() {
     let base = r#"{"iss":"https://idp.example","aud":"dvarapala","exp":2000,"nonce":"n","sub":"1","email":"Ops@example.com""#;
     let token = |extra: &str| jwt(&format!("{base}{extra}}}"));
