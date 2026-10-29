@@ -1,7 +1,9 @@
+mod admin;
 mod config;
 mod metrics;
 #[cfg(feature = "http3")]
 mod quic;
+mod reload;
 mod store;
 mod xdp;
 
@@ -174,6 +176,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             challenge,
             fingerprints,
             routes,
+            max_blocks: cfg.admin.max_blocks,
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {

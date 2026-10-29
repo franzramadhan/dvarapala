@@ -9,6 +9,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 const MAC_LEN: usize = 16;
 
 /// HMAC-SHA256 seeds and passes, bound to a client key. No server state.
+#[derive(Clone)]
 pub(crate) struct Keys(hmac::Key);
 
 impl Keys {

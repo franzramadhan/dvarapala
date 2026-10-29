@@ -10,6 +10,7 @@ use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Deserializer, de};
 
+mod admin;
 mod challenge;
 mod forward;
 mod l4;
@@ -19,6 +20,7 @@ mod routes;
 mod store;
 mod tls;
 mod xdp;
+pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
 pub use l4::L4;
@@ -76,6 +78,8 @@ pub struct Config {
     pub fingerprint: Fingerprint,
     #[serde(default)]
     pub routes: Vec<Route>,
+    #[serde(default)]
+    pub admin: Admin,
 }
 
 impl Config {

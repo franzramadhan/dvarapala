@@ -35,9 +35,11 @@ http.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+# RFC 0014: reload and admin counters; already in the tree through l7
+metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 serde.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower-layer.workspace = true
 tower-service.workspace = true
 tracing.workspace = true
