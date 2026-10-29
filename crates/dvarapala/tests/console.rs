@@ -254,16 +254,17 @@ fn status_counts_requests() {
 }
 
 /// A mock issuer: discovery, and a token endpoint answering an ID token
-/// for the email and nonce the test sets.
+/// for the email and nonce the test sets, without `email_verified`
+/// when the flag is set.
 struct Issuer {
     port: u16,
-    claims: Arc<Mutex<(String, String)>>,
+    claims: Arc<Mutex<(String, String, bool)>>,
 }
 
 fn issuer() -> Issuer {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
-    let claims = Arc::new(Mutex::new((String::new(), String::new())));
+    let claims = Arc::new(Mutex::new((String::new(), String::new(), false)));
     let c = claims.clone();
     std::thread::spawn(move || {
         for s in l.incoming().map_while(Result::ok) {
@@ -292,9 +293,14 @@ fn issuer() -> Issuer {
                     "{form}"
                 );
                 assert!(form.contains("code_verifier="), "{form}");
-                let (email, nonce) = c.lock().unwrap().clone();
+                let (email, nonce, unverified) = c.lock().unwrap().clone();
+                let verified = if unverified {
+                    ""
+                } else {
+                    ",\"email_verified\":true"
+                };
                 let claims = format!(
-                    "{{\"iss\":\"{iss}\",\"aud\":\"dvarapala\",\"exp\":4000000000,\"sub\":\"7\",\"email\":\"{email}\",\"email_verified\":true,\"nonce\":\"{nonce}\"}}"
+                    "{{\"iss\":\"{iss}\",\"aud\":\"dvarapala\",\"exp\":4000000000,\"sub\":\"7\",\"email\":\"{email}\"{verified},\"nonce\":\"{nonce}\"}}"
                 );
                 format!("{{\"id_token\":\"e30.{}.sig\"}}", b64url(claims.as_bytes()))
             };
@@ -349,7 +355,9 @@ fn sign_in(p: &Proxy, i: &Issuer, email: &str) -> Answer {
         .filter_map(|kv| kv.split_once('='))
         .collect();
     assert_eq!(q["code_challenge_method"], "S256");
-    *i.claims.lock().unwrap() = (email.into(), q["nonce"].into());
+    let mut c = i.claims.lock().unwrap();
+    (c.0, c.1) = (email.into(), q["nonce"].into());
+    drop(c);
     let back = format!("/session/oidc/callback?code=the-code&state={}", q["state"]);
     call(p.admin, "GET", &back, &[])
 }
@@ -442,4 +450,25 @@ fn oidc_denied_and_replayed() {
     );
     assert_eq!(unknown.status, 303);
     assert!(!unknown.headers.contains_key("set-cookie"));
+}
+
+// RFC 0020 case 7: an issuer that never sends `email_verified`
+#[test]
+#[ignore = "rfc 0020"]
+fn oidc_email_trusted_without_the_claim() {
+    let i = issuer();
+    i.claims.lock().unwrap().2 = true;
+    let strict = start("strict", &oidc(&i));
+    let a = sign_in(&strict, &i, "ops@example.com");
+    assert_eq!(a.status, 303);
+    assert!(a.headers["location"].starts_with("/ui/login?error="));
+    let trusting = start(
+        "trusting",
+        &format!("{}require_email_verified = false\n", oidc(&i)),
+    );
+    trusting.logged(&["oidc email trusted without email_verified"]);
+    let a = sign_in(&trusting, &i, "ops@example.com");
+    assert_eq!(a.status, 302);
+    assert_eq!(a.headers["location"], "/ui/");
+    assert!(a.headers.contains_key("set-cookie"));
 }
