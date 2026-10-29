@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-29 | #140 | |
+| accepted | 2026-10-29 | #140 | |
 
 > A Kubernetes operator that puts dvarapala in front of a Service when
 > the Ingress, HTTPRoute or GRPCRoute that reaches it, or its namespace,
