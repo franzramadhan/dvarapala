@@ -20,6 +20,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use tower_service::Service;
 
 use crate::hop::{allowed_upgrade, append_forwarded_for, strip_hop_by_hop};
+use crate::pool::Pool;
 use crate::tunnels::Tunnels;
 use crate::upgrade::{self, Drain};
 use crate::{UpstreamConfig, UpstreamProtocol};
@@ -101,6 +102,12 @@ where
             connector,
             &UpstreamConfig::default(),
         ))
+    }
+
+    /// Every request to an endpoint of `pool`; listeners share one pool
+    /// and its health (RFC 0015).
+    pub fn with_pool(_pool: Arc<Pool>, _config: &UpstreamConfig) -> Result<Self, UpstreamError> {
+        todo!("rfc 0015")
     }
 
     /// Like [`ReverseProxy::new`], with the protocol from `config`, and
@@ -229,7 +236,10 @@ fn upgrade_headers(headers: &mut http::HeaderMap, protocol: HeaderValue) {
 }
 
 /// Scheme, authority and base path of an absolute upstream URL.
-fn parse(upstream: &str, https: bool) -> Result<(Scheme, Authority, String), UpstreamError> {
+pub(crate) fn parse(
+    upstream: &str,
+    https: bool,
+) -> Result<(Scheme, Authority, String), UpstreamError> {
     let invalid = || UpstreamError::Invalid(upstream.to_owned());
     let uri: Uri = upstream.parse().map_err(|_| invalid())?;
     let (Some(scheme), Some(authority)) = (uri.scheme(), uri.authority()) else {
