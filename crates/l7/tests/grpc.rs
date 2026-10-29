@@ -13,10 +13,10 @@ use bytes::Bytes;
 use dvarapala_engine::{DetectConfig, Limit, TrustedProxies};
 use dvarapala_l7::{Detection, PeerAddr, RateLimitConfig, RateLimitLayer};
 use http::{Request, Response, StatusCode, Version};
-use http_body_util::Empty;
+use http_body_util::Full;
 use tower::{Layer, Service, ServiceExt, service_fn};
 
-type Body = Empty<Bytes>;
+type Body = Full<Bytes>;
 
 static BASE: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -43,6 +43,8 @@ fn layer(detection: Option<Detection>) -> RateLimitLayer {
         now,
         cluster: None,
         block: None,
+        challenge: None,
+        fingerprints: Default::default(),
     })
     .unwrap()
 }
@@ -55,7 +57,7 @@ fn counting() -> (
     let c = calls.clone();
     let svc = service_fn(move |_req: Request<Body>| {
         c.fetch_add(1, Ordering::SeqCst);
-        async { Ok::<_, Infallible>(Response::new(Body::new())) }
+        async { Ok::<_, Infallible>(Response::new(Body::default())) }
     });
     (calls, svc)
 }
@@ -65,7 +67,7 @@ fn req(peer: &str, grpc: bool) -> Request<Body> {
     if grpc {
         b = b.header("content-type", "application/grpc+proto");
     }
-    let mut r = b.body(Body::new()).unwrap();
+    let mut r = b.body(Body::default()).unwrap();
     r.extensions_mut()
         .insert(PeerAddr(peer.parse::<SocketAddr>().unwrap()));
     r

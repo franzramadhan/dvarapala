@@ -9,10 +9,10 @@ use bytes::Bytes;
 use dvarapala_engine::{Cidr, Limit, TrustedProxies};
 use dvarapala_l7::{PeerAddr, RateLimitConfig, RateLimitLayer};
 use http::{Request, Response, StatusCode};
-use http_body_util::Empty;
+use http_body_util::Full;
 use tower::{Layer, Service, ServiceExt, service_fn};
 
-type Body = Empty<Bytes>;
+type Body = Full<Bytes>;
 
 fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
     RateLimitLayer::new(RateLimitConfig {
@@ -24,6 +24,8 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         now: Instant::now,
         cluster: None,
         block: None,
+        challenge: None,
+        fingerprints: Default::default(),
     })
     .unwrap()
 }
@@ -37,7 +39,7 @@ fn counting() -> (
     let c = calls.clone();
     let svc = service_fn(move |_req: Request<Body>| {
         c.fetch_add(1, Ordering::SeqCst);
-        async { Ok::<_, Infallible>(Response::new(Body::new())) }
+        async { Ok::<_, Infallible>(Response::new(Body::default())) }
     });
     (calls, svc)
 }
@@ -47,7 +49,7 @@ fn req(peer: &str, xff: Option<&str>) -> Request<Body> {
     if let Some(x) = xff {
         b = b.header("x-forwarded-for", x);
     }
-    let mut r = b.body(Body::new()).unwrap();
+    let mut r = b.body(Body::default()).unwrap();
     r.extensions_mut()
         .insert(PeerAddr(peer.parse::<SocketAddr>().unwrap()));
     r
@@ -148,7 +150,7 @@ async fn missing_peer_fails_closed() {
         .ready()
         .await
         .unwrap()
-        .call(Request::builder().uri("/").body(Body::new()).unwrap())
+        .call(Request::builder().uri("/").body(Body::default()).unwrap())
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::INTERNAL_SERVER_ERROR);

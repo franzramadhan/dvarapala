@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use common::{INTERVAL, Replica, TIMEOUT, replica, unique, unix_ms, until};
 use dvarapala_engine::{
-    Cidr, ClientKey, Cluster, ClusterConfig, Guard, GuardConfig, Limit, Schedule, ScheduleConfig,
-    Slot, Verdict, overshoot, split,
+    ChallengeMode, Cidr, ClientKey, Cluster, ClusterConfig, Guard, GuardConfig, Limit, Schedule,
+    ScheduleConfig, Slot, Verdict, overshoot, split,
 };
 use dvarapala_store::{Memory, Store};
 
@@ -97,6 +97,7 @@ async fn round_robin_client_is_held_to_one_limit<S: Store>(b: Backend<S>) {
             limit,
             max_clients: NonZeroUsize::new(10).unwrap(),
             detection: None,
+            challenge: ChallengeMode::Off,
         })
         .unwrap()
     };

@@ -154,6 +154,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             now: Instant::now,
             cluster,
             block: block.clone(),
+            challenge: None,
+            fingerprints: Default::default(),
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {
@@ -308,6 +310,7 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
         key: key.to_owned(),
         handshake_timeout: t.handshake_timeout,
         max_handshakes: t.max_handshakes,
+        fingerprint: false,
     })
     .map_err(|e| format!("tls: {e}"))?;
     #[cfg(unix)]

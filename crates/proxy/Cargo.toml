@@ -10,7 +10,7 @@ publish.workspace = true
 
 [features]
 # TLS listener and https:// upstreams (RFC 0003).
-tls = ["dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types", "dep:hyper-rustls", "dep:tokio-rustls"]
+tls = ["dep:ring", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types", "dep:hyper-rustls", "dep:tokio-rustls"]
 # HTTP/3 listener over QUIC (RFC 0006), experimental: pre-1.0 crates.
 http3 = ["tls", "dep:quinn", "dep:h3", "dep:h3-quinn"]
 
@@ -32,6 +32,8 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"
 tower-service.workspace = true
 tracing.workspace = true
 hyper-rustls = { workspace = true, optional = true }
+# RFC 0012: SHA-256 for JA4; already in the tree through rustls
+ring = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }

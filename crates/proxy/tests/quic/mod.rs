@@ -87,6 +87,7 @@ pub async fn proxy(tune: impl FnOnce(&mut QuicConfig), limiter: Option<RateLimit
         key: write(&dir, "key.pem", &key_pem),
         handshake_timeout: Duration::from_secs(5),
         max_handshakes: 64,
+        fingerprint: false,
     })
     .unwrap();
     let up = upstream().await;
