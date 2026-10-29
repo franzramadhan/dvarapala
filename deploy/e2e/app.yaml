@@ -1,0 +1,78 @@
+# RFC 0019 e2e (run.sh): an echo app, its routes and a policy at rate 1.
+# The routes start unlabeled; run.sh labels them.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: dvarapala.franzramadhan.dev/v1alpha1
+kind: DvarapalaPolicy
+metadata:
+  name: default
+  namespace: shop
+spec:
+  config: |
+    # the proxies in front set X-Forwarded-For
+    trusted_proxies = ["10.0.0.0/8"]
+    [rate_limit]
+    rate = 1
+    burst = 1
+  # one bucket per gateway pod without a shared store: one pod makes "the
+  # second request is 429" hold whichever proxy is in front
+  gateway:
+    replicas: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: echo}
+  template:
+    metadata:
+      labels: {app: echo}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: echo
+          image: registry.k8s.io/e2e-test-images/agnhost:2.53
+          args: [netexec, --http-port=8080]
+          ports: [{name: http, containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: shop
+spec:
+  selector: {app: echo}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl
+  namespace: shop
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: curl
+      image: curlimages/curl:8.11.1
+      command: [sleep, infinity]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}

@@ -1,0 +1,91 @@
+# Kubernetes (RFC 0019): a shop's routes go through dvarapala gateways the
+# operator runs. Install the operator first:
+#   kubectl apply --server-side -f operator.yaml   # from the release
+# then this file. Names are placeholders (shop, web, api, app.example).
+#
+# The policy: the protection config, as dvarapala TOML without the keys the
+# operator sets (listen, upstream, metrics.listen, ...). Edits to reloadable
+# keys reach the gateways without a restart; others roll them.
+apiVersion: dvarapala.franzramadhan.dev/v1alpha1
+kind: DvarapalaPolicy
+metadata:
+  name: default
+  namespace: shop
+spec:
+  config: |
+    # the ingress controller's pods set X-Forwarded-For
+    trusted_proxies = ["10.0.0.0/8"]
+    [rate_limit]
+    rate = 20
+    burst = 40
+    [detection]
+    mode = "observe"
+  gateway:
+    replicas: 2
+    # or let an HPA scale them:
+    # autoscaling: {maxReplicas: 10, targetCpu: 70}
+---
+# Opt in a route with the label. Its backends now name the gateway
+# Services; the originals are in the dvarapala.franzramadhan.dev/backends
+# annotation and come back when the label goes.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+  namespace: shop
+  labels:
+    dvarapala.franzramadhan.dev/policy: default
+spec:
+  parentRefs: [{name: public, namespace: gateway}]
+  hostnames: [app.example]
+  rules:
+    - backendRefs: [{name: web, port: 80}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  namespace: shop
+  labels:
+    dvarapala.franzramadhan.dev/policy: default
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.app.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: api, port: {number: 80}}
+---
+# Optional: only the gateways reach the backends, so nothing in the cluster
+# bypasses the protection. Add it once the policy status shows every gateway
+# Protecting. Cilium users can use the CiliumNetworkPolicy below instead.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-from-dvarapala
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels: {app: web}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dvarapala-gateway
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: api-from-dvarapala
+  namespace: shop
+spec:
+  endpointSelector:
+    matchLabels: {app: api}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: dvarapala-gateway

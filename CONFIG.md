@@ -26,6 +26,7 @@ Top-level keys go above the first `[section]` in the file.
 | `upstream` | URL | required in reverse mode without `pool.upstreams` | Upstream base URL, `http://` or `https://`; ignored in forward mode. Not together with `pool.upstreams` |
 | `upstream_protocol` | `"http1"`, `"http2"` or `"auto"` | `"http1"` | Protocol to the upstream ([RFC 0004](rfc/0004-http2-grpc.md)): `http2` is h2c with prior knowledge for `http://` and ALPN `h2` for `https://` (an upstream that cannot speak it gets 502); `auto` lets ALPN choose for `https://` and keeps HTTP/1.1 for `http://` |
 | `trusted_proxies` | list of CIDRs | `[]` | Peers allowed to set `X-Forwarded-For`; others are keyed by their own address |
+| `config_watch` | duration | unset | Reread `--config` at this interval (at least `100ms`) and reload when its bytes change, as `SIGHUP` does ([RFC 0019](rfc/0019-operator.md)); for a file Kubernetes mounts from a ConfigMap. Needs `--config`; restart-only |
 
 ## `[metrics]`
 
