@@ -1,6 +1,5 @@
 //! Admin console sessions (RFC 0018): random ids behind a cookie, bounded,
 //! expiring, in memory only.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -18,7 +17,10 @@ pub enum Method {
 
 impl Method {
     pub fn name(self) -> &'static str {
-        todo!("rfc 0018")
+        match self {
+            Self::Token => "token",
+            Self::Oidc => "oidc",
+        }
     }
 }
 
@@ -42,53 +44,91 @@ pub struct Sessions {
 
 impl Sessions {
     pub fn new(max: usize, ttl: Duration) -> Self {
-        todo!("rfc 0018")
+        Self {
+            max: max.max(1),
+            ttl,
+            map: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Opens a session; returns its id for the cookie. Drops the expired
     /// sessions, then the oldest one when full.
     pub fn create(&self, subject: String, method: Method, now: Instant) -> (String, Session) {
-        todo!("rfc 0018")
+        let id = random_hex();
+        let s = Session {
+            subject,
+            method,
+            csrf: random_hex(),
+            expires: now + self.ttl,
+        };
+        let mut map = self.lock();
+        map.retain(|_, s| s.expires > now);
+        if map.len() >= self.max {
+            // ponytail: O(n) scan over at most `max` (64 by default)
+            if let Some(k) = map.iter().min_by_key(|(_, s)| s.expires).map(|(k, _)| *k) {
+                map.remove(&k);
+            }
+        }
+        map.insert(key(&id), s.clone());
+        (id, s)
     }
 
     /// The session behind `id`, if alive.
     pub fn get(&self, id: &str, now: Instant) -> Option<Session> {
-        todo!("rfc 0018")
+        let k = key(id);
+        let mut map = self.lock();
+        match map.get(&k) {
+            Some(s) if s.expires > now => Some(s.clone()),
+            Some(_) => {
+                map.remove(&k);
+                None
+            }
+            None => None,
+        }
     }
 
     pub fn remove(&self, id: &str) -> bool {
-        todo!("rfc 0018")
+        self.lock().remove(&key(id)).is_some()
     }
 
     /// Sessions alive at `now`.
     pub fn len(&self, now: Instant) -> usize {
-        todo!("rfc 0018")
+        self.lock().values().filter(|s| s.expires > now).count()
     }
 
     pub fn is_empty(&self, now: Instant) -> bool {
-        todo!("rfc 0018")
+        self.len(now) == 0
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<[u8; 32], Session>> {
-        todo!("rfc 0018")
+        self.map
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
 fn key(id: &str) -> [u8; 32] {
-    todo!("rfc 0018")
+    let mut k = [0; 32];
+    k.copy_from_slice(digest(&SHA256, id.as_bytes()).as_ref());
+    k
 }
 
 /// 256 random bits, hex encoded.
 pub(crate) fn random_hex() -> String {
-    todo!("rfc 0018")
+    hex(&random::<32>())
 }
 
 pub(crate) fn random<const N: usize>() -> [u8; N] {
-    todo!("rfc 0018")
+    let mut b = [0; N];
+    // the system RNG failing leaves nothing safe to hand out: fail closed
+    SystemRandom::new()
+        .fill(&mut b)
+        .expect("system random generator");
+    b
 }
 
 fn hex(b: &[u8]) -> String {
-    todo!("rfc 0018")
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// Equal in time that depends only on the lengths.
@@ -106,7 +146,6 @@ mod tests {
 
     // RFC 0018 case 1
     #[test]
-    #[ignore = "rfc 0018"]
     fn bounded_and_expiring() {
         let now = Instant::now();
         let s = Sessions::new(2, Duration::from_secs(3600));
@@ -125,7 +164,6 @@ mod tests {
 
     // RFC 0018 case 2
     #[test]
-    #[ignore = "rfc 0018"]
     fn lookup_needs_the_exact_id() {
         let now = Instant::now();
         let s = Sessions::new(4, Duration::from_secs(60));

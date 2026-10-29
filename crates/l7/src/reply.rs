@@ -16,12 +16,13 @@ static TOTALS: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
 /// The totals behind `dvarapala_requests_total` per verdict since start,
 /// protocol and scope folded in (RFC 0018, admin `/status`).
 pub fn totals() -> [(&'static str, u64); 5] {
-    let _ = (&VERDICTS, &TOTALS, Ordering::Relaxed);
-    todo!("rfc 0018")
+    std::array::from_fn(|i| (VERDICTS[i], TOTALS[i].load(Ordering::Relaxed)))
 }
 
 fn total(verdict: &str) {
-    let _ = verdict;
+    if let Some(i) = VERDICTS.iter().position(|v| *v == verdict) {
+        TOTALS[i].fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub(crate) fn count(verdict: &'static str, protocol: &'static str) {
