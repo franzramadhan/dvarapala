@@ -43,6 +43,8 @@ pub struct Oidc {
     pub allow_emails: Vec<String>,
     pub allow_groups: Vec<String>,
     pub groups_claim: String,
+    /// RFC 0020: `false` trusts an `email` sent without `email_verified`.
+    pub require_email_verified: bool,
     pub label: String,
 }
 
@@ -56,6 +58,7 @@ impl Default for Oidc {
             allow_emails: Vec::new(),
             allow_groups: Vec::new(),
             groups_claim: "groups".into(),
+            require_email_verified: true,
             label: "SSO".into(),
         }
     }
@@ -210,6 +213,14 @@ mod tests {
             ..on
         };
         assert!(err(long).contains("session_ttl"));
+    }
+
+    // RFC 0020 case 6
+    #[test]
+    #[ignore = "rfc 0020"]
+    fn email_verified_required_by_default() {
+        // `#[serde(default)]` fills a missing key from `Default`
+        assert!(Admin::default().oidc.require_email_verified);
     }
 
     #[test]

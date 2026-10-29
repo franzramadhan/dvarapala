@@ -49,6 +49,7 @@ impl Console {
                 allow_emails: o.allow_emails.clone(),
                 allow_groups: o.allow_groups.clone(),
                 groups_claim: o.groups_claim.clone(),
+                trust_email: !o.require_email_verified,
             };
             let issuer = Arc::new(Issuer::new(cfg, o.label.clone())?);
             let i = issuer.clone();

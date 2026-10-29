@@ -470,14 +470,19 @@ mod tests {
     #[test]
     fn example_configs_load() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-        let mut n = 0;
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().is_some_and(|e| e == "toml") {
-                load(Some(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-                n += 1;
+        // in a jail: other tests set `DVARAPALA__*` inside theirs, and the
+        // jail lock keeps them from leaking into this one
+        figment::Jail::expect_with(|_| {
+            let mut n = 0;
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().is_some_and(|e| e == "toml") {
+                    load(Some(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                    n += 1;
+                }
             }
-        }
-        assert!(n >= 4, "{n} examples");
+            assert!(n >= 4, "{n} examples");
+            Ok(())
+        });
     }
 }
