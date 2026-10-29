@@ -1,5 +1,4 @@
 //! RFC 0012: the client's JA4 TLS fingerprint and the rules on it.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::fmt;
 
@@ -14,23 +13,24 @@ pub struct Ja4([u8; 36]);
 impl Ja4 {
     /// `None` unless every byte is printable ASCII.
     pub fn new(b: [u8; 36]) -> Option<Self> {
-        todo!("rfc 0012")
+        b.iter().all(u8::is_ascii_graphic).then_some(Self(b))
     }
 
     pub fn as_str(&self) -> &str {
-        todo!("rfc 0012")
+        // checked in `new`
+        std::str::from_utf8(&self.0).unwrap_or_default()
     }
 }
 
 impl fmt::Display for Ja4 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("rfc 0012")
+        f.write_str(self.as_str())
     }
 }
 
 impl fmt::Debug for Ja4 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("rfc 0012")
+        write!(f, "Ja4({})", self.as_str())
     }
 }
 
@@ -40,11 +40,25 @@ struct Pattern(String, bool);
 
 impl Pattern {
     fn parse(s: &str) -> Result<Self, String> {
-        todo!("rfc 0012")
+        match s.strip_suffix('*') {
+            Some(p) if !p.is_empty() && p.len() < 36 && p.bytes().all(|b| b.is_ascii_graphic()) => {
+                Ok(Self(p.into(), true))
+            }
+            None if s.len() == 36 && s.bytes().all(|b| b.is_ascii_graphic()) => {
+                Ok(Self(s.into(), false))
+            }
+            _ => Err(format!(
+                "fingerprint {s:?}: a 36-character JA4, or a prefix ending in *"
+            )),
+        }
     }
 
     fn matches(&self, f: &Ja4) -> bool {
-        todo!("rfc 0012")
+        if self.1 {
+            f.as_str().starts_with(&self.0)
+        } else {
+            f.as_str() == self.0
+        }
     }
 }
 
@@ -67,21 +81,57 @@ pub struct Fingerprints {
 impl Fingerprints {
     /// Fails on an entry that is not a JA4 or a prefix, or a bad header name.
     pub fn new(deny: &[String], challenge: &[String], header: &str) -> Result<Self, String> {
-        todo!("rfc 0012")
+        let parse = |v: &[String]| {
+            v.iter()
+                .map(|s| Pattern::parse(s))
+                .collect::<Result<_, _>>()
+        };
+        let header = (!header.is_empty())
+            .then(|| HeaderName::try_from(header))
+            .transpose()
+            .map_err(|e| format!("fingerprint.header {header:?}: {e}"))?;
+        Ok(Self {
+            deny: parse(deny)?,
+            challenge: parse(challenge)?,
+            header,
+        })
     }
 
     /// Whether the TLS listener needs to compute JA4 at all.
     pub fn enabled(&self) -> bool {
-        todo!("rfc 0012")
+        !self.deny.is_empty() || !self.challenge.is_empty() || self.header.is_some()
     }
 
     pub(crate) fn rule(&self, f: Option<Ja4>) -> Rule {
-        todo!("rfc 0012")
+        let Some(f) = f else {
+            return Rule::None;
+        };
+        let hit = |v: &[Pattern]| v.iter().any(|p| p.matches(&f));
+        let rule = if hit(&self.deny) {
+            Rule::Deny
+        } else if hit(&self.challenge) {
+            Rule::Challenge
+        } else {
+            return Rule::None;
+        };
+        let name = if rule == Rule::Deny {
+            "deny"
+        } else {
+            "challenge"
+        };
+        metrics::counter!("dvarapala_fingerprint_matches_total", "rule" => name).increment(1);
+        rule
     }
 
     /// Replaces the client's copy of the header with the computed JA4.
     pub(crate) fn forward(&self, headers: &mut HeaderMap, f: Option<Ja4>) {
-        todo!("rfc 0012")
+        let Some(name) = &self.header else {
+            return;
+        };
+        headers.remove(name);
+        if let Some(v) = f.and_then(|f| HeaderValue::from_str(f.as_str()).ok()) {
+            headers.insert(name.clone(), v);
+        }
     }
 }
 
@@ -96,7 +146,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn exact_and_prefix_rules() {
         let r = Fingerprints::new(
             &["t13d1516h2_*".into()],
@@ -113,7 +162,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn rejects_bad_entries() {
         for bad in ["", "*", "short", "t13 d*"] {
             assert!(
@@ -125,7 +173,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn header_replaces_the_clients_copy() {
         let r = Fingerprints::new(&[], &[], "x-ja4").unwrap();
         let mut h = HeaderMap::new();
@@ -139,7 +186,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn ja4_is_printable() {
         let mut b = *CHROME;
         b[3] = b' ';

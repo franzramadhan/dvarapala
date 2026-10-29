@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::fmt::Write;
 
 use dvarapala_engine::ClientKey;
@@ -15,53 +14,104 @@ pub(crate) struct Keys(hmac::Key);
 impl Keys {
     /// An empty secret gets a random key for this process.
     pub(crate) fn new(secret: &[u8]) -> Self {
-        todo!("rfc 0012")
+        let mut random = [0u8; 32];
+        let secret = if secret.is_empty() {
+            SystemRandom::new()
+                .fill(&mut random)
+                .expect("system random source");
+            &random[..]
+        } else {
+            secret
+        };
+        Self(hmac::Key::new(hmac::HMAC_SHA256, secret))
     }
 
     fn mac(&self, label: &[u8], key: ClientKey, t: u64) -> [u8; MAC_LEN] {
-        todo!("rfc 0012")
+        let mut ctx = hmac::Context::with_key(&self.0);
+        ctx.update(label);
+        ctx.update(&key_bytes(key));
+        ctx.update(&t.to_be_bytes());
+        let tag = ctx.sign();
+        let mut out = [0u8; MAC_LEN];
+        out.copy_from_slice(&tag.as_ref()[..MAC_LEN]);
+        out
     }
 
     /// The seed a client solves, issued at `issued` (Unix seconds).
     pub(crate) fn seed(&self, key: ClientKey, issued: u64) -> String {
-        todo!("rfc 0012")
+        hex(&self.mac(b"seed", key, issued))
     }
 
     pub(crate) fn check_seed(&self, key: ClientKey, issued: u64, seed: &str) -> bool {
-        todo!("rfc 0012")
+        unhex(seed).is_some_and(|s| same(&s, &self.mac(b"seed", key, issued)))
     }
 
     /// The cookie value of a pass that expires at `expires`.
     pub(crate) fn pass(&self, key: ClientKey, expires: u64) -> String {
-        todo!("rfc 0012")
+        format!("{expires}.{}", hex(&self.mac(b"pass", key, expires)))
     }
 
     pub(crate) fn check_pass(&self, key: ClientKey, value: &str, now: u64) -> bool {
-        todo!("rfc 0012")
+        let Some((expires, mac)) = value.split_once('.') else {
+            return false;
+        };
+        let (Some(expires), Some(mac)) = (digits(expires), unhex(mac)) else {
+            return false;
+        };
+        expires > now && same(&mac, &self.mac(b"pass", key, expires))
     }
 }
 
 /// A key as bytes: the family, then the IPv4 address or the /64.
 fn key_bytes(key: ClientKey) -> [u8; 9] {
-    todo!("rfc 0012")
+    let mut b = [0u8; 9];
+    match key {
+        ClientKey::V4(a) => {
+            b[0] = 4;
+            b[1..5].copy_from_slice(&a.octets());
+        }
+        ClientKey::V6(p) => {
+            b[0] = 6;
+            b[1..].copy_from_slice(&p.to_be_bytes());
+        }
+    }
+    b
 }
 
 /// A decimal number of at most 19 digits (fits in `u64`), nothing else.
 pub(crate) fn digits(s: &str) -> Option<u64> {
-    todo!("rfc 0012")
+    (!s.is_empty() && s.len() <= 19 && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())?
 }
 
 fn hex(b: &[u8]) -> String {
-    todo!("rfc 0012")
+    b.iter()
+        .fold(String::with_capacity(b.len() * 2), |mut s, x| {
+            let _ = write!(s, "{x:02x}");
+            s
+        })
 }
 
 fn unhex(s: &str) -> Option<[u8; MAC_LEN]> {
-    todo!("rfc 0012")
+    let s = s.as_bytes();
+    if s.len() != MAC_LEN * 2 {
+        return None;
+    }
+    let nib = |c: u8| match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        _ => None,
+    };
+    let mut out = [0u8; MAC_LEN];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = nib(s[2 * i])? << 4 | nib(s[2 * i + 1])?;
+    }
+    Some(out)
 }
 
 /// Constant time in the content.
 fn same(a: &[u8; MAC_LEN], b: &[u8; MAC_LEN]) -> bool {
-    todo!("rfc 0012")
+    a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 #[cfg(test)]
@@ -75,7 +125,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn pass_bound_to_key_and_expiry() {
         let k = Keys::new(&[7; 32]);
         let (a, b) = (key("192.0.2.1"), key("192.0.2.2"));
@@ -96,7 +145,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn seeds_differ_by_key_time_and_secret() {
         let (k, other) = (Keys::new(&[7; 32]), Keys::new(&[8; 32]));
         let a = key("2001:db8::1");

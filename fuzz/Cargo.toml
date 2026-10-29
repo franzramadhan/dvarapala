@@ -100,3 +100,10 @@ path = "fuzz_targets/xdp_parse.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "challenge"
+path = "fuzz_targets/challenge.rs"
+test = false
+doc = false
+bench = false

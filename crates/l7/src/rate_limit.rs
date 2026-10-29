@@ -10,16 +10,19 @@ use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
     BlockSink, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig,
-    GuardDetection, State, TrustedProxies, Verdict, client_key,
+    GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
 };
-use http::header::{CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
+use http::header::{ACCEPT, CONNECTION, HeaderMap, HeaderValue, RETRY_AFTER};
 use http::{Request, Response, StatusCode, Version};
 use tower_layer::Layer;
 use tower_service::Service;
 
+use crate::challenge::{Challenge, VERIFY_PATH};
 use crate::detection::{ReqInfo, Watch};
+use crate::fingerprint::Rule;
 use crate::{
-    ChallengeConfig, Detection, Fingerprints, GrpcStatus, PeerAddr, Scoring, grpc_response, is_grpc,
+    ChallengeConfig, Detection, Fingerprints, GrpcStatus, Ja4, PageBody, PeerAddr, Scoring,
+    grpc_response, is_grpc,
 };
 
 #[derive(Debug, Clone)]
@@ -65,6 +68,8 @@ struct Shared {
     /// none (observe mode or no detection)
     heavy_ttl: Option<Duration>,
     block: Option<BlockSink>,
+    challenge: Option<Challenge>,
+    fingerprints: Fingerprints,
 }
 
 struct Inner {
@@ -90,7 +95,10 @@ impl RateLimitLayer {
                 enforce: d.enforce,
                 attack_rate_factor: d.attack_rate_factor,
             }),
-            challenge: ChallengeMode::Off,
+            challenge: config
+                .challenge
+                .as_ref()
+                .map_or(ChallengeMode::Off, |c| c.mode),
         })?;
         Ok(Self {
             shared: Arc::new(Shared {
@@ -105,6 +113,8 @@ impl RateLimitLayer {
                 cluster: config.cluster,
                 heavy_ttl,
                 block: config.block,
+                challenge: config.challenge.map(Challenge::new),
+                fingerprints: config.fingerprints,
             }),
         })
     }
@@ -135,7 +145,7 @@ pub struct RateLimit<S> {
 impl<S, B, R> Service<Request<B>> for RateLimit<S>
 where
     S: Service<Request<B>, Response = Response<R>>,
-    R: Default,
+    R: PageBody,
 {
     type Response = Response<R>;
     type Error = S::Error;
@@ -145,7 +155,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request<B>) -> Self::Future {
+    fn call(&mut self, mut req: Request<B>) -> Self::Future {
         let protocol = match req.version() {
             Version::HTTP_2 => "http2",
             Version::HTTP_3 => "http3",
@@ -164,14 +174,41 @@ where
             forwarded_for(req.headers()).as_deref(),
             &self.shared.trusted,
         );
+        let grpc = is_grpc(req.headers());
+        // RFC 0012: fingerprint rules, then the pass cookie
+        let fp = req.extensions().get::<Ja4>().copied();
+        let rule = self.shared.fingerprints.rule(fp);
+        if rule == Rule::Deny {
+            let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
+            return ResponseFuture::Rejected { res: Some(res) };
+        }
+        let challenge = self.shared.challenge.as_ref();
+        let pass = challenge.map_or(Pass::Missing, |c| {
+            c.pass(req.headers(), key, rule == Rule::Challenge)
+        });
         let info = self
             .shared
             .scoring
             .as_ref()
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
-        let (verdict, scope) = self.shared.take(key, info);
+        let (verdict, scope) = self.shared.take(key, info, pass);
+        // the verify endpoint answers within the client's bucket
+        if let (Some(c), Verdict::Allow | Verdict::Challenge) = (challenge, verdict)
+            && req.uri().path() == VERIFY_PATH
+        {
+            count("allow", protocol);
+            let res = c.verify(req.uri().query(), key);
+            return ResponseFuture::Rejected { res: Some(res) };
+        }
         match verdict {
+            Verdict::Challenge if !grpc && accepts_html(req.headers()) => {
+                count("challenge", protocol);
+                let res = challenge
+                    .map_or_else(|| reject(verdict, grpc, protocol, scope), |c| c.page(key));
+                ResponseFuture::Rejected { res: Some(res) }
+            }
             Verdict::Allow => {
+                self.shared.fingerprints.forward(req.headers_mut(), fp);
                 count("allow", protocol);
                 ResponseFuture::Inner {
                     fut: self.inner.call(req),
@@ -183,7 +220,7 @@ where
                     log_throttled(key);
                 }
                 ResponseFuture::Rejected {
-                    res: Some(reject(v, is_grpc(req.headers()), protocol, scope)),
+                    res: Some(reject(v, grpc, protocol, scope)),
                 }
             }
         }
@@ -213,7 +250,7 @@ fn reject<R: Default>(v: Verdict, grpc: bool, protocol: &'static str, scope: Sco
             ResourceExhausted,
             Some(retry_after),
         ),
-        // ponytail: no challenge page until the challenge RFC; a 429
+        // a client that cannot show the page (no `text/html`, gRPC): a 429
         // without Retry-After is the closest honest answer
         Verdict::Challenge => (
             "challenge",
@@ -261,7 +298,7 @@ impl Shared {
         Some(c.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    fn take(&self, key: ClientKey, info: Option<ReqInfo>) -> (Verdict, Scope) {
+    fn take(&self, key: ClientKey, info: Option<ReqInfo>, pass: Pass) -> (Verdict, Scope) {
         let now = (self.now)();
         // the cluster's verdict first: a listed heavy hitter or a client
         // over its cluster count (RFC 0010); never waits on the store
@@ -272,7 +309,7 @@ impl Shared {
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
             let Inner { guard, watch } = &mut *g;
-            let d = guard.check(key, now);
+            let d = guard.check_passed(key, now, pass);
             if let (Some(r), Some(det)) = (&d.report, guard.detector()) {
                 watch.report(r, det, now);
                 if self.heavy_ttl.is_some()
@@ -317,6 +354,15 @@ impl Shared {
         }
         (verdict, Scope::Local)
     }
+}
+
+/// Whether any `Accept` header lists `text/html`, so a page can be shown.
+fn accepts_html(headers: &HeaderMap) -> bool {
+    headers.get_all(ACCEPT).iter().any(|v| {
+        v.as_bytes()
+            .windows(9)
+            .any(|w| w.eq_ignore_ascii_case(b"text/html"))
+    })
 }
 
 /// Whole seconds, rounded up, at least 1 (`Retry-After: 0` invites a retry storm).

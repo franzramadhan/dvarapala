@@ -82,7 +82,6 @@ fn solve(seed: &str, bits: u32) -> u64 {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0012"]
 async fn browser_gets_the_page_not_the_upstream() {
     let (calls, inner) = counting();
     let mut svc = layer().layer(inner);
@@ -100,7 +99,6 @@ async fn browser_gets_the_page_not_the_upstream() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0012"]
 async fn non_browsers_get_429_or_grpc_8() {
     let (calls, inner) = counting();
     let mut svc = layer().layer(inner);
@@ -126,7 +124,6 @@ async fn non_browsers_get_429_or_grpc_8() {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0012"]
 async fn solved_page_gives_a_pass_that_opens_the_upstream() {
     let (calls, inner) = counting();
     let mut svc = layer().layer(inner);
