@@ -44,24 +44,28 @@ impl fmt::Display for ClientKey {
 /// trusted proxy; then the rightmost untrusted hop is the client. Anything
 /// malformed falls back to `peer`, never to a value the client chose.
 pub fn client_key(peer: IpAddr, xff: Option<&str>, trusted: &TrustedProxies) -> ClientKey {
-    let fallback = ClientKey::from(peer);
+    client_ip(peer, xff, trusted).into()
+}
+
+/// The address [`client_key`] keys on, before the IPv6 /64.
+pub fn client_ip(peer: IpAddr, xff: Option<&str>, trusted: &TrustedProxies) -> IpAddr {
     let Some(xff) = xff.filter(|_| trusted.contains(peer)) else {
-        return fallback;
+        return peer;
     };
     let mut leftmost = None;
     for (n, hop) in xff.rsplit(',').enumerate() {
         if n == MAX_HOPS {
-            return fallback;
+            return peer;
         }
         let Ok(ip) = hop.trim().parse::<IpAddr>() else {
-            return fallback;
+            return peer;
         };
         if !trusted.contains(ip) {
-            return ip.into();
+            return ip;
         }
         leftmost = Some(ip);
     }
-    leftmost.map_or(fallback, ClientKey::from)
+    leftmost.unwrap_or(peer)
 }
 
 /// Hops read from `X-Forwarded-For` before giving up and using the peer,

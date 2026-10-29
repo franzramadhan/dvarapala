@@ -1,8 +1,5 @@
 //! RFC 0017: the SPOP 2.0 frames a client sends and reads (HAProxy
 //! `doc/SPOE.txt`, section 3). Pure, no I/O.
-// rfc 0017: the stubs do not push yet
-#![allow(clippy::ptr_arg)]
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -39,12 +36,21 @@ pub enum Value<'a> {
 impl Value<'_> {
     /// Any integer type as `i64`; `None` for the rest or out of range.
     pub fn int(&self) -> Option<i64> {
-        todo!("rfc 0017")
+        match *self {
+            Self::Int32(v) => Some(v.into()),
+            Self::Uint32(v) => Some(v.into()),
+            Self::Int64(v) => Some(v),
+            Self::Uint64(v) => v.try_into().ok(),
+            _ => None,
+        }
     }
 
     /// A string or binary as UTF-8, lossy.
     pub fn text(&self) -> Option<String> {
-        todo!("rfc 0017")
+        match self {
+            Self::Str(b) | Self::Bin(b) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        }
     }
 }
 
@@ -72,7 +78,7 @@ pub struct Error(pub &'static str);
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!("rfc 0017")
+        f.write_str(self.0)
     }
 }
 
@@ -80,85 +86,241 @@ impl std::error::Error for Error {}
 
 /// `HAPROXY-HELLO` with its 4-byte length.
 pub fn hello(max_frame_size: u32) -> Vec<u8> {
-    todo!("rfc 0017")
+    let mut b = header(HAPROXY_HELLO, 0, 0);
+    kv(&mut b, "supported-versions", Value::Str(VERSION.as_bytes()));
+    kv(&mut b, "max-frame-size", Value::Uint32(max_frame_size));
+    kv(&mut b, "capabilities", Value::Str(b""));
+    finish(b)
 }
 
 /// `NOTIFY` with one message, with its 4-byte length.
 pub fn notify(stream: u64, frame: u64, name: &str, args: &[(&str, Value<'_>)]) -> Vec<u8> {
-    todo!("rfc 0017")
+    let size = args.iter().map(|(_, v)| value_len(v) + 32).sum::<usize>();
+    let mut b = header(NOTIFY, stream, frame);
+    b.reserve(size + name.len() + 8);
+    bytes(&mut b, name.as_bytes());
+    // the message list counts arguments in one byte
+    b.push(args.len().min(255) as u8);
+    for (k, v) in args.iter().take(255) {
+        kv(&mut b, k, *v);
+    }
+    finish(b)
 }
 
 /// One frame from the agent, without its 4-byte length.
 pub fn decode(buf: &[u8]) -> Result<Agent<'_>, Error> {
-    todo!("rfc 0017")
+    let mut r = Reader(buf);
+    let kind = r.byte()?;
+    let _flags = r.take(4)?;
+    let stream = r.varint()?;
+    let frame = r.varint()?;
+    match kind {
+        AGENT_HELLO => {
+            let (mut version, mut max) = (None, None);
+            while !r.0.is_empty() {
+                let (k, v) = r.kv()?;
+                match (k, v) {
+                    (b"version", Value::Str(s)) => version = Some(s),
+                    (b"max-frame-size", v) => {
+                        max = v.int().and_then(|n| u32::try_from(n).ok());
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Agent::Hello {
+                version: version.ok_or(Error("AGENT-HELLO without version"))?,
+                max_frame_size: max.ok_or(Error("AGENT-HELLO without max-frame-size"))?,
+            })
+        }
+        ACK => {
+            let mut vars = Vec::new();
+            while !r.0.is_empty() {
+                let action = r.byte()?;
+                let _nb_args = r.byte()?;
+                let _scope = r.byte()?;
+                let name = r.bytes()?;
+                match action {
+                    SET_VAR => vars.push((name, r.value()?)),
+                    UNSET_VAR => {}
+                    _ => return Err(Error("unknown action")),
+                }
+            }
+            Ok(Agent::Ack {
+                stream,
+                frame,
+                vars,
+            })
+        }
+        AGENT_DISCONNECT => {
+            let (mut status, mut message) = (0, String::new());
+            while !r.0.is_empty() {
+                match r.kv()? {
+                    (b"status-code", v) => {
+                        status = v.int().and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
+                    }
+                    (b"message", v) => message = v.text().unwrap_or_default(),
+                    _ => {}
+                }
+            }
+            Ok(Agent::Disconnect { status, message })
+        }
+        _ => Err(Error("unknown frame type")),
+    }
 }
 
 fn header(kind: u8, stream: u64, frame: u64) -> Vec<u8> {
-    todo!("rfc 0017")
+    let mut b = vec![0; 4];
+    b.push(kind);
+    b.extend_from_slice(&FIN.to_be_bytes());
+    varint(&mut b, stream);
+    varint(&mut b, frame);
+    b
 }
 
 /// Writes the frame length in front.
-fn finish(b: Vec<u8>) -> Vec<u8> {
-    todo!("rfc 0017")
+fn finish(mut b: Vec<u8>) -> Vec<u8> {
+    let len = u32::try_from(b.len() - 4).unwrap_or(u32::MAX);
+    b[..4].copy_from_slice(&len.to_be_bytes());
+    b
 }
 
 fn kv(b: &mut Vec<u8>, name: &str, v: Value<'_>) {
-    todo!("rfc 0017")
+    bytes(b, name.as_bytes());
+    value(b, v);
 }
 
 fn bytes(b: &mut Vec<u8>, s: &[u8]) {
-    todo!("rfc 0017")
+    varint(b, s.len() as u64);
+    b.extend_from_slice(s);
 }
 
 fn value_len(v: &Value<'_>) -> usize {
-    todo!("rfc 0017")
+    match v {
+        Value::Str(s) | Value::Bin(s) => s.len() + MAX_VARINT + 1,
+        _ => 17,
+    }
 }
 
 fn value(b: &mut Vec<u8>, v: Value<'_>) {
-    todo!("rfc 0017")
+    match v {
+        Value::Null => b.push(0),
+        Value::Bool(t) => b.push(1 | (u8::from(t) << 4)),
+        Value::Int32(n) => typed_int(b, 2, n as i64 as u64),
+        Value::Uint32(n) => typed_int(b, 3, n.into()),
+        Value::Int64(n) => typed_int(b, 4, n as u64),
+        Value::Uint64(n) => typed_int(b, 5, n),
+        Value::Ip(IpAddr::V4(a)) => {
+            b.push(6);
+            b.extend_from_slice(&a.octets());
+        }
+        Value::Ip(IpAddr::V6(a)) => {
+            b.push(7);
+            b.extend_from_slice(&a.octets());
+        }
+        Value::Str(s) => {
+            b.push(8);
+            bytes(b, s);
+        }
+        Value::Bin(s) => {
+            b.push(9);
+            bytes(b, s);
+        }
+    }
 }
 
 fn typed_int(b: &mut Vec<u8>, kind: u8, n: u64) {
-    todo!("rfc 0017")
+    b.push(kind);
+    varint(b, n);
 }
 
 /// HAProxy's varint (`encode_varint` in `include/haproxy/intops.h`).
-pub fn varint(b: &mut Vec<u8>, n: u64) {
-    todo!("rfc 0017")
+pub fn varint(b: &mut Vec<u8>, mut n: u64) {
+    if n < 240 {
+        b.push(n as u8);
+        return;
+    }
+    b.push(n as u8 | 240);
+    n = (n - 240) >> 4;
+    while n >= 128 {
+        b.push(n as u8 | 128);
+        n = (n - 128) >> 7;
+    }
+    b.push(n as u8);
 }
 
 struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
-        todo!("rfc 0017")
+        if self.0.len() < n {
+            return Err(Error("truncated frame"));
+        }
+        let (head, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Ok(head)
     }
 
     fn byte(&mut self) -> Result<u8, Error> {
-        todo!("rfc 0017")
+        Ok(self.take(1)?[0])
     }
 
     /// `decode_varint` in `include/haproxy/intops.h`, bounded to 10 bytes.
     fn varint(&mut self) -> Result<u64, Error> {
-        todo!("rfc 0017")
+        let mut n = u64::from(self.byte()?);
+        if n < 240 {
+            return Ok(n);
+        }
+        let mut shift = 4;
+        for _ in 1..MAX_VARINT {
+            let b = self.byte()?;
+            n = u64::from(b)
+                .checked_shl(shift)
+                .and_then(|v| n.checked_add(v))
+                .ok_or(Error("varint overflow"))?;
+            if b < 128 {
+                return Ok(n);
+            }
+            shift += 7;
+        }
+        Err(Error("varint too long"))
     }
 
     fn bytes(&mut self) -> Result<&'a [u8], Error> {
-        todo!("rfc 0017")
+        let n = self.varint()?;
+        self.take(usize::try_from(n).map_err(|_| Error("length overflow"))?)
     }
 
     fn kv(&mut self) -> Result<(&'a [u8], Value<'a>), Error> {
-        todo!("rfc 0017")
+        Ok((self.bytes()?, self.value()?))
     }
 
     fn value(&mut self) -> Result<Value<'a>, Error> {
-        todo!("rfc 0017")
+        let t = self.byte()?;
+        Ok(match t & 0x0f {
+            0 => Value::Null,
+            1 => Value::Bool(t & 0x10 != 0),
+            2 => Value::Int32(self.varint()? as i64 as i32),
+            3 => Value::Uint32(self.varint()? as u32),
+            4 => Value::Int64(self.varint()? as i64),
+            5 => Value::Uint64(self.varint()?),
+            6 => {
+                let o: [u8; 4] = self.take(4)?.try_into().map_err(|_| Error("ipv4"))?;
+                Value::Ip(Ipv4Addr::from(o).into())
+            }
+            7 => {
+                let o: [u8; 16] = self.take(16)?.try_into().map_err(|_| Error("ipv6"))?;
+                Value::Ip(Ipv6Addr::from(o).into())
+            }
+            8 => Value::Str(self.bytes()?),
+            9 => Value::Bin(self.bytes()?),
+            _ => return Err(Error("unknown data type")),
+        })
     }
 }
 
 /// Fuzz entry (RFC 0017 case 2): any bytes, never a panic.
 pub fn fuzz_waf_frame(data: &[u8]) {
-    todo!("rfc 0017")
+    let _ = decode(data);
 }
 
 #[cfg(test)]
@@ -173,7 +335,6 @@ mod tests {
 
     // RFC 0017 case 1
     #[test]
-    #[ignore = "rfc 0017"]
     fn varints_match_the_boundaries() {
         for (n, len) in [
             (0, 1),
@@ -206,7 +367,6 @@ mod tests {
 
     // RFC 0017 case 1
     #[test]
-    #[ignore = "rfc 0017"]
     fn frames_round_trip() {
         let h = hello(70_000);
         assert_eq!(
@@ -284,7 +444,6 @@ mod tests {
 
     // RFC 0017 case 2
     #[test]
-    #[ignore = "rfc 0017"]
     fn bad_frames_are_errors() {
         let mut ok = Vec::new();
         kv(&mut ok, "version", Value::Str(b"2.0"));
