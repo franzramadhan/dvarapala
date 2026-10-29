@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, unused_mut, dead_code)]
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -15,7 +14,7 @@ pub(crate) struct Prefixed<IO> {
 
 impl<IO> Prefixed<IO> {
     pub(crate) fn new(seen: Vec<u8>, io: IO) -> Self {
-        todo!("rfc 0012")
+        Self { seen, pos: 0, io }
     }
 }
 
@@ -25,7 +24,18 @@ impl<IO: AsyncRead + Unpin> AsyncRead for Prefixed<IO> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        todo!("rfc 0012")
+        let me = &mut *self;
+        if me.pos < me.seen.len() {
+            let n = buf.remaining().min(me.seen.len() - me.pos);
+            buf.put_slice(&me.seen[me.pos..me.pos + n]);
+            me.pos += n;
+            if me.pos == me.seen.len() {
+                me.seen = Vec::new();
+                me.pos = 0;
+            }
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut me.io).poll_read(cx, buf)
     }
 }
 
@@ -35,7 +45,7 @@ impl<IO: AsyncWrite + Unpin> AsyncWrite for Prefixed<IO> {
         cx: &mut Context<'_>,
         b: &[u8],
     ) -> Poll<io::Result<usize>> {
-        todo!("rfc 0012")
+        Pin::new(&mut self.io).poll_write(cx, b)
     }
 
     fn poll_write_vectored(
@@ -43,19 +53,19 @@ impl<IO: AsyncWrite + Unpin> AsyncWrite for Prefixed<IO> {
         cx: &mut Context<'_>,
         b: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        todo!("rfc 0012")
+        Pin::new(&mut self.io).poll_write_vectored(cx, b)
     }
 
     fn is_write_vectored(&self) -> bool {
-        todo!("rfc 0012")
+        self.io.is_write_vectored()
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        todo!("rfc 0012")
+        Pin::new(&mut self.io).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        todo!("rfc 0012")
+        Pin::new(&mut self.io).poll_shutdown(cx)
     }
 }
 
@@ -66,7 +76,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "rfc 0012"]
     async fn replays_then_reads_on() {
         let mut s = Prefixed::new(b"abc".to_vec(), &b"def"[..]);
         let mut out = String::new();

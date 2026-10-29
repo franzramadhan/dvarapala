@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::io;
 
 use dvarapala_l7::Ja4;
@@ -13,7 +12,35 @@ const MAX_HELLO: usize = 16 * 1024;
 /// read, to be replayed to rustls, and the JA4 when the records hold a
 /// whole ClientHello of at most [`MAX_HELLO`] bytes.
 pub(crate) async fn read<IO: AsyncRead + Unpin>(io: &mut IO) -> io::Result<(Vec<u8>, Option<Ja4>)> {
-    todo!("rfc 0012")
+    let mut seen = Vec::new();
+    let mut hs = Vec::new();
+    loop {
+        let mut head = [0u8; 5];
+        io.read_exact(&mut head).await?;
+        seen.extend_from_slice(&head);
+        // not a handshake record: rustls answers it
+        if head[0] != 0x16 {
+            return Ok((seen, None));
+        }
+        let len = usize::from(u16::from_be_bytes([head[3], head[4]]));
+        if hs.len() + len > MAX_HELLO + 4 {
+            return Ok((seen, None));
+        }
+        let start = seen.len();
+        seen.resize(start + len, 0);
+        io.read_exact(&mut seen[start..]).await?;
+        hs.extend_from_slice(&seen[start..]);
+        if hs.len() >= 4 {
+            let want =
+                4 + (usize::from(hs[1]) << 16 | usize::from(hs[2]) << 8 | usize::from(hs[3]));
+            if want > MAX_HELLO + 4 {
+                return Ok((seen, None));
+            }
+            if hs.len() >= want {
+                return Ok((seen, ja4::from_handshake(&hs[..want])));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -35,7 +62,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "rfc 0012"]
     async fn one_record_or_two() {
         let h = chrome();
         for split in [h.len(), 2, 60] {
@@ -49,7 +75,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "rfc 0012"]
     async fn oversized_or_not_tls_is_not_fingerprinted() {
         let mut big = vec![1, 0, 0x50, 0];
         big.resize(4 + 0x5000, 0);
