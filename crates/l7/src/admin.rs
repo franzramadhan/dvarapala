@@ -2,7 +2,10 @@
 //! bearer token check. Serving them is the binary's job.
 
 use dvarapala_engine::Cidr;
-use http::{HeaderValue, StatusCode};
+use http::header::COOKIE;
+use http::{HeaderMap, HeaderValue, StatusCode};
+
+use crate::session::same;
 
 /// Longest query string read.
 pub const MAX_QUERY: usize = 1024;
@@ -55,11 +58,26 @@ pub fn authorized(header: Option<&HeaderValue>, token: &[u8]) -> bool {
     let Some(given) = header.and_then(|h| h.as_bytes().strip_prefix(b"Bearer ")) else {
         return false;
     };
-    if token.is_empty() || given.len() != token.len() {
-        return false;
-    }
-    let diff = given.iter().zip(token).fold(0u8, |d, (a, b)| d | (a ^ b));
-    std::hint::black_box(diff) == 0
+    !token.is_empty() && same(given, token)
+}
+
+/// The `name` cookie from `Cookie` headers.
+pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    let _ = (headers, name, COOKIE);
+    todo!("rfc 0018")
+}
+
+/// The CSRF header a cookie session's state changing call carries
+/// (RFC 0018), compared in constant time.
+pub fn csrf_ok(header: Option<&HeaderValue>, expected: &str) -> bool {
+    let _ = (header, expected);
+    todo!("rfc 0018")
+}
+
+/// `https`, or `http` to a loopback host (a local IdP, tests).
+pub fn secure_url(url: &str) -> bool {
+    let _ = url;
+    todo!("rfc 0018")
 }
 
 /// `cidr=<net>`, required, host bits cleared so that `192.0.2.7/24` and
@@ -74,7 +92,7 @@ fn cidr(q: &str) -> Result<Cidr, Refusal> {
 }
 
 /// The first `name=` value, percent-decoded.
-fn param(q: &str, name: &str) -> Result<Option<String>, Refusal> {
+pub(crate) fn param(q: &str, name: &str) -> Result<Option<String>, Refusal> {
     let Some(v) = q
         .split('&')
         .find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == name))
@@ -176,5 +194,24 @@ mod tests {
             token
         ));
         assert!(!authorized(Some(&h("Bearer ")), b""));
+    }
+
+    #[test]
+    #[ignore = "rfc 0018"]
+    fn cookie_and_csrf() {
+        let mut m = HeaderMap::new();
+        m.append(
+            COOKIE,
+            HeaderValue::from_static("a=1; dvarapala_session=abc"),
+        );
+        m.append(COOKIE, HeaderValue::from_static("b=2"));
+        assert_eq!(cookie(&m, "dvarapala_session"), Some("abc"));
+        assert_eq!(cookie(&m, "b"), Some("2"));
+        assert_eq!(cookie(&m, "c"), None);
+        let h = HeaderValue::from_static("x1");
+        assert!(csrf_ok(Some(&h), "x1"));
+        assert!(!csrf_ok(Some(&h), "x2"));
+        assert!(!csrf_ok(None, "x1"));
+        assert!(!csrf_ok(Some(&HeaderValue::from_static("")), ""));
     }
 }

@@ -2,7 +2,7 @@ name: ci
 
 # Pull requests only. Tags are handled by release.yml, pushes to main by
 # coverage.yml. secrets runs on every PR; test runs only when Rust code
-# changed (a skipped required check counts as passing); release-check runs
+# changed, ui only when ui/ changed (a skipped required check counts as passing); release-check runs
 # only on release/v* branches.
 on:
   pull_request:
@@ -22,6 +22,7 @@ jobs:
       pull-requests: read
     outputs:
       rust: ${{ steps.files.outputs.rust }}
+      ui: ${{ steps.files.outputs.ui }}
     steps:
       - id: files
         env:
@@ -31,8 +32,11 @@ jobs:
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
           printf '%s\n' "$files"
           rust=false
-          if grep -qE '^(crates/|fuzz/|examples/|sdk/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
+          if grep -qE '^(crates/|fuzz/|examples/|sdk/|ui/dist/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
           printf 'rust=%s\n' "$rust" >> "$GITHUB_OUTPUT"
+          ui=false
+          if grep -qE '^(ui/|\.github/workflows/ci\.yml$)' <<<"$files"; then ui=true; fi
+          printf 'ui=%s\n' "$ui" >> "$GITHUB_OUTPUT"
 
   # betterleaks over the PR's commits only. Pinned by version and sha256
   # from the release's checksums.txt; keep the version in step with mise.toml.
@@ -307,6 +311,24 @@ jobs:
         run: |
           node --test
           npx --yes -p typescript@5.9.3 tsc --noEmit --strict --module nodenext --moduleResolution nodenext test/types.ts
+
+  # RFC 0018 cases 18 to 20: the console's tests and accessibility scan,
+  # its 120 KiB gzip budget, and ui/dist matching a fresh build
+  ui:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+      - working-directory: ui
+        run: |
+          npm ci
+          npm run check
 
   # RustSec advisories, licenses, duplicate crates, sources (deny.toml)
   deny:
