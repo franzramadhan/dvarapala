@@ -159,23 +159,36 @@ flowchart LR
   X -->|drop| D1((x))
   X --> L4{L4}
   L4 -->|close| D2((x))
-  L4 --> T[TLS / QUIC]
-  T --> R{rate limit}
-  R -->|429| D3((x))
+  L4 --> T[TLS / QUIC, JA4]
+  T --> B{blocks, JA4 rules, routes}
+  B -->|403 / 429| D3((x))
+  B --> R{rate limit}
+  R -->|429| D4((x))
   R --> DT{detection}
-  DT -->|403| D4((x))
-  DT --> W{WAF}
-  W -->|403| D5((x))
-  W --> U[upstream]
+  DT -->|403| D5((x))
+  DT --> C{challenge}
+  C -->|proof of work| D6((x))
+  C --> W{WAF}
+  W -->|403| D7((x))
+  W --> PL[pool]
+  PL --> U[upstream]
   L4 -.->|block source| X
   DT -.->|block source| X
+  A[admin API, console] -.->|blocks, reload| B
 ```
 
 Each stage is cheaper than the next, so expensive work only happens for
 traffic that survived the cheap checks. In `enforce` mode, sources refused
 by L4 or dropped by detection are blocked in the XDP program for a while.
 Both completed a TCP handshake, so a spoofed address cannot get a victim
-blocked.
+blocked. During an attack, browsers can earn a pass with a proof of work
+instead of sharing the attack limit, and the WAF only sees requests that
+passed every limit. The pool sends what is left to a healthy upstream.
+
+The admin API and its web console run on their own listener: manual
+blocks, top talkers and reload apply to the running gateway in place. On
+Kubernetes, the operator runs this same binary as a gateway in front of
+each labeled route's Service.
 
 One engine decides every verdict and does no I/O, so the binary and the
 SDKs share the same logic.
