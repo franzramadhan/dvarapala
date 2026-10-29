@@ -16,3 +16,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0009](rfc/0009-l4-limits.md) | L4 connection limits per client and in total, accept rate, header, idle and body timeouts | implemented | v0.5.0 |
 | [0010](rfc/0010-shared-state.md) | Shared state for clusters: per-client limit, egress budget and heavy hitters across replicas via Redis or PostgreSQL | implemented | v0.6.0 |
 | [0011](rfc/0011-xdp.md) | XDP fast path: block list, per-source packet and SYN rates at the driver | implemented | v0.6.0 |
+| [0012](rfc/0012-challenges.md) | Proof-of-work challenges with a signed pass, JA4 fingerprints with deny and challenge rules | accepted | v0.7.0 |
