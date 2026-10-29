@@ -3,7 +3,7 @@ use std::time::Duration;
 use http::header::{CONTENT_TYPE, HeaderValue, RETRY_AFTER};
 use http::{HeaderMap, Response};
 
-use crate::rate_limit::retry_after_secs;
+use crate::reply::retry_after_secs;
 
 /// gRPC status codes dvarapala answers with itself (RFC 0004).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -171,6 +171,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             block: block.clone(),
             challenge,
             fingerprints,
+            routes: Vec::new(),
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {

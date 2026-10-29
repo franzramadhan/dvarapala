@@ -549,6 +549,7 @@ dependencies = [
  "dvarapala-store",
  "dvarapala-xdp",
  "figment",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",

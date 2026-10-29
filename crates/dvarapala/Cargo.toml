@@ -30,6 +30,8 @@ dvarapala-proxy.workspace = true
 dvarapala-store.workspace = true
 dvarapala-xdp.workspace = true
 figment.workspace = true
+# RFC 0013: route methods; already in the tree through hyper
+http.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
