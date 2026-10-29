@@ -56,6 +56,7 @@
         <div class="card"><span class="tag">RFC 0011</span><h3>XDP fast path</h3><p>An optional eBPF program on Linux drops blocked sources and SYN or packet floods in the NIC driver. L4 and L7 feed it sources that completed a handshake.</p></div>
         <div class="card"><span class="tag">RFC 0012</span><h3>Challenges and JA4</h3><p>During an attack, browsers solve a small proof of work instead of sharing the attack limit; a signed cookie keeps them out of it. JA4 fingerprints deny or challenge known bot TLS stacks.</p></div>
         <div class="card"><span class="tag">RFC 0013</span><h3>Per-route policy</h3><p>Deny scanner paths outright, give a login page its own low rate, limit an API per key or per JA4, and keep machine endpoints out of the challenge. Routes only tighten the global policy.</p></div>
+        <div class="card"><span class="tag">RFC 0014</span><h3>Admin API and reload</h3><p>Block a network for an hour, see the top talkers and the detection state, and change limits, routes or the challenge with <code>SIGHUP</code>: clients keep their buckets, a bad file is refused whole.</p></div>
         <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
