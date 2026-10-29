@@ -111,14 +111,26 @@ match wins. A route matches on `host`, `path` (a prefix, `=` for exact),
 `methods` and `clients` (CIDRs); every condition set must hold. A route
 can `deny` (`403` and the connection closed, before any bucket), add its
 own bucket (`rate`, `burst`) keyed by the client, a request header or the
-JA4, and turn the challenge off with `challenge = false` for clients that
-cannot run a script.
+JA4, turn the challenge off with `challenge = false` for clients that
+cannot run a script, and skip the WAF with `waf = false`.
 
 Routes only tighten: the global bucket, detection and `fingerprint.deny`
 still apply to every request. Each route's table holds at most
 `max_keys` keys.
 
 Keys: [`[[routes]]`](configuration.html#routes).
+
+## WAF
+
+With `[waf]`, each request that passed the limits goes to a
+`coraza-spoa` sidecar (OWASP Coraza with the Core Rule Set) over SPOP, and
+the agent's verdict blocks it (`403`) or forwards it ([RFC 0017](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0017-waf.md)).
+Start in `observe`, add exclusions in the agent's config, then enforce.
+The protection path fails closed: in enforce, an agent that does not
+answer in `timeout` gets the request `503` unless `on_error = "pass"`.
+See [WAF](waf.html).
+
+Keys: [`[waf]`](configuration.html#waf).
 
 ## Manual blocks
 

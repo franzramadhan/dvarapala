@@ -56,7 +56,9 @@ metric and a structured log line, so you can watch before you enforce.
 | **L7** | Token bucket per client with a bounded table; `X-Forwarded-For` only from trusted proxies | [RFC 0001](rfc/0001-foundation.md) |
 | **Detection** | Heavy hitters, rate baseline, source entropy, optional XGBoost model; `observe` first, then `enforce` | [RFC 0002](rfc/0002-adaptive-detection.md) |
 | **Challenge** | Proof-of-work page for browsers during an attack or always, stateless HMAC pass cookie; JA4 TLS fingerprints to deny, challenge or forward | [RFC 0012](rfc/0012-challenges.md) |
+| **WAF** | OWASP Coraza with the Core Rule Set in a `coraza-spoa` sidecar inspects requests that passed the limits, over SPOP; `observe` first, fails closed, per-route opt-out | [RFC 0017](rfc/0017-waf.md) |
 | **Operations** | Admin API with status, top talkers and manual blocks; `SIGHUP` or `POST /reload` applies the protection keys without a restart | [RFC 0014](rfc/0014-admin.md) |
+| **Console** | Web console on the admin listener: live rates, top talkers, blocks and reload; login by admin token or OIDC | [RFC 0018](rfc/0018-admin-ui.md) |
 | **Replay** | `dvarapala replay` runs a config over a recorded access log on a virtual clock and reports what it would have throttled, dropped or challenged | [RFC 0016](rfc/0016-replay.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
 | **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
@@ -109,7 +111,7 @@ The toolchain is pinned in `rust-toolchain.toml`. Optional protections are
 cargo features, off by default:
 
 ```sh
-cargo build --release                            # reverse and forward proxy, TLS, replay
+cargo build --release                            # reverse and forward proxy, TLS, replay, console, WAF
 cargo build --release --features http3           # + HTTP/3 over QUIC
 cargo build --release --features ml              # + the XGBoost scorer
 cargo build --release --features redis,postgres  # + shared state backends
@@ -136,8 +138,8 @@ Everything else has a default: 20 requests per second per client (burst
 variables override the file (`DVARAPALA__RATE_LIMIT__RATE=5`).
 
 - Every key and metric: [CONFIG.md](CONFIG.md)
-- TLS, gRPC, WebSocket, HTTP/3, connection limits, forward proxy, clusters
-  and XDP: [examples/](examples/README.md)
+- TLS, gRPC, WebSocket, HTTP/3, connection limits, forward proxy, clusters,
+  XDP and the WAF: [examples/](examples/README.md)
 
 ## How it works
 
@@ -152,7 +154,9 @@ flowchart LR
   R -->|429| D3((x))
   R --> DT{detection}
   DT -->|403| D4((x))
-  DT --> U[upstream]
+  DT --> W{WAF}
+  W -->|403| D5((x))
+  W --> U[upstream]
   L4 -.->|block source| X
   DT -.->|block source| X
 ```
@@ -173,7 +177,7 @@ SDKs share the same logic.
 |---|---|
 | `engine` | Verdicts, token buckets, detection sketches, egress schedule. No I/O, no async runtime |
 | `l4` | Listener wrapper: connection limits and timeouts |
-| `l7` | `tower` layers: rate limit, detection |
+| `l7` | `tower` layers: rate limit, detection, challenge, WAF client, console sessions and OIDC |
 | `proxy` | Reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels |
 | `store` | Shared state backends: memory, Redis, PostgreSQL |
 | `xdp` | XDP loader (`aya`) and the checked-in eBPF object |
@@ -184,7 +188,7 @@ SDKs share the same logic.
 | `dvarapala` | The binary: config, metrics, signals |
 
 Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
-`tokio-postgres` and `aya`. CI fails when the idle binary goes over a
+`tokio-postgres` and `aya`; the console is SolidJS. CI fails when the idle binary goes over a
 10 MB RSS budget. Rust crates embed as a git dependency; they are not on
 crates.io.
 
@@ -202,3 +206,4 @@ crates.io.
 | **Contributing** | Contributor and agent rules: [CLAUDE.md](CLAUDE.md) |
 | **Security** | Report vulnerabilities privately: [SECURITY.md](SECURITY.md) |
 | **License** | [MIT](LICENSE) |
+| **Credits** | Coraza, coraza-spoa and the OWASP CRS: [CREDITS.md](CREDITS.md) |
