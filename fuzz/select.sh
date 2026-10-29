@@ -19,6 +19,7 @@ declare -A crate=(
   [quic_datagram]=dvarapala-proxy
   [store_reply]=dvarapala-store
   [xdp_parse]=dvarapala-xdp-common
+  [route_rewrite]=dvarapala-operator
 )
 
 files=$(cat)

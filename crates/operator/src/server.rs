@@ -1,5 +1,4 @@
 //! A small HTTP/1.1 server for the webhook (over TLS) and the metrics.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -27,13 +26,51 @@ where
     F: Fn(String, Bytes) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Response<Full<Bytes>>> + Send,
 {
-    todo!("rfc 0019")
+    let listener = TcpListener::bind(addr).await?;
+    tracing::info!(%addr, tls = tls.is_some(), "listening");
+    let handle = Arc::new(handle);
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let (handle, tls) = (handle.clone(), tls.clone());
+            tokio::spawn(async move {
+                let svc = hyper::service::service_fn(move |req: Request<Incoming>| {
+                    let handle = handle.clone();
+                    async move {
+                        let path = req.uri().path().to_owned();
+                        let res = match Limited::new(req.into_body(), MAX_BODY).collect().await {
+                            Ok(body) => handle(path, body.to_bytes()).await,
+                            Err(_) => status(StatusCode::PAYLOAD_TOO_LARGE),
+                        };
+                        Ok::<_, Infallible>(res)
+                    }
+                });
+                let http = hyper::server::conn::http1::Builder::new();
+                let _ = match tls {
+                    Some(tls) => match tls.accept(stream).await {
+                        Ok(s) => http.serve_connection(TokioIo::new(s), svc).await,
+                        Err(_) => return,
+                    },
+                    None => http.serve_connection(TokioIo::new(stream), svc).await,
+                };
+            });
+        }
+    });
+    Ok(())
 }
 
 pub fn status(code: StatusCode) -> Response<Full<Bytes>> {
-    todo!("rfc 0019")
+    let mut r = Response::new(Full::default());
+    *r.status_mut() = code;
+    r
 }
 
 pub fn ok(body: Vec<u8>, content_type: &str) -> Response<Full<Bytes>> {
-    todo!("rfc 0019")
+    let mut r = Response::new(Full::new(Bytes::from(body)));
+    if let Ok(v) = content_type.parse() {
+        r.headers_mut().insert(http::header::CONTENT_TYPE, v);
+    }
+    r
 }

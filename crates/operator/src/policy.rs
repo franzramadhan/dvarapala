@@ -1,6 +1,5 @@
 //! A policy's TOML: the keys the operator owns, the rendered file, and
 //! the hash that changes only when a key needs a restart.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use toml::{Table, Value};
 
@@ -48,31 +47,66 @@ pub struct Rendered {
 
 /// Parses `config`, refuses the operator's keys.
 pub fn render(config: &str) -> Result<Rendered, String> {
-    todo!("rfc 0019")
+    let table: Table = config
+        .parse()
+        .map_err(|e: toml::de::Error| format!("config: {}", e.message()))?;
+    if let Some(k) = OWNED.iter().find(|k| get(&table, k).is_some()) {
+        return Err(format!("config: {k} is set by the operator"));
+    }
+    let toml = table.to_string();
+    Ok(Rendered {
+        hash: hash(&toml),
+        restart_hash: hash(&fixed(&table).to_string()),
+        toml,
+    })
 }
 
 /// The ConfigMap of the policy named `policy`.
 pub fn config_map_name(policy: &str) -> String {
-    todo!("rfc 0019")
+    format!("dvarapala-{policy}")
 }
 
 /// `table` without the keys a reload applies, and without empty tables
 /// left behind.
 fn fixed(table: &Table) -> Table {
-    todo!("rfc 0019")
+    // RFC 0014: with a shared store the cluster budget is set at start
+    let shared = get(table, "store.backend")
+        .and_then(Value::as_str)
+        .is_some_and(|b| b != "memory");
+    let mut t = table.clone();
+    for k in RELOADABLE {
+        if !(shared && k.starts_with("rate_limit.")) {
+            remove(&mut t, k);
+        }
+    }
+    t.retain(|_, v| !matches!(v, Value::Table(t) if t.is_empty()));
+    t
 }
 
 fn get<'a>(t: &'a Table, path: &str) -> Option<&'a Value> {
-    todo!("rfc 0019")
+    let (head, rest) = path.split_once('.').unwrap_or((path, ""));
+    let v = t.get(head)?;
+    if rest.is_empty() {
+        return Some(v);
+    }
+    get(v.as_table()?, rest)
 }
 
 fn remove(t: &mut Table, path: &str) {
-    todo!("rfc 0019")
+    match path.split_once('.') {
+        None => drop(t.remove(path)),
+        Some((head, rest)) => {
+            if let Some(Value::Table(inner)) = t.get_mut(head) {
+                remove(inner, rest);
+            }
+        }
+    }
 }
 
 /// Hex of the first 8 bytes of the SHA-256.
 pub fn hash(s: &str) -> String {
-    todo!("rfc 0019")
+    let d = ring::digest::digest(&ring::digest::SHA256, s.as_bytes());
+    d.as_ref()[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -81,7 +115,6 @@ mod tests {
 
     // case 9
     #[test]
-    #[ignore = "rfc 0019"]
     fn owned_keys_and_bad_toml_refused() {
         let e = render("listen = \"0.0.0.0:1\"").unwrap_err();
         assert!(e.contains("listen"), "{e}");
@@ -100,7 +133,6 @@ mod tests {
 
     // case 11
     #[test]
-    #[ignore = "rfc 0019"]
     fn whitespace_and_comments_do_not_change_the_hash() {
         let a = render("[rate_limit]\nrate = 5\nburst = 9\n").unwrap();
         let b = render("# tuned\n[rate_limit]\n  burst   = 9 # max\n\n  rate = 5\n").unwrap();
@@ -109,7 +141,6 @@ mod tests {
 
     // case 10
     #[test]
-    #[ignore = "rfc 0019"]
     fn reloadable_keys_keep_the_restart_hash() {
         let base = render("[rate_limit]\nrate = 5\n[l4]\nmax_connections = 10\n").unwrap();
         let rate = render("[rate_limit]\nrate = 1\n[l4]\nmax_connections = 10\n").unwrap();
@@ -129,7 +160,6 @@ mod tests {
 
     // case 10: the list agrees with the binary's
     #[test]
-    #[ignore = "rfc 0019"]
     fn reloadable_list_matches_the_binary() {
         let src = include_str!("../../dvarapala/src/reload.rs");
         let body = src
