@@ -121,12 +121,19 @@ jobs:
       - run: rustfmt --check --edition 2024 crates/xdp-ebpf/src/main.rs
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --locked --workspace --all-features
-      # RFC 0011 cases 3 to 8 and 12: the XDP program in the kernel, as root
+      # RFC 0011 cases 3 to 8 and 12: the XDP program in the kernel, as root.
+      # sudo-rs ignores -E, so the variable goes through env; the step fails
+      # when the tests skip.
       - name: xdp kernel tests
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo -E
-          DVARAPALA_TEST_XDP: "1"
-        run: cargo test --locked -p dvarapala-xdp --features load --test program
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo env DVARAPALA_TEST_XDP=1
+        run: |
+          set -o pipefail
+          cargo test --locked -p dvarapala-xdp --features load --test program -- --nocapture 2>&1 | tee xdp.log
+          if grep -q 'skipped: DVARAPALA_TEST_XDP' xdp.log; then
+            echo "::error::the XDP kernel tests skipped"
+            exit 1
+          fi
       # RFC 0011 case 13: the checked-in object is what the source builds.
       # The nightly comes from crates/xdp-ebpf/rust-toolchain.toml; its
       # LLVM must match bpf-linker's. Pinned by version and the sha256 of

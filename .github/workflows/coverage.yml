@@ -80,9 +80,14 @@ jobs:
           source <(cargo llvm-cov show-env --sh)
           cargo llvm-cov clean --workspace
           cargo test --locked --workspace --all-features --exclude dvarapala-node 2>&1 | tee test.log
-          # RFC 0011: the XDP program in the kernel, as root (see ci.yml)
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="sudo -E" DVARAPALA_TEST_XDP=1 \
-            cargo test --locked --workspace --all-features --exclude dvarapala-node --test program 2>&1 | tee xdp.log
+          # RFC 0011: the XDP program in the kernel, as root (see ci.yml);
+          # sudo-rs ignores -E, so the variables go through env
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="sudo env DVARAPALA_TEST_XDP=1 LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE" \
+            cargo test --locked --workspace --all-features --exclude dvarapala-node --test program -- --nocapture 2>&1 | tee xdp.log
+          if grep -q 'skipped: DVARAPALA_TEST_XDP' xdp.log; then
+            echo "::error::the XDP kernel tests skipped"
+            exit 1
+          fi
           sudo chown -R "$(id -u):$(id -g)" target
           cargo llvm-cov report --json --summary-only --output-path cov.json
           passed=$(grep -oE 'test result: ok\. [0-9]+ passed' test.log | awk '{s+=$4} END {print s+0}')
