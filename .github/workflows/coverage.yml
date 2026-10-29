@@ -75,13 +75,25 @@ jobs:
       - name: Test with coverage
         run: |
           set -o pipefail
-          cargo llvm-cov --locked --workspace --all-features --exclude dvarapala-node --json --summary-only --output-path cov.json 2>&1 | tee test.log
+          # one instrumented build for both runs below; crates/node is
+          # N-API glue, covered by the js job in ci.yml
+          source <(cargo llvm-cov show-env --sh)
+          cargo llvm-cov clean --workspace
+          cargo test --locked --workspace --all-features --exclude dvarapala-node 2>&1 | tee test.log
+          # RFC 0011: the XDP program in the kernel, as root (see ci.yml)
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="sudo -E" DVARAPALA_TEST_XDP=1 \
+            cargo test --locked --workspace --all-features --exclude dvarapala-node --test program 2>&1 | tee xdp.log
+          sudo chown -R "$(id -u):$(id -g)" target
+          cargo llvm-cov report --json --summary-only --output-path cov.json
           passed=$(grep -oE 'test result: ok\. [0-9]+ passed' test.log | awk '{s+=$4} END {print s+0}')
           percent=$(jq -r '.data[0].totals.lines.percent | floor' cov.json)
           echo "PASSED=$passed" >> "$GITHUB_ENV"
           echo "PERCENT=$percent" >> "$GITHUB_ENV"
           echo "$passed tests passed, $percent% lines covered" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.data[0].files[] | [(.summary.lines.count - .summary.lines.covered), .filename] | @tsv' cov.json \
+            | sort -rn | head -20 | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
       - name: Publish badges
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
