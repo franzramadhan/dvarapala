@@ -58,6 +58,7 @@
         <div class="card"><span class="tag">RFC 0013</span><h3>Per-route policy</h3><p>Deny scanner paths outright, give a login page its own low rate, limit an API per key or per JA4, and keep machine endpoints out of the challenge. Routes only tighten the global policy.</p></div>
         <div class="card"><span class="tag">RFC 0014</span><h3>Admin API and reload</h3><p>Block a network for an hour, see the top talkers and the detection state, and change limits, routes or the challenge with <code>SIGHUP</code>: clients keep their buckets, a bad file is refused whole.</p></div>
         <div class="card"><span class="tag">RFC 0015</span><h3>Upstream pools</h3><p>Spread traffic over several upstreams by round robin or least requests. Health checks and passive ejection take a failing one out; idempotent requests retry on another within a budget.</p></div>
+        <div class="card"><span class="tag">RFC 0016</span><h3>Replay</h3><p>Try a new limit, route or detection threshold on yesterday's access log before it reaches clients: <code>dvarapala replay</code> runs the same layers on a virtual clock and prints the verdict counts.</p></div>
         <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>

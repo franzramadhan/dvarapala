@@ -57,6 +57,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Detection** | Heavy hitters, rate baseline, source entropy, optional XGBoost model; `observe` first, then `enforce` | [RFC 0002](rfc/0002-adaptive-detection.md) |
 | **Challenge** | Proof-of-work page for browsers during an attack or always, stateless HMAC pass cookie; JA4 TLS fingerprints to deny, challenge or forward | [RFC 0012](rfc/0012-challenges.md) |
 | **Operations** | Admin API with status, top talkers and manual blocks; `SIGHUP` or `POST /reload` applies the protection keys without a restart | [RFC 0014](rfc/0014-admin.md) |
+| **Replay** | `dvarapala replay` runs a config over a recorded access log on a virtual clock and reports what it would have throttled, dropped or challenged | [RFC 0016](rfc/0016-replay.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
 | **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
 | **WebSocket** | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
@@ -108,7 +109,7 @@ The toolchain is pinned in `rust-toolchain.toml`. Optional protections are
 cargo features, off by default:
 
 ```sh
-cargo build --release                            # reverse and forward proxy, TLS
+cargo build --release                            # reverse and forward proxy, TLS, replay
 cargo build --release --features http3           # + HTTP/3 over QUIC
 cargo build --release --features ml              # + the XGBoost scorer
 cargo build --release --features redis,postgres  # + shared state backends
