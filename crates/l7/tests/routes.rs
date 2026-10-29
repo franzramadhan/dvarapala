@@ -55,6 +55,7 @@ fn layer(global: Limit, routes: Vec<RouteConfig>, challenge: bool) -> RateLimitL
         }),
         fingerprints: Default::default(),
         routes,
+        max_blocks: 0,
     })
     .unwrap()
 }

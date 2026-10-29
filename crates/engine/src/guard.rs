@@ -1,3 +1,4 @@
+#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
@@ -158,6 +159,19 @@ impl<V: Default> Guard<V> {
         }
     }
 
+    /// New limits, `enforce`, attack factor and challenge mode, in place
+    /// (RFC 0014): clients keep their buckets and the detector its
+    /// baseline. Without detection, `enforce` and the factor are ignored.
+    pub fn retune(
+        &mut self,
+        limit: Limit,
+        enforce: bool,
+        attack_rate_factor: f64,
+        challenge: ChallengeMode,
+    ) -> Result<(), DetectError> {
+        todo!("rfc 0014")
+    }
+
     /// The caller's state for `key`, when it is in the table.
     pub fn get_mut(&mut self, key: &ClientKey) -> Option<&mut V> {
         self.table.get_mut(key)
@@ -285,6 +299,36 @@ mod tests {
         assert!(g.detector().unwrap().is_heavy(key(1).into()));
         let d = g.check_passed(key(1), t, Pass::Valid);
         assert_eq!(d.verdict, Verdict::Drop);
+    }
+
+    // RFC 0014 case 1
+    #[test]
+    #[ignore = "rfc 0014"]
+    fn retune_keeps_clients_and_applies_the_new_rate() {
+        let mut g = guard(10, 1);
+        let t = Instant::now();
+        assert_eq!(g.check(key(1), t).verdict, Verdict::Allow);
+        g.retune(Limit::new(1, 1).unwrap(), false, 1.0, ChallengeMode::Off)
+            .unwrap();
+        assert_eq!(g.clients(), 1);
+        // 200 ms refills 2 tokens at 10/s, a fifth of one at 1/s
+        let d = g.check(key(1), t + Duration::from_millis(200));
+        assert!(matches!(d.verdict, Verdict::Throttle { .. }), "{d:?}");
+    }
+
+    // RFC 0014 case 2
+    #[test]
+    #[ignore = "rfc 0014"]
+    fn retune_to_enforce_drops_heavy_hitters() {
+        let mut g = challenging(ChallengeMode::Off, false);
+        let t = attack(&mut g);
+        assert_eq!(g.check(key(1), t).verdict, Verdict::Allow);
+        g.retune(Limit::new(10, 20).unwrap(), true, 0.1, ChallengeMode::Off)
+            .unwrap();
+        assert_eq!(g.detector().unwrap().state(), State::Attack);
+        assert_eq!(g.check(key(1), t).verdict, Verdict::Drop);
+        let bad = g.retune(Limit::new(10, 20).unwrap(), true, 0.0, ChallengeMode::Off);
+        assert!(bad.is_err());
     }
 
     // RFC 0013 case 10

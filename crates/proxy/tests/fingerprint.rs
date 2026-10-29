@@ -72,6 +72,7 @@ async fn proxy(rules: Fingerprints) -> (SocketAddr, Ca, oneshot::Sender<()>) {
         challenge: None,
         fingerprints: rules,
         routes: Vec::new(),
+        max_blocks: 0,
     })
     .unwrap();
     let p = ReverseProxy::<Incoming>::new(&format!("http://{}", echo().await)).unwrap();

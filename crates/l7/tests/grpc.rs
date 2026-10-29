@@ -46,6 +46,7 @@ fn layer(detection: Option<Detection>) -> RateLimitLayer {
         challenge: None,
         fingerprints: Default::default(),
         routes: Vec::new(),
+        max_blocks: 0,
     })
     .unwrap()
 }

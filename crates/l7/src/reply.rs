@@ -13,11 +13,13 @@ pub(crate) fn count(verdict: &'static str, protocol: &'static str) {
         .increment(1);
 }
 
-/// Who decided a rejection: this replica's bucket, or the cluster (RFC 0010).
+/// Who decided a rejection: this replica's bucket, the cluster (RFC 0010)
+/// or a manual block (RFC 0014).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scope {
     Local,
     Cluster,
+    Block,
 }
 
 /// The local answer to a rejected request (RFC 0004): trailers-only gRPC
@@ -49,11 +51,11 @@ pub(crate) fn reject<R: Default>(
     };
     match scope {
         Scope::Local => count(label, protocol),
-        Scope::Cluster => metrics::counter!(
+        Scope::Cluster | Scope::Block => metrics::counter!(
             "dvarapala_requests_total",
             "verdict" => label,
             "protocol" => protocol,
-            "scope" => "cluster"
+            "scope" => if scope == Scope::Block { "block" } else { "cluster" }
         )
         .increment(1),
     }

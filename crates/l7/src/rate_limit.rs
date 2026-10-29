@@ -4,13 +4,13 @@ use std::hash::RandomState;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    BlockSink, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard, GuardConfig,
-    GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
+    BlockSink, Blocks, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard,
+    GuardConfig, GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
 };
 use http::header::{ACCEPT, HeaderMap};
 use http::{Request, Response, StatusCode, Version};
@@ -18,6 +18,7 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::challenge::{Challenge, VERIFY_PATH};
+use crate::control::Policy;
 use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
 use crate::reply::{Scope, count, reject};
@@ -47,6 +48,8 @@ pub struct RateLimitConfig {
     pub fingerprints: Fingerprints,
     /// RFC 0013 routes, in order; empty applies the global policy only.
     pub routes: Vec<RouteConfig>,
+    /// RFC 0014: manual blocks at most.
+    pub max_blocks: usize,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the
@@ -54,43 +57,43 @@ pub struct RateLimitConfig {
 /// the inner service.
 #[derive(Clone)]
 pub struct RateLimitLayer {
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
 }
 
-struct Shared {
+pub(crate) struct Shared {
     // ponytail: one lock for the table and the detector; shard by key hash
     // if it shows up in profiles under load
     state: Mutex<Inner>,
-    trusted: TrustedProxies,
-    now: fn() -> Instant,
+    /// what a reload swaps (RFC 0014); read once per request
+    pub(crate) policy: RwLock<Arc<Policy>>,
+    /// RFC 0014 manual blocks
+    pub(crate) blocks: RwLock<Blocks>,
+    pub(crate) now: fn() -> Instant,
     scoring: Option<Scoring>,
     /// seeds the path hash of the distinct-paths feature
     paths: RandomState,
     cluster: Option<Arc<Mutex<Cluster>>>,
-    /// how long a published heavy hitter stays listed; `None` publishes
-    /// none (observe mode or no detection)
-    heavy_ttl: Option<Duration>,
-    block: Option<BlockSink>,
-    challenge: Option<Challenge>,
-    fingerprints: Fingerprints,
-    routes: Routes,
+    /// how long a published heavy hitter stays listed in enforce mode;
+    /// `None` without detection
+    cooldown: Option<Duration>,
+    pub(crate) block: Option<BlockSink>,
 }
 
-struct Inner {
+pub(crate) struct Inner {
     /// stats are boxed and only filled in when scoring is on, so the table
     /// grows by one pointer per client otherwise
-    guard: Guard<Option<Box<ClientStats>>>,
+    pub(crate) guard: Guard<Option<Box<ClientStats>>>,
     watch: Watch,
 }
 
 impl RateLimitLayer {
     /// Fails on a detection config the engine rejects.
     pub fn new(config: RateLimitConfig) -> Result<Self, DetectError> {
-        let heavy_ttl = config
+        let cooldown = config
             .detection
             .as_ref()
-            .filter(|d| d.enforce)
             .map(|d| d.detect.window * d.detect.cooldown_windows);
+        let enforce = config.detection.as_ref().is_some_and(|d| d.enforce);
         let guard = Guard::new(GuardConfig {
             limit: config.limit,
             max_clients: config.max_clients,
@@ -110,16 +113,20 @@ impl RateLimitLayer {
                     guard,
                     watch: Watch::default(),
                 }),
-                trusted: config.trusted,
+                policy: RwLock::new(Arc::new(Policy {
+                    trusted: config.trusted,
+                    challenge: config.challenge.map(Challenge::new),
+                    fingerprints: config.fingerprints,
+                    routes: Arc::new(Routes::new(config.routes)),
+                    enforce,
+                })),
+                blocks: RwLock::new(Blocks::new(config.max_blocks)),
                 now: config.now,
                 scoring: config.scoring,
                 paths: RandomState::new(),
                 cluster: config.cluster,
-                heavy_ttl,
+                cooldown,
                 block: config.block,
-                challenge: config.challenge.map(Challenge::new),
-                fingerprints: config.fingerprints,
-                routes: Routes::new(config.routes),
             }),
         })
     }
@@ -174,27 +181,33 @@ where
             *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             return ResponseFuture::Rejected { res: Some(res) };
         };
+        let policy = self.shared.policy();
         let key = client_key(
             peer.ip(),
             forwarded_for(req.headers()).as_deref(),
-            &self.shared.trusted,
+            &policy.trusted,
         );
         let grpc = is_grpc(req.headers());
+        // RFC 0014: a manual block before anything else
+        if self.shared.blocked(key) {
+            let res = reject(Verdict::Drop, grpc, protocol, Scope::Block);
+            return ResponseFuture::Rejected { res: Some(res) };
+        }
         // RFC 0012: fingerprint rules, then the pass cookie
         let fp = req.extensions().get::<Ja4>().copied();
-        let rule = self.shared.fingerprints.rule(fp);
+        let rule = policy.fingerprints.rule(fp);
         if rule == Rule::Deny {
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
         // RFC 0013: a denied route costs one match, no token
-        let route = self.shared.routes.find(&req, key);
+        let route = policy.routes.find(&req, key);
         if let Some(r) = route.filter(|r| r.deny) {
             r.count("deny");
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
-        let challenge = self.shared.challenge.as_ref();
+        let challenge = policy.challenge.as_ref();
         let mut pass = challenge.map_or(Pass::Missing, |c| {
             c.pass(req.headers(), key, rule == Rule::Challenge)
         });
@@ -206,7 +219,8 @@ where
             .scoring
             .as_ref()
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
-        let (mut verdict, scope) = self.shared.take(key, info, pass);
+        let heavy_ttl = self.shared.cooldown.filter(|_| policy.enforce);
+        let (mut verdict, scope) = self.shared.take(key, info, pass, heavy_ttl);
         // the route's bucket on top of the global one: both must allow
         if let (Some(r), Verdict::Allow) = (route, verdict) {
             verdict = r.take(&req, key, fp, (self.shared.now)());
@@ -233,7 +247,7 @@ where
                 if let Some(r) = route {
                     r.count("allow");
                 }
-                self.shared.fingerprints.forward(req.headers_mut(), fp);
+                policy.fingerprints.forward(req.headers_mut(), fp);
                 count("allow", protocol);
                 ResponseFuture::Inner {
                     fut: self.inner.call(req),
@@ -253,7 +267,19 @@ where
 }
 
 impl Shared {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    pub(crate) fn policy(&self) -> Arc<Policy> {
+        self.policy
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn blocked(&self, key: ClientKey) -> bool {
+        let b = self.blocks.read().unwrap_or_else(PoisonError::into_inner);
+        b.contains(key.into(), (self.now)())
+    }
+
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // a panic while holding the lock leaves a consistent table (every
         // mutation is a few field writes), so keep serving instead of dying
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
@@ -264,7 +290,13 @@ impl Shared {
         Some(c.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    fn take(&self, key: ClientKey, info: Option<ReqInfo>, pass: Pass) -> (Verdict, Scope) {
+    fn take(
+        &self,
+        key: ClientKey,
+        info: Option<ReqInfo>,
+        pass: Pass,
+        heavy_ttl: Option<Duration>,
+    ) -> (Verdict, Scope) {
         let now = (self.now)();
         // the cluster's verdict first: a listed heavy hitter or a client
         // over its cluster count (RFC 0010); never waits on the store
@@ -278,7 +310,7 @@ impl Shared {
             let d = guard.check_passed(key, now, pass);
             if let (Some(r), Some(det)) = (&d.report, guard.detector()) {
                 watch.report(r, det, now);
-                if self.heavy_ttl.is_some()
+                if heavy_ttl.is_some()
                     && (self.cluster.is_some() || self.block.is_some())
                     && det.state() == State::Attack
                 {
@@ -305,7 +337,7 @@ impl Shared {
         if evicted > 0 {
             metrics::counter!("dvarapala_limiter_evictions_total").increment(evicted);
         }
-        if let (Some(b), Some(_)) = (&self.block, self.heavy_ttl) {
+        if let (Some(b), Some(_)) = (&self.block, heavy_ttl) {
             for net in &heavy {
                 b.block(*net);
             }
@@ -314,7 +346,7 @@ impl Shared {
             if verdict == Verdict::Allow {
                 c.record(key);
             }
-            if let (Some(ttl), false) = (self.heavy_ttl, heavy.is_empty()) {
+            if let (Some(ttl), false) = (heavy_ttl, heavy.is_empty()) {
                 c.publish_heavy(heavy, ttl);
             }
         }
