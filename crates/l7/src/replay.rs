@@ -1,5 +1,4 @@
 //! RFC 0016: one access log line as the request the layer would have seen.
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
@@ -40,13 +39,70 @@ pub struct Line {
 impl Line {
     /// One JSON object; unknown fields are ignored.
     pub fn parse(s: &str) -> Result<Self, String> {
-        todo!("rfc 0016")
+        if s.len() > MAX_LINE {
+            return Err(format!("line over {MAX_LINE} bytes"));
+        }
+        let raw: Raw = serde_json::from_str(s).map_err(|e| e.to_string())?;
+        if !raw.ts.is_finite() || raw.ts < 0.0 {
+            return Err(format!("ts {} is not a unix time", raw.ts));
+        }
+        let ip: IpAddr = raw
+            .client
+            .parse()
+            .map_err(|_| format!("client {:?} is not an address", raw.client))?;
+        if raw.headers.len() > MAX_HEADERS {
+            return Err(format!("over {MAX_HEADERS} headers"));
+        }
+        let method = raw.method.as_deref().unwrap_or("GET");
+        let method =
+            Method::from_bytes(method.as_bytes()).map_err(|_| format!("method {method:?}"))?;
+        let path = raw.path.as_deref().unwrap_or("/");
+        let uri: Uri = path
+            .parse()
+            .ok()
+            .filter(|u: &Uri| u.scheme().is_none() && path.starts_with('/'))
+            .ok_or_else(|| format!("path {path:?}"))?;
+        let mut req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(())
+            .unwrap_or_default();
+        let h = req.headers_mut();
+        for (name, value) in &raw.headers {
+            let n = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| format!("header name {name:?}"))?;
+            let v = HeaderValue::from_str(value).map_err(|_| format!("header {name} value"))?;
+            h.append(n, v);
+        }
+        if !raw.host.is_empty() {
+            let v = HeaderValue::from_str(&raw.host).map_err(|_| "host".to_owned())?;
+            h.insert(HOST, v);
+        }
+        if let Some(xff) = &raw.xff {
+            let v = HeaderValue::from_str(xff).map_err(|_| "xff".to_owned())?;
+            h.insert("x-forwarded-for", v);
+        }
+        req.extensions_mut()
+            .insert(PeerAddr(SocketAddr::new(ip, 0)));
+        if let Some(j) = &raw.ja4 {
+            let ja4 = <[u8; 36]>::try_from(j.as_bytes())
+                .ok()
+                .and_then(Ja4::new)
+                .ok_or_else(|| format!("ja4 {j:?}"))?;
+            req.extensions_mut().insert(ja4);
+        }
+        Ok(Self {
+            ts: raw.ts,
+            request: req,
+        })
     }
 }
 
 /// Fuzz entry (RFC 0016 case 11): any bytes, never a panic.
 pub fn fuzz_replay_line(data: &[u8]) {
-    todo!("rfc 0016")
+    if let Ok(s) = std::str::from_utf8(data) {
+        let _ = Line::parse(s);
+    }
 }
 
 #[cfg(test)]
@@ -57,7 +113,6 @@ mod tests {
 
     // RFC 0016 case 1
     #[test]
-    #[ignore = "rfc 0016"]
     fn every_field_reaches_the_request() {
         let s = format!(
             r#"{{"ts":1700000000.5,"client":"192.0.2.7","method":"POST","host":"app.example",
@@ -87,7 +142,6 @@ mod tests {
 
     // RFC 0016 case 2
     #[test]
-    #[ignore = "rfc 0016"]
     fn bad_lines_name_the_reason() {
         let headers: String = (0..65).map(|i| format!(r#""h{i}":"v","#)).collect();
         let cases = [
