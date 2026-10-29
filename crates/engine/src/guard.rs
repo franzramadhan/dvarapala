@@ -111,6 +111,13 @@ impl<V: Default> Guard<V> {
 
     /// The verdict for one request from `key` at `now`, without a pass.
     pub fn check(&mut self, key: ClientKey, now: Instant) -> Decision {
+        self.check_passed(key, now, Pass::Missing)
+    }
+
+    /// The verdict for one request from `key` at `now`. The bucket comes
+    /// first, so a client without a pass gets `Challenge` only within its
+    /// limit; heavy hitters are dropped with or without one.
+    pub fn check_passed(&mut self, key: ClientKey, now: Instant, pass: Pass) -> Decision {
         let (report, attack, heavy) = match self.detector.as_mut() {
             Some(d) => {
                 let report = d.observe(key.into(), now);
@@ -120,12 +127,24 @@ impl<V: Default> Guard<V> {
             None => (None, false, false),
         };
         let before = self.table.evictions();
+        let passed = pass == Pass::Valid;
+        let challenge = match self.challenge {
+            ChallengeMode::Off => false,
+            ChallengeMode::Always => true,
+            ChallengeMode::Attack => pass == Pass::Required || (attack && self.enforce),
+        };
         let verdict = if heavy && self.enforce {
             Verdict::Drop
-        } else if attack && self.enforce {
-            self.table.take(key, &self.attack_limit, now)
         } else {
-            self.table.take(key, &self.limit, now)
+            let limit = if attack && self.enforce && !passed {
+                &self.attack_limit
+            } else {
+                &self.limit
+            };
+            match self.table.take(key, limit, now) {
+                Verdict::Allow if challenge && !passed => Verdict::Challenge,
+                v => v,
+            }
         };
         Decision {
             verdict,
@@ -133,14 +152,6 @@ impl<V: Default> Guard<V> {
             report,
             evicted: self.table.evictions() - before,
         }
-    }
-
-    /// The verdict for one request from `key` at `now`. The bucket comes
-    /// first, so a client without a pass gets `Challenge` only within its
-    /// limit; heavy hitters are dropped with or without one.
-    pub fn check_passed(&mut self, key: ClientKey, now: Instant, pass: Pass) -> Decision {
-        let _ = (key, now, pass, self.challenge);
-        todo!("rfc 0012")
     }
 
     /// The caller's state for `key`, when it is in the table.
@@ -229,7 +240,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn always_challenges_without_a_pass() {
         let mut g = challenging(ChallengeMode::Always, false);
         let t = Instant::now();
@@ -239,7 +249,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn attack_challenges_and_a_pass_keeps_the_normal_limit() {
         let mut g = challenging(ChallengeMode::Attack, true);
         let t = attack(&mut g);
@@ -254,7 +263,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn no_challenge_in_observe_or_normal() {
         let mut g = challenging(ChallengeMode::Attack, false);
         let t = attack(&mut g);
@@ -267,7 +275,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn heavy_hitter_dropped_with_a_pass() {
         let mut g = challenging(ChallengeMode::Attack, true);
         let t = attack(&mut g);
@@ -277,7 +284,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0012"]
     fn bucket_before_challenge() {
         let mut g = Guard::<()>::new(GuardConfig {
             challenge: ChallengeMode::Always,
