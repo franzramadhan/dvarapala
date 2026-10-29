@@ -136,6 +136,19 @@ prefix_v6 = 64
 # secret = "<at least 32 bytes>"
 # cookie_secure = true
 
+# Per-route policy (RFC 0013): the first matching route applies. A route
+# adds a deny, a stricter bucket or a challenge exemption; the global
+# limits still apply.
+# [[routes]]
+# name = "login"
+# path = "=/login"
+# methods = ["POST"]
+# rate = 1
+# burst = 5
+# key = "client"
+# challenge = true
+# max_keys = 10000
+
 # JA4 TLS fingerprints (RFC 0012), on the TLS listener.
 # [fingerprint]
 # deny = []

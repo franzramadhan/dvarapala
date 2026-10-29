@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | | |
+| accepted | 2026-10-29 | #110 | |
 
 > Rules matched on host, path, method and client network that add a
 > stricter limit, deny the request, or exempt it from the challenge, so
@@ -64,7 +64,7 @@ sites need different answers per path:
 | `crates/engine/src/guard.rs` | `Pass::Exempt`: no challenge, attack limit |
 | `crates/l7/src/routes/matcher.rs` | conditions: host, path, method, client CIDR |
 | `crates/l7/src/routes/limits.rs` | the per-route bucket tables and their keys |
-| `crates/l7/src/routes/mod.rs` | `Routes`: first match, the action for a request |
+| `crates/l7/src/routes/policy.rs` | `Routes`: first match, the action for a request |
 | `crates/dvarapala/src/config/routes.rs` | `[[routes]]` |
 
 ### Configuration
@@ -107,6 +107,27 @@ sites need different answers per path:
 | 12 | 10 000 distinct header values on one route, `max_keys = 100` | requests | table stays at 100 | unit (`l7::routes::limits`) |
 | 13 | arbitrary hosts, paths and methods | match | no panic | fuzz (`route_match`) |
 | 14 | 32 routes, a request matching the last | match | under 1 us | bench (`l7/benches/routes.rs`) |
+
+## Implementation notes
+
+Found while building:
+
+- `Routes` lives in `routes/policy.rs`: `mod.rs` only declares modules.
+  The layer's local answers (`reject`, the request counter) moved from
+  `rate_limit.rs` to `crates/l7/src/reply.rs` to keep it under 500 lines.
+- `RateLimitConfig.routes` is a `Vec<RouteConfig>`; the layer builds the
+  route tables, so the config stays `Clone`.
+- The route bucket is taken only when the global verdict is `Allow`, so a
+  request the global bucket throttles costs no route token.
+  `dvarapala_route_requests_total{verdict="allow"}` counts requests sent
+  upstream; requests the global policy refuses are not counted per route.
+- A host's trailing dot is ignored (`api.example.com.` is
+  `api.example.com`), so a deny on an exact host cannot be dodged with it.
+- A valid challenge pass on an exempt route keeps the normal limit during
+  an attack; `Pass::Exempt` applies only without one.
+- `key = "ja4"` turns on JA4 at the TLS listener even without
+  `[fingerprint]` keys.
+- Case 14: about 205 ns for 32 routes on an Apple M-series core.
 
 ## Alternatives
 

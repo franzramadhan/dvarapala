@@ -326,8 +326,7 @@ pass gets a `403` page whose script finds a nonce such that
 - Heavy hitters in `enforce` mode are dropped, pass or not.
 - A client that does not accept `text/html` gets `429` without
   `Retry-After`, gRPC gets `grpc-status: 8`. Exempt API paths from the
-  challenge by running them on another listener until per-route rules
-  exist.
+  challenge with a route (`routes[].challenge = false`).
 - A `POST` answered with the page is not replayed: the browser comes
   back with a `GET` to the same URL.
 
@@ -355,6 +354,51 @@ requests have no fingerprint and match no rule.
 | `challenge` | list of strings | `[]` | Matching requests need a pass whatever the detector says; needs `challenge.mode` other than `"off"` |
 | `header` | string | `""` | Request header that carries the JA4 to the upstream, for example `"x-ja4"`; the client's own copy is removed. Empty sends none |
 
+## `[[routes]]`
+
+Per-route policy ([RFC 0013](rfc/0013-routes.md)), in the reverse proxy's
+rate limiter (`rate_limit.enabled`). Routes are tried in order; the first
+whose every condition matches applies, and no match leaves the global
+policy alone. A route can tighten the limits, never loosen them: the
+global bucket, detection, heavy-hitter drops and `fingerprint.deny`
+apply to every request. Raise `rate_limit.rate` for a looser default.
+
+```toml
+[[routes]]
+name = "probes"
+path = "/wp-admin"
+deny = true
+
+[[routes]]
+name = "login"
+path = "=/login"
+methods = ["POST"]
+rate = 1
+burst = 5
+
+[[routes]]
+name = "api"
+host = "api.example.com"
+path = "/v1/"
+rate = 50
+key = "header:x-api-key"
+challenge = false
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | required | Label in metrics, unique |
+| `host` | string | unset | Exact host (`"api.example.com"`) or a suffix (`"*.example.com"`, names under it, not itself); case-insensitive, port and trailing dot ignored. From the URI authority, else `Host` |
+| `path` | string | unset | Prefix (`"/api/"`), or exact with a leading `=` (`"=/login"`). Compared on the raw path, before any decoding: `/%61dmin` and `//admin` do not match `/admin` |
+| `methods` | list of strings | `[]` | Any method when empty |
+| `clients` | list of CIDRs | `[]` | Networks of the client key (after `trusted_proxies`); any client when empty. IPv6 keys are /64, so use prefixes of 64 bits or shorter |
+| `deny` | bool | `false` | `403` and the connection closed (gRPC: status 7), before any bucket |
+| `rate` | integer | `0` | Requests per second in the route's own bucket, on top of the global one; `0` adds none. Over it: `429` with `Retry-After` |
+| `burst` | integer | `0` | The route bucket's size; `0` means `rate` |
+| `key` | string | `"client"` | What the route's bucket counts per: `"client"`, `"header:<name>"` (the first value, hashed with a per-process seed; the client without it) or `"ja4"` (the client without a fingerprint; turns JA4 on at the TLS listener) |
+| `challenge` | bool | `true` | `false` never shows the challenge; during an attack these requests get the attack limit, as a request without a pass |
+| `max_keys` | integer | `10000` | Keys in the route's table, least recently seen evicted |
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -365,7 +409,7 @@ get local errors in gRPC form: HTTP 200 with `grpc-status` and
 |---|---|
 | Rate limit or model score (`Throttle`) | `8` RESOURCE_EXHAUSTED, with `retry-after` and `grpc-retry-pushback-ms` |
 | Challenge without a pass ([RFC 0012](rfc/0012-challenges.md)) | `8` RESOURCE_EXHAUSTED, without pushback |
-| Detection `Drop`, `fingerprint.deny` | `7` PERMISSION_DENIED |
+| Detection `Drop`, `fingerprint.deny`, `routes[].deny` | `7` PERMISSION_DENIED |
 | Upstream unreachable | `14` UNAVAILABLE |
 
 Use `upstream_protocol = "http2"` for gRPC upstreams.
@@ -404,6 +448,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_l4_clients` | Clients in the per-client connection table |
 | `dvarapala_challenges_total{result}` | Challenges ([RFC 0012](rfc/0012-challenges.md)): `issued` (pages), `passed`, `failed` (stale or foreign seed, too little work), `invalid_pass` (a cookie that does not verify); `verdict="challenge"` in `dvarapala_requests_total` counts pages and `429`s for clients without a pass |
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
+| `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
+| `dvarapala_route_keys{route}` | Keys in the route's table |
 | `dvarapala_tls_ja4_total{result}` | ClientHellos fingerprinted (`ok`) or not (`unparsed`: not a whole ClientHello within 16 KiB) |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |
 | `dvarapala_tls_handshakes_in_progress` | Handshakes running now |

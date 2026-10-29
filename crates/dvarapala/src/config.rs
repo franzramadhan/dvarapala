@@ -26,7 +26,6 @@ pub use protocols::{Http2, Upgrade, UpstreamProtocol};
 pub use quic::Quic;
 #[cfg(feature = "http3")]
 pub use quic::{QuicPlan, QuicRetry};
-#[allow(unused_imports)] // rfc 0013: main.rs calls it from the cli layer
 pub use routes::{Route, routes};
 pub use store::{Backend, Store};
 pub use tls::{Tls, UpstreamTls};

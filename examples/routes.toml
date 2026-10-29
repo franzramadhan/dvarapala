@@ -1,0 +1,54 @@
+# Per-route policy for a site with a login form and a public API.
+#
+# Use case: one listener serves pages, a login endpoint and an API. Scanners
+# probing paths the site never serves are refused before they reach the
+# upstream or a bucket. Logins get a much lower rate than page loads, so
+# credential stuffing stays slow without throttling browsing. The API is
+# limited per API key instead of per address (many customers share one
+# NAT), and never sees the browser challenge, which API clients cannot
+# solve. The global limit still applies to every request.
+#
+# Placeholders: app.example, api.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[challenge]
+mode = "attack"
+
+[[routes]]
+name = "probes"
+path = "/wp-admin"
+deny = true
+
+[[routes]]
+name = "dotfiles"
+path = "/."
+deny = true
+
+[[routes]]
+name = "login"
+path = "=/login"
+methods = ["POST"]
+rate = 1
+burst = 5
+
+[[routes]]
+name = "api"
+host = "api.example"
+path = "/v1/"
+rate = 50
+burst = 100
+key = "header:x-api-key"
+challenge = false
+max_keys = 50000

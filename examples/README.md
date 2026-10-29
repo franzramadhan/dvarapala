@@ -15,6 +15,7 @@ the values differ from the defaults. Every key is described in
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 | [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
 | [challenge.toml](challenge.toml) | Public website: browsers solve a proof of work during an attack instead of sharing the attack limit; JA4 rules and forwarding |
+| [routes.toml](routes.toml) | One site, three policies: scanner paths denied, a low login rate, an API limited per key and exempt from the challenge |
 | [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and

@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use dvarapala_engine::{BlockSink, Cidr, DetectConfig, Limit, TrustedProxies};
 use dvarapala_l4::Listener;
-use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, Scoring};
+use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, RouteKey, Scoring};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
@@ -94,10 +94,11 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     // RFC 0012: both run inside the reverse proxy's rate limiter
     let fingerprints = cfg.fingerprint.rules(cfg.challenge.mode)?;
     let challenge = cfg.challenge.config(cfg.detection.enabled)?;
+    let routes = config::routes(&cfg.routes)?;
     let layered = cfg.mode == config::ProxyMode::Reverse && cfg.rate_limit.enabled;
-    if !layered && (fingerprints.enabled() || challenge.is_some()) {
+    if !layered && (fingerprints.enabled() || challenge.is_some() || !routes.is_empty()) {
         tracing::warn!(
-            "challenge and fingerprint run inside the reverse proxy's rate limiter, which is off"
+            "challenge, fingerprint and routes run inside the reverse proxy's rate limiter, which is off"
         );
     }
     if challenge.is_some()
@@ -106,7 +107,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     {
         tracing::warn!("challenge.secret is empty: passes from one replica fail on the others");
     }
-    let tls = listener_tls(&cfg.tls, layered && fingerprints.enabled())?;
+    let ja4 = fingerprints.enabled() || routes.iter().any(|r| r.key == RouteKey::Ja4);
+    let tls = listener_tls(&cfg.tls, layered && ja4)?;
     let tunnels = upgrade(&cfg.upgrade)?;
     #[cfg(feature = "tls")]
     let upstream_tls = UpstreamTls {
@@ -171,7 +173,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             block: block.clone(),
             challenge,
             fingerprints,
-            routes: Vec::new(),
+            routes,
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {
