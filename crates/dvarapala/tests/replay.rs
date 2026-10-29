@@ -243,3 +243,45 @@ fn bad_inputs_exit_2() {
     assert_eq!(o.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&o.stderr).contains("rate"));
 }
+
+#[test]
+fn usage_and_forward_mode_exit_2() {
+    let d = Dir::new("usage");
+    let log = d.file("log", "");
+    let o = Command::new(env!("CARGO_BIN_EXE_dvarapala"))
+        .args(["replay", "--verbose"])
+        .arg(&log)
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.starts_with("usage: dvarapala replay --config"), "{err}");
+    let fwd = d.file(
+        "f.toml",
+        "mode = \"forward\"\n[[forward.destinations]]\norigin = \"http://192.0.2.1\"\nrate = 1\n",
+    );
+    let o = replay(&fwd, &[log.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("mode = \"reverse\""), "{err}");
+}
+
+#[test]
+fn long_lines_skip_and_reasons_are_capped() {
+    let d = Dir::new("cap");
+    let cfg = d.file("c.toml", &base(1, 1));
+    let mut log = format!("{}\n", "a".repeat(64 * 1024 + 1));
+    for _ in 0..11 {
+        log.push_str("not json\n");
+    }
+    log.push_str("{\"ts\":1,\"client\":\"192.0.2.7\"}\n");
+    let log = d.file("log", &log);
+    let r = stdout(&replay(&cfg, &[log.to_str().unwrap()]));
+    assert!(
+        r.starts_with("lines 13, replayed 1, skipped 12, span 0.000 s\n"),
+        "{r}"
+    );
+    assert!(r.contains("skipped line 1: line over 65536 bytes"), "{r}");
+    // ten reasons at most
+    assert_eq!(r.matches("\nskipped line ").count(), 10, "{r}");
+}

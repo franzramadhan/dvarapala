@@ -281,6 +281,32 @@ mod tests {
     }
 
     #[test]
+    fn ja4_needs_a_restart_bad_keys_refuse_the_file() {
+        Jail::expect_with(|j| {
+            j.create_file("d.toml", BASE)?;
+            let r = reloader("d.toml");
+            j.create_file(
+                "d.toml",
+                &format!("{BASE}[fingerprint]\ndeny = [\"t13d*\"]\n"),
+            )?;
+            assert_eq!(
+                r.reload().result,
+                Ok(vec!["fingerprint (JA4 at the TLS listener)"])
+            );
+            j.create_file("d.toml", &format!("{BASE}trusted_proxies = [\"nope\"]\n"))?;
+            let e = r.reload().result.unwrap_err();
+            assert!(e.contains("trusted_proxies"), "{e}");
+            j.create_file(
+                "d.toml",
+                &format!("{BASE}[pool]\nupstreams = [\"http://192.0.2.1\"]\n"),
+            )?;
+            let e = r.reload().result.unwrap_err();
+            assert!(e.contains("pool.upstreams"), "{e}");
+            Ok(())
+        });
+    }
+
+    #[test]
     fn detection_mode_and_factor_reload_in_place() {
         let start = Config {
             upstream: Some("http://127.0.0.1:8081".into()),

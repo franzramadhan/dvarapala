@@ -270,4 +270,32 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn long_last_line_without_a_newline() {
+        let data = "a".repeat(MAX_LINE + 100);
+        let mut r = BufReader::with_capacity(16, data.as_bytes());
+        let mut buf = Vec::new();
+        assert_eq!(next_line(&mut r, &mut buf).unwrap(), Some(false));
+        assert_eq!(next_line(&mut r, &mut buf).unwrap(), None);
+    }
+
+    #[test]
+    fn arguments() {
+        let a = |v: &[&str]| args(v.iter().map(|s| (*s).to_owned()));
+        let ok = a(&["--config", "c.toml", "--out", "o.json", "-"]).unwrap();
+        assert_eq!(ok.config, PathBuf::from("c.toml"));
+        assert_eq!(ok.out, Some(PathBuf::from("o.json")));
+        assert_eq!(ok.log, "-");
+        for bad in [
+            &["--config", "c.toml"][..],
+            &["log"],
+            &["--config", "c.toml", "log", "again"],
+            &["--config", "c.toml", "--verbose", "log"],
+            &["--config"],
+            &["--config", "c.toml", "log", "--out"],
+        ] {
+            assert!(a(bad).is_none(), "{bad:?}");
+        }
+    }
 }

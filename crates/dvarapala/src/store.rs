@@ -115,6 +115,43 @@ mod tests {
         assert!(e.contains("redis feature"), "{e}");
     }
 
+    /// A shared backend on a closed port: the backends connect in the
+    /// sync task, so start succeeds and the replica fails open meanwhile.
+    fn closed(backend: Backend, url: &str) -> config::Store {
+        config::Store {
+            backend,
+            url: Some(url.into()),
+            ..config::Store::default()
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    #[tokio::test]
+    async fn redis_starts_the_sync_task() {
+        let cfg = closed(Backend::Redis, "redis://127.0.0.1:1/0");
+        assert!(start(&cfg, None, 10).unwrap().is_some());
+    }
+
+    #[cfg(feature = "postgres")]
+    #[tokio::test]
+    async fn postgres_starts_the_sync_task() {
+        let cfg = closed(
+            Backend::Postgres,
+            "postgres://dvarapala@127.0.0.1:1/dvarapala",
+        );
+        assert!(start(&cfg, None, 10).unwrap().is_some());
+    }
+
+    #[test]
+    fn missing_ca_file_names_the_key() {
+        let cfg = config::Store {
+            ca_file: Some("/nonexistent/dvarapala-ca.pem".into()),
+            ..closed(Backend::Redis, "rediss://127.0.0.1:1/0")
+        };
+        let e = start(&cfg, None, 10).unwrap_err().to_string();
+        assert!(e.contains("store.ca_file"), "{e}");
+    }
+
     // RFC 0010 case 12: a bad URL's error does not echo the password
     #[cfg(feature = "postgres")]
     #[tokio::test]
