@@ -362,33 +362,50 @@ jobs:
         with:
           command: check
 
-  # Every cargo-fuzz target for 60 seconds. A crash fails the job and the
-  # reproducer is uploaded. Skips until the first target exists in fuzz/.
+  # The cargo-fuzz targets whose code the PR changed (fuzz/select.sh), 60 s
+  # each, from the corpus the nightly run (fuzz.yml) keeps in the cache. A
+  # crash fails the job and the reproducer is uploaded.
   fuzz:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: has
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
-          if [ -f fuzz/Cargo.toml ]; then echo "fuzz=true" >> "$GITHUB_OUTPUT"; fi
-      - if: steps.has.outputs.fuzz == 'true'
+          targets=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only | fuzz/select.sh | xargs)
+          echo "targets: ${targets:-none}"
+          printf 'targets=%s\n' "$targets" >> "$GITHUB_OUTPUT"
+      - if: steps.pick.outputs.targets != ''
         run: rustup toolchain install nightly --profile minimal
-      - if: steps.has.outputs.fuzz == 'true'
+      - if: steps.pick.outputs.targets != ''
         uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-fuzz
-      - if: steps.has.outputs.fuzz == 'true'
+      - if: steps.pick.outputs.targets != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - if: steps.pick.outputs.targets != ''
+        env:
+          TARGETS: ${{ steps.pick.outputs.targets }}
         run: |
           # install-action ships a musl cargo-fuzz, which defaults to the
           # musl target; ASan needs glibc
-          for t in $(cargo +nightly fuzz list); do
+          for t in $TARGETS; do
             cargo +nightly fuzz run --target x86_64-unknown-linux-gnu "$t" -- -max_total_time=60
           done
-      - if: failure() && steps.has.outputs.fuzz == 'true'
+      - if: failure() && steps.pick.outputs.targets != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts

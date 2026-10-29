@@ -63,8 +63,11 @@ crates ahead of time.
 - Unit tests live next to the code (`#[cfg(test)] mod tests`). Cross-crate
   and network tests live in each crate's `tests/`.
 - Parsers and anything that reads attacker input get a `cargo fuzz` target
-  in `fuzz/` in the same PR. CI's `fuzz` job runs every target for 60 s;
-  a crash reproducer becomes a regression test.
+  in `fuzz/` in the same PR, and a row in the map in `fuzz/select.sh`
+  (target to the crate it calls). CI's `fuzz` job runs, for 60 s each,
+  the targets whose crate (or a workspace crate it depends on) changed;
+  `fuzz.yml` runs every target for 10 min nightly and keeps the corpus in
+  the cache. A crash reproducer becomes a regression test.
 - Resource budget is a test too: the `footprint` CI job (added with the
   RFC 0001 implementation) fails when the idle binary's RSS exceeds the
   budget in that RFC. Hot paths get a `criterion` bench in `benches/`.
@@ -108,7 +111,7 @@ comma, colon, parentheses or a new sentence.
 - `.github/workflows/ci.yml` runs on pull requests only: `betterleaks` on
   the PR commits always; `cargo fmt --check`, `cargo clippy -D warnings`,
   `cargo test` (also the binary with `--no-default-features`), the file-size check, the stale C header check (`cbindgen`),
-  `cargo deny check` (`deny.toml`), the fuzz targets and one job per SDK
+  `cargo deny check` (`deny.toml`), the fuzz targets the change touches and one job per SDK
   (`go`, `python`, `js`), plus the `footprint` job (release build, idle RSS
   under the RFC 0001 budget, smoke request) when Rust code changed (`crates/`, `fuzz/`, `examples/`, `sdk/`,
   `ui/dist/`, Cargo files, `deny.toml`, toolchain), and the `ui` job
@@ -123,6 +126,8 @@ comma, colon, parentheses or a new sentence.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest
   feature set: binary size is a product goal.
+- `.github/workflows/fuzz.yml` runs nightly (and on dispatch) on `main`:
+  every fuzz target for 10 min from the cached corpus, saved back after.
 - `.github/workflows/coverage.yml` runs on pushes to `main` that touch Rust
   code: `cargo llvm-cov`, then writes the test and coverage badge JSON to the
   orphan branch `badges`. Never merge `badges`.
@@ -157,8 +162,8 @@ comma, colon, parentheses or a new sentence.
   the PRs, `gh stack sync` after a lower layer changes (cascade rebase and
   push).
 - Fuzz targets go in the layer that implements the code they call: CI
-  fuzzes every target, so a target over `todo!()` stubs fails the tests
-  layer.
+  fuzzes the targets of every crate a layer changes, so a target over
+  `todo!()` stubs fails the tests layer.
 - Mark the PRs ready (`gh pr ready`), then merge as soon as every PR in the
   stack has all required checks green, without waiting for a manual
   approval: `gh stack merge <top PR> --squash --yes`. All layers up to that
