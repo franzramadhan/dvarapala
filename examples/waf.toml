@@ -1,0 +1,43 @@
+# WAF: the OWASP Core Rule Set in a coraza-spoa sidecar (RFC 0017).
+#
+# Use case: a web app that needs SQL injection, XSS and similar attacks
+# stopped before they reach it. Requests that pass the rate limiter go to
+# coraza-spoa (OWASP Coraza with the CRS built in) over a Unix socket the
+# two containers share; the agent's verdict blocks or forwards them. The
+# rules and their exclusions live in the agent's config (waf/coraza.yaml).
+# Start in observe: watch dvarapala_waf_requests_total{verdict="would_block"}
+# and the "waf match" log lines, add exclusions for false positives, then
+# set mode = "enforce". waf/ runs both with Docker Compose or Kubernetes.
+#
+# Uploads skip the WAF: in enforce, a body over max_body gets 413.
+#
+# Placeholders: app.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+
+# scraped from outside the pod
+[metrics]
+listen = "0.0.0.0:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+# The CRS takes about 1 ms for a GET and up to 200 ms for a 16 KiB form
+# of many fields: a larger max_body needs a longer timeout.
+[waf]
+enabled = true
+mode = "observe"
+endpoint = "unix:/run/coraza-spoa/coraza.sock"
+timeout = "500ms"
+on_error = "block"
+max_body = "16KiB"
+
+[[routes]]
+name = "uploads"
+path = "/upload/"
+waf = false

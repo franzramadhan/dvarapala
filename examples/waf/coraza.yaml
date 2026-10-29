@@ -1,0 +1,26 @@
+# coraza-spoa config for ../waf.toml: the built-in OWASP CRS at paranoia
+# level 1 on the socket dvarapala dials. The agent reloads this file on
+# change (-autoreload) and on SIGHUP.
+bind: unix:///run/coraza-spoa/coraza.sock
+log_level: info
+log_file: /dev/stdout
+log_format: json
+default_application: default
+
+applications:
+  - name: default
+    directives: |
+      Include @coraza.conf-recommended
+      Include @crs-setup.conf.example
+      # Paranoia level 2 catches more and needs more exclusions:
+      # SecAction "id:900000,phase:1,pass,nolog,setvar:tx.blocking_paranoia_level=2"
+      Include @owasp_crs/*.conf
+      # dvarapala's waf.mode decides blocking, so the engine stays On
+      SecRuleEngine On
+      # Exclusions for false positives go after the CRS, for example:
+      # SecRuleUpdateTargetById 942100 "!ARGS:comment"
+    response_check: false
+    transaction_ttl_ms: 60000
+    log_level: info
+    log_file: /dev/stdout
+    log_format: json

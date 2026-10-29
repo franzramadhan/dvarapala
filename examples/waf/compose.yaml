@@ -1,0 +1,33 @@
+# dvarapala and coraza-spoa on one host, sharing the agent's Unix socket.
+#   docker compose -f examples/waf/compose.yaml up
+# Both run as user 10001, the socket's owner. The upstream in ../waf.toml
+# is a placeholder: point it at the app.
+services:
+  coraza-spoa:
+    image: ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e
+    user: "10001:10001"
+    command: ["/coraza-spoa", "-config", "/etc/coraza-spoa/config.yaml", "-autoreload"]
+    volumes:
+      - ./coraza.yaml:/etc/coraza-spoa/config.yaml:ro
+      - socket:/run/coraza-spoa
+    restart: unless-stopped
+
+  dvarapala:
+    image: ghcr.io/franzramadhan/dvarapala:0.12
+    command: ["serve", "--config", "/etc/dvarapala/dvarapala.toml"]
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ../waf.toml:/etc/dvarapala/dvarapala.toml:ro
+      - socket:/run/coraza-spoa
+    depends_on: [coraza-spoa]
+    restart: unless-stopped
+
+volumes:
+  # in memory, owned by the user both containers run as
+  socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=10001,gid=10001,mode=0700

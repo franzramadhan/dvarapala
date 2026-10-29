@@ -186,6 +186,20 @@ prefix_v6 = 64
 # retries = 1
 # retry_budget = 0.2
 
+# WAF in a coraza-spoa agent (RFC 0017), after the rate limiter. Watch
+# dvarapala_waf_requests_total{verdict="would_block"} before enforce.
+# See waf/.
+# [waf]
+# enabled = true
+# mode = "observe"
+# endpoint = "unix:/run/coraza-spoa/coraza.sock"
+# app = "default"
+# timeout = "250ms"
+# on_error = "block"
+# max_body = "16KiB"
+# body_limit_action = "reject"
+# max_concurrent = 64
+
 # JA4 TLS fingerprints (RFC 0012), on the TLS listener.
 # [fingerprint]
 # deny = []

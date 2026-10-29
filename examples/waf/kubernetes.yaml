@@ -1,0 +1,84 @@
+# dvarapala with coraza-spoa as a sidecar, for a plain Kubernetes cluster
+# (k0s, k3s, kind). The two containers share the agent's Unix socket in
+# an emptyDir. The configs come from the repo files:
+#
+#   kubectl create configmap dvarapala-waf \
+#     --from-file=dvarapala.toml=examples/waf.toml \
+#     --from-file=config.yaml=examples/waf/coraza.yaml
+#   kubectl apply -f examples/waf/kubernetes.yaml
+#
+# Point upstream in waf.toml at the app's Service first. After editing
+# the ConfigMap, the agent reloads its rules on its own; send dvarapala
+# the new file with a rollout restart, or POST /reload with [admin] on.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dvarapala
+  labels:
+    app.kubernetes.io/name: dvarapala
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dvarapala
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dvarapala
+    spec:
+      securityContext:
+        # one user for both, so dvarapala may connect to the socket
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dvarapala
+          image: ghcr.io/franzramadhan/dvarapala:0.12
+          args: ["serve", "--config", "/etc/dvarapala/dvarapala.toml"]
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: metrics, containerPort: 9090}
+          readinessProbe:
+            tcpSocket: {port: http}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext: &locked
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/dvarapala, readOnly: true}
+            - {name: socket, mountPath: /run/coraza-spoa}
+        - name: coraza-spoa
+          image: ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e
+          command: ["/coraza-spoa", "-config", "/etc/coraza-spoa/config.yaml", "-autoreload"]
+          resources:
+            requests: {cpu: 100m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext: *locked
+          volumeMounts:
+            - {name: config, mountPath: /etc/coraza-spoa, readOnly: true}
+            - {name: socket, mountPath: /run/coraza-spoa}
+            # request bodies over the in-memory limit spill here
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: dvarapala-waf}
+        - name: socket
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dvarapala
+spec:
+  selector:
+    app.kubernetes.io/name: dvarapala
+  ports:
+    - {name: http, port: 80, targetPort: http}
