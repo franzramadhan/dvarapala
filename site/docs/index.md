@@ -55,10 +55,10 @@ docker run --rm -p 8080:8080 -v ./dvarapala.toml:/etc/dvarapala.toml:ro \
 ```
 
 Inside a container, set `[metrics] listen = "0.0.0.0:9090"` to scrape
-metrics from outside it (the default is loopback). The image has no CA
-bundle: for an `https://` upstream, mount one and set
-`upstream_tls.ca_file`; for a TLS store (`rediss://`, PostgreSQL), set
-`store.ca_file`.
+metrics from outside it (the default is loopback). The image carries
+Alpine's root CAs, so `https://` upstreams, OIDC issuers and TLS stores
+verify against public roots; for a private CA set `upstream_tls.ca_file`
+or `store.ca_file`.
 
 Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 

@@ -100,9 +100,9 @@ docker run --rm -p 8080:8080 \
 Pass a config with `-v ./dvarapala.toml:/etc/dvarapala.toml:ro` and
 `serve --config /etc/dvarapala.toml`, or set every key as an environment
 variable. Set `DVARAPALA__METRICS__LISTEN=0.0.0.0:9090` to scrape metrics
-from outside the container. The image has no CA bundle: for an `https://`
-upstream, mount one and set `upstream_tls.ca_file`; for a TLS store
-(`rediss://`, PostgreSQL), set `store.ca_file`.
+from outside the container. The image carries Alpine's root CAs, so
+`https://` upstreams, OIDC issuers and TLS stores verify against public
+roots; for a private CA set `upstream_tls.ca_file` or `store.ca_file`.
 
 <details>
 <summary><b>Build from source</b></summary>
