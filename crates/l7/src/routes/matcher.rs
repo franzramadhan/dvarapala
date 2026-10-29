@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::net::IpAddr;
 
 use dvarapala_engine::Cidr;
@@ -18,11 +17,27 @@ pub enum Host {
 impl Host {
     /// `"*.example.com"` is a suffix, anything else an exact name.
     pub fn parse(s: &str) -> Result<Self, String> {
-        todo!("rfc 0013")
+        let s = s.trim_end_matches('.').to_ascii_lowercase();
+        if s.is_empty() || s.contains(['/', ':', ' ']) {
+            return Err(format!(
+                "host {s:?}: a name like \"api.example.com\" or \"*.example.com\""
+            ));
+        }
+        match s.strip_prefix('*') {
+            Some(rest) if rest.starts_with('.') && rest.len() > 1 => Ok(Self::Suffix(rest.into())),
+            Some(_) => Err(format!("host {s:?}: a wildcard is only \"*.<name>\"")),
+            None => Ok(Self::Exact(s)),
+        }
     }
 
     fn matches(&self, host: &[u8]) -> bool {
-        todo!("rfc 0013")
+        match self {
+            Self::Exact(h) => host.eq_ignore_ascii_case(h.as_bytes()),
+            Self::Suffix(s) => {
+                host.len() > s.len()
+                    && host[host.len() - s.len()..].eq_ignore_ascii_case(s.as_bytes())
+            }
+        }
     }
 }
 
@@ -39,11 +54,27 @@ pub enum PathMatch {
 impl PathMatch {
     /// A prefix, or an exact path with a leading `=`; either starts with `/`.
     pub fn parse(s: &str) -> Result<Self, String> {
-        todo!("rfc 0013")
+        let (exact, p) = match s.strip_prefix('=') {
+            Some(p) => (true, p),
+            None => (false, s),
+        };
+        if !p.starts_with('/') {
+            return Err(format!(
+                "path {s:?}: must start with \"/\" (or \"=/\" for an exact path)"
+            ));
+        }
+        Ok(if exact {
+            Self::Exact(p.into())
+        } else {
+            Self::Prefix(p.into())
+        })
     }
 
     fn matches(&self, path: &str) -> bool {
-        todo!("rfc 0013")
+        match self {
+            Self::Prefix(p) => path.starts_with(p.as_str()),
+            Self::Exact(p) => path == p,
+        }
     }
 }
 
@@ -62,18 +93,38 @@ pub struct Matcher {
 
 impl Matcher {
     pub fn matches(&self, uri: &Uri, headers: &HeaderMap, method: &Method, client: IpAddr) -> bool {
-        todo!("rfc 0013")
+        if !self.methods.is_empty() && !self.methods.contains(method) {
+            return false;
+        }
+        if let Some(p) = &self.path
+            && !p.matches(uri.path())
+        {
+            return false;
+        }
+        if let Some(h) = &self.host
+            && !host_of(uri, headers).is_some_and(|host| h.matches(host))
+        {
+            return false;
+        }
+        self.clients.is_empty() || self.clients.iter().any(|c| c.contains(client))
     }
 }
 
 /// The request's host without the port or a trailing dot: the URI's
 /// authority (HTTP/2, absolute form), else the `Host` header.
 fn host_of<'a>(uri: &'a Uri, headers: &'a HeaderMap) -> Option<&'a [u8]> {
-    todo!("rfc 0013")
+    let raw = match uri.host() {
+        Some(h) => h.as_bytes(),
+        None => strip_port(headers.get(HOST)?.as_bytes()),
+    };
+    Some(raw.strip_suffix(b".").unwrap_or(raw))
 }
 
 fn strip_port(h: &[u8]) -> &[u8] {
-    todo!("rfc 0013")
+    if h.first() == Some(&b'[') {
+        return h.iter().position(|&b| b == b']').map_or(h, |i| &h[..=i]);
+    }
+    h.iter().rposition(|&b| b == b':').map_or(h, |i| &h[..i])
 }
 
 #[cfg(test)]
@@ -103,7 +154,6 @@ mod tests {
 
     // RFC 0013 case 1 (first match is in `Routes`; here each condition)
     #[test]
-    #[ignore = "rfc 0013"]
     fn exact_and_prefix_paths() {
         let login = path("=/login");
         let root = path("/");
@@ -116,7 +166,6 @@ mod tests {
 
     // RFC 0013 case 2
     #[test]
-    #[ignore = "rfc 0013"]
     fn host_suffix_ignores_port_and_case() {
         let m = Matcher {
             host: Some(Host::parse("*.example.com").unwrap()),
@@ -139,7 +188,6 @@ mod tests {
 
     // RFC 0013 case 3
     #[test]
-    #[ignore = "rfc 0013"]
     fn raw_path_is_not_decoded() {
         let m = path("/admin");
         let c = "192.0.2.1";
@@ -150,7 +198,6 @@ mod tests {
 
     // RFC 0013 case 4
     #[test]
-    #[ignore = "rfc 0013"]
     fn methods_and_clients() {
         let m = Matcher {
             methods: vec![Method::POST],
@@ -163,7 +210,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0013"]
     fn parse_errors() {
         assert!(PathMatch::parse("api").is_err());
         assert!(PathMatch::parse("=api").is_err());

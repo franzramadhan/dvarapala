@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
@@ -39,17 +38,34 @@ pub(crate) struct Route {
 
 impl Routes {
     pub fn new(routes: Vec<RouteConfig>) -> Self {
-        todo!("rfc 0013")
+        Self(
+            routes
+                .into_iter()
+                .map(|r| Route {
+                    limits: r.limit.map(|l| Limits::new(l, r.key, r.max_keys)),
+                    name: r.name,
+                    matcher: r.matcher,
+                    deny: r.deny,
+                    challenge: r.challenge,
+                })
+                .collect(),
+        )
     }
 
     /// The name of the route `req` from `client` gets, if any.
     pub fn matching<B>(&self, req: &Request<B>, client: ClientKey) -> Option<&str> {
-        todo!("rfc 0013")
+        self.find(req, client).map(|r| r.name.as_str())
     }
 
     /// The first route matching `req` from `client`.
     pub(crate) fn find<B>(&self, req: &Request<B>, client: ClientKey) -> Option<&Route> {
-        todo!("rfc 0013")
+        let ip = client.into();
+        // ponytail: linear scan, about 20 ns a route; an index by host or
+        // path prefix if configs grow to hundreds of routes
+        self.0.iter().find(|r| {
+            r.matcher
+                .matches(req.uri(), req.headers(), req.method(), ip)
+        })
     }
 }
 
@@ -62,12 +78,22 @@ impl Route {
         ja4: Option<Ja4>,
         now: Instant,
     ) -> Verdict {
-        todo!("rfc 0013")
+        let Some(l) = &self.limits else {
+            return Verdict::Allow;
+        };
+        let (v, keys) = l.take(req.headers(), client, ja4, now);
+        metrics::gauge!("dvarapala_route_keys", "route" => self.name.clone()).set(keys as f64);
+        v
     }
 
     /// `allow`, `throttle` (the route's bucket) or `deny`.
     pub(crate) fn count(&self, verdict: &'static str) {
-        todo!("rfc 0013")
+        metrics::counter!(
+            "dvarapala_route_requests_total",
+            "route" => self.name.clone(),
+            "verdict" => verdict
+        )
+        .increment(1);
     }
 }
 
@@ -75,7 +101,39 @@ impl Route {
 /// Fuzzing entry point: parse a host and a path rule, then match a request
 /// built from the remaining bytes.
 pub fn fuzz_route_match(data: &[u8]) {
-    todo!("rfc 0013")
+    let text = String::from_utf8_lossy(data);
+    let mut parts = text.splitn(4, '\n');
+    let (Some(host), Some(path), Some(uri), Some(rest)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return;
+    };
+    let matcher = Matcher {
+        host: super::Host::parse(host).ok(),
+        path: super::PathMatch::parse(path).ok(),
+        ..Matcher::default()
+    };
+    let Ok(req) = Request::builder()
+        .uri(uri)
+        .method(rest.split(' ').next().unwrap_or("GET"))
+        .header(http::header::HOST, rest)
+        .body(())
+    else {
+        return;
+    };
+    let routes = Routes::new(vec![RouteConfig {
+        name: "fuzz".into(),
+        matcher,
+        deny: false,
+        limit: None,
+        key: RouteKey::Client,
+        challenge: true,
+        max_keys: NonZeroUsize::MIN,
+    }]);
+    let _ = routes.find(
+        &req,
+        ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1])),
+    );
 }
 
 #[cfg(test)]
@@ -100,7 +158,6 @@ mod tests {
 
     // RFC 0013 case 1
     #[test]
-    #[ignore = "rfc 0013"]
     fn first_match_applies() {
         let routes = Routes::new(vec![route("login", "=/login"), route("rest", "/")]);
         let c = ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1]));

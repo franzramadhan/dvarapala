@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code)]
 use std::hash::{BuildHasher, RandomState};
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
@@ -26,7 +25,16 @@ pub enum RouteKey {
 impl RouteKey {
     /// `"client"`, `"header:<name>"` or `"ja4"`.
     pub fn parse(s: &str) -> Result<Self, String> {
-        todo!("rfc 0013")
+        match s {
+            "client" => Ok(Self::Client),
+            "ja4" => Ok(Self::Ja4),
+            _ => {
+                let name = s.strip_prefix("header:").filter(|n| !n.is_empty());
+                let name = name.and_then(|n| HeaderName::from_bytes(n.as_bytes()).ok());
+                name.map(Self::Header)
+                    .ok_or_else(|| format!("key {s:?}: \"client\", \"header:<name>\" or \"ja4\""))
+            }
+        }
     }
 }
 
@@ -48,7 +56,12 @@ pub(crate) struct Limits {
 
 impl Limits {
     pub(crate) fn new(limit: Limit, key: RouteKey, max_keys: NonZeroUsize) -> Self {
-        todo!("rfc 0013")
+        Self {
+            limit,
+            key,
+            seed: RandomState::new(),
+            table: Mutex::new(Table::new(max_keys)),
+        }
     }
 
     /// Takes a token for this request; returns the verdict and the keys
@@ -60,7 +73,15 @@ impl Limits {
         ja4: Option<Ja4>,
         now: Instant,
     ) -> (Verdict, usize) {
-        todo!("rfc 0013")
+        let value = match &self.key {
+            RouteKey::Client => None,
+            RouteKey::Header(h) => headers.get(h).map(|v| self.seed.hash_one(v.as_bytes())),
+            RouteKey::Ja4 => ja4.map(|j| self.seed.hash_one(j.as_str())),
+        };
+        let key = value.map_or(Key::Client(client), Key::Value);
+        // a panic mid-take leaves a consistent table, as in the global one
+        let mut t = self.table.lock().unwrap_or_else(PoisonError::into_inner);
+        (t.take(key, &self.limit, now), t.len())
     }
 }
 
@@ -76,7 +97,6 @@ mod tests {
 
     // RFC 0013 case 12
     #[test]
-    #[ignore = "rfc 0013"]
     fn table_stays_at_max_keys() {
         let key = RouteKey::parse("header:x-api-key").unwrap();
         let l = Limits::new(
@@ -95,7 +115,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0013"]
     fn missing_value_falls_back_to_the_client() {
         let l = Limits::new(
             Limit::new(1, 1).unwrap(),
@@ -113,7 +132,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0013"]
     fn parse_keys() {
         assert_eq!(RouteKey::parse("client"), Ok(RouteKey::Client));
         assert_eq!(RouteKey::parse("ja4"), Ok(RouteKey::Ja4));
