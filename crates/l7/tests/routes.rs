@@ -95,7 +95,6 @@ const PEER: &str = "192.0.2.10";
 
 // case 5
 #[tokio::test]
-#[ignore = "rfc 0013"]
 async fn deny_closes_before_any_bucket() {
     let (calls, inner) = counting();
     let deny = RouteConfig {
@@ -115,7 +114,6 @@ async fn deny_closes_before_any_bucket() {
 
 // case 6
 #[tokio::test]
-#[ignore = "rfc 0013"]
 async fn route_bucket_throttles_under_the_global_rate() {
     let login = RouteConfig {
         limit: Some(Limit::new(1, 1).unwrap()),
@@ -139,7 +137,6 @@ async fn route_bucket_throttles_under_the_global_rate() {
 
 // case 7
 #[tokio::test]
-#[ignore = "rfc 0013"]
 async fn header_key_buckets() {
     let api = RouteConfig {
         limit: Some(Limit::new(1, 1).unwrap()),
@@ -170,7 +167,6 @@ async fn header_key_buckets() {
 
 // case 8
 #[tokio::test]
-#[ignore = "rfc 0013"]
 async fn global_bucket_still_applies() {
     let loose = RouteConfig {
         limit: Some(Limit::new(100, 100).unwrap()),
@@ -190,7 +186,6 @@ async fn global_bucket_still_applies() {
 
 // case 9
 #[tokio::test]
-#[ignore = "rfc 0013"]
 async fn exempt_route_skips_the_challenge() {
     let api = RouteConfig {
         challenge: false,

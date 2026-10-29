@@ -597,6 +597,7 @@ name = "dvarapala-l7"
 version = "0.7.0"
 dependencies = [
  "bytes",
+ "criterion",
  "dvarapala-engine",
  "http",
  "http-body-util",

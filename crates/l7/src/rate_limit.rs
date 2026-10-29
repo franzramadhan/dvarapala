@@ -22,8 +22,8 @@ use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
 use crate::reply::{Scope, count, reject};
 use crate::{
-    ChallengeConfig, Detection, Fingerprints, Ja4, PageBody, PeerAddr, RouteConfig, Scoring,
-    is_grpc,
+    ChallengeConfig, Detection, Fingerprints, Ja4, PageBody, PeerAddr, RouteConfig, Routes,
+    Scoring, is_grpc,
 };
 
 #[derive(Debug, Clone)]
@@ -73,6 +73,7 @@ struct Shared {
     block: Option<BlockSink>,
     challenge: Option<Challenge>,
     fingerprints: Fingerprints,
+    routes: Routes,
 }
 
 struct Inner {
@@ -118,6 +119,7 @@ impl RateLimitLayer {
                 block: config.block,
                 challenge: config.challenge.map(Challenge::new),
                 fingerprints: config.fingerprints,
+                routes: Routes::new(config.routes),
             }),
         })
     }
@@ -185,16 +187,33 @@ where
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
+        // RFC 0013: a denied route costs one match, no token
+        let route = self.shared.routes.find(&req, key);
+        if let Some(r) = route.filter(|r| r.deny) {
+            r.count("deny");
+            let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
+            return ResponseFuture::Rejected { res: Some(res) };
+        }
         let challenge = self.shared.challenge.as_ref();
-        let pass = challenge.map_or(Pass::Missing, |c| {
+        let mut pass = challenge.map_or(Pass::Missing, |c| {
             c.pass(req.headers(), key, rule == Rule::Challenge)
         });
+        if route.is_some_and(|r| !r.challenge) && pass != Pass::Valid {
+            pass = Pass::Exempt;
+        }
         let info = self
             .shared
             .scoring
             .as_ref()
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
-        let (verdict, scope) = self.shared.take(key, info, pass);
+        let (mut verdict, scope) = self.shared.take(key, info, pass);
+        // the route's bucket on top of the global one: both must allow
+        if let (Some(r), Verdict::Allow) = (route, verdict) {
+            verdict = r.take(&req, key, fp, (self.shared.now)());
+            if verdict != Verdict::Allow {
+                r.count("throttle");
+            }
+        }
         // the verify endpoint answers within the client's bucket
         if let (Some(c), Verdict::Allow | Verdict::Challenge) = (challenge, verdict)
             && req.uri().path() == VERIFY_PATH
@@ -211,6 +230,9 @@ where
                 ResponseFuture::Rejected { res: Some(res) }
             }
             Verdict::Allow => {
+                if let Some(r) = route {
+                    r.count("allow");
+                }
                 self.shared.fingerprints.forward(req.headers_mut(), fp);
                 count("allow", protocol);
                 ResponseFuture::Inner {

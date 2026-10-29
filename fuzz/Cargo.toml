@@ -114,3 +114,10 @@ path = "fuzz_targets/challenge.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "route_match"
+path = "fuzz_targets/route_match.rs"
+test = false
+doc = false
+bench = false
