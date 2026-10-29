@@ -86,15 +86,6 @@ pub struct Config {
     pub pool: Pool,
 }
 
-impl Config {
-    /// `upstream`, required in reverse mode.
-    pub fn reverse_upstream(&self) -> Result<&str, String> {
-        self.upstream
-            .as_deref()
-            .ok_or_else(|| "upstream is required with mode = \"reverse\"".into())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Metrics {
@@ -262,7 +253,7 @@ mod tests {
         Jail::expect_with(|j| {
             j.create_file("d.toml", "listen = \"127.0.0.1:8080\"\n")?;
             let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
-            let e = c.reverse_upstream().unwrap_err();
+            let e = c.pool.config(c.upstream.as_deref()).unwrap_err();
             assert!(e.contains("upstream"), "{e}");
             Ok(())
         });

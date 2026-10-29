@@ -1,5 +1,4 @@
 //! The `[pool]` section (RFC 0015).
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 
 use std::time::{Duration, Instant};
 
@@ -62,16 +61,84 @@ impl Pool {
     /// checks, ejection or retries, as before RFC 0015. URLs are checked
     /// when the proxy builds the pool.
     pub fn config(&self, upstream: Option<&str>) -> Result<PoolConfig, String> {
-        todo!("rfc 0015")
+        match (upstream, self.upstreams.is_empty()) {
+            (Some(_), false) => {
+                return Err("upstream and pool.upstreams are both set: keep one".into());
+            }
+            (None, true) => {
+                return Err(
+                    "upstream or pool.upstreams is required with mode = \"reverse\"".into(),
+                );
+            }
+            (Some(u), true) if *self == Self::default() => return Ok(PoolConfig::single(u)),
+            (Some(_), true) => {
+                return Err("[pool] needs pool.upstreams in place of upstream".into());
+            }
+            (None, false) => {}
+        }
+        let n = self.upstreams.len();
+        if n > MAX_UPSTREAMS {
+            return Err(format!(
+                "pool.upstreams: {n} upstreams, at most {MAX_UPSTREAMS}"
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.retry_budget) {
+            return Err(format!(
+                "pool.retry_budget: {} is outside [0, 1]",
+                self.retry_budget
+            ));
+        }
+        if self.eject_after > 0 && self.eject_time.is_zero() {
+            return Err("pool.eject_time must be above 0 with eject_after".into());
+        }
+        Ok(PoolConfig {
+            upstreams: self.upstreams.clone(),
+            balance: match self.balance {
+                Balance::RoundRobin => ProxyBalance::RoundRobin,
+                Balance::LeastRequests => ProxyBalance::LeastRequests,
+            },
+            health: self.health()?,
+            eject_after: self.eject_after,
+            eject_time: self.eject_time,
+            retries: self.retries,
+            retry_budget: self.retry_budget,
+            now: Instant::now,
+        })
     }
 
     /// [`Pool::config`], then the proxy's pool, which checks the URLs.
     pub fn build(&self, upstream: Option<&str>) -> Result<dvarapala_proxy::Pool, String> {
-        todo!("rfc 0015")
+        let key = if upstream.is_some() {
+            "upstream"
+        } else {
+            "pool.upstreams"
+        };
+        dvarapala_proxy::Pool::new(self.config(upstream)?).map_err(|e| format!("{key}: {e}"))
     }
 
     fn health(&self) -> Result<Option<HealthConfig>, String> {
-        todo!("rfc 0015")
+        if self.health_path.is_empty() {
+            return Ok(None);
+        }
+        if !self.health_path.starts_with('/') {
+            return Err(format!(
+                "pool.health_path: {:?} must start with /",
+                self.health_path
+            ));
+        }
+        if self.health_interval.is_zero() || self.health_timeout.is_zero() {
+            return Err("pool.health_interval and pool.health_timeout must be above 0".into());
+        }
+        if self.unhealthy_after == 0 || self.healthy_after == 0 {
+            return Err("pool.unhealthy_after and pool.healthy_after must be at least 1".into());
+        }
+        Ok(Some(HealthConfig {
+            path: self.health_path.clone(),
+            interval: self.health_interval,
+            timeout: self.health_timeout,
+            unhealthy_after: self.unhealthy_after,
+            healthy_after: self.healthy_after,
+        }))
     }
 }
 
@@ -90,7 +157,6 @@ mod tests {
 
     // RFC 0015 case 10
     #[test]
-    #[ignore = "rfc 0015"]
     fn bad_values_name_the_key() {
         let both = Pool {
             upstreams: vec!["http://192.0.2.1".into()],
@@ -125,7 +191,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0015"]
     fn upstream_alone_is_the_old_behavior() {
         let c = Pool::default().config(Some("http://192.0.2.1")).unwrap();
         assert_eq!((c.upstreams.len(), c.retries, c.eject_after), (1, 0, 0));

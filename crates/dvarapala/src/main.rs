@@ -22,7 +22,7 @@ use dvarapala_l7::{Detection, RateLimitConfig, RateLimitLayer, RouteKey, Scoring
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
     AltSvc, ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig,
-    UpstreamConfig, UpstreamProtocol, serve,
+    UpstreamConfig, UpstreamProtocol, serve, spawn_health,
 };
 use hyper::body::Incoming;
 use hyper::{Request, Response};
@@ -141,10 +141,17 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         tracing::info!("stopped");
         return Ok(());
     }
-    let target = cfg.reverse_upstream()?;
+    let pool = Arc::new(cfg.pool.build(cfg.upstream.as_deref())?);
+    let targets = cfg
+        .upstream
+        .iter()
+        .chain(&cfg.pool.upstreams)
+        .collect::<Vec<_>>();
     let quic = cfg.quic.plan(&cfg.tls)?;
     #[cfg(not(feature = "tls"))]
-    no_tls(&cfg.tls, target)?;
+    for t in &targets {
+        no_tls(&cfg.tls, t)?;
+    }
     let upstream = UpstreamConfig {
         protocol: match cfg.upstream_protocol {
             config::UpstreamProtocol::Http1 => UpstreamProtocol::Http1,
@@ -155,7 +162,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         #[cfg(feature = "tls")]
         tls: upstream_tls,
     };
-    let proxy = ReverseProxy::<Incoming>::with_config(target, &upstream)?;
+    let proxy = ReverseProxy::<Incoming>::with_pool(pool.clone(), &upstream)?;
+    spawn_health(&pool, &upstream)?;
     let limiter = if cfg.rate_limit.enabled {
         let limit = Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)?;
         let cluster = store::start(&cfg.store, Some(limit), cfg.rate_limit.max_clients)?;
@@ -192,13 +200,13 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     control(&cfg, config, admin, limiter.clone(), layered && ja4).await?;
     #[cfg(feature = "http3")]
     let h3 = match (&quic, &tls) {
-        (Some(q), Some(t)) => Some(quic::start(q, t, target, &upstream, limiter.clone())?),
+        (Some(q), Some(t)) => Some(quic::start(q, t, pool, &upstream, limiter.clone())?),
         _ => None,
     };
     // the plan refuses quic.listen without the http3 feature
     #[cfg(not(feature = "http3"))]
     let h3: Option<std::future::Pending<()>> = None;
-    tracing::info!(listen = %cfg.listen, upstream = %target, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
+    tracing::info!(listen = %cfg.listen, upstreams = ?targets, protocol = ?upstream.protocol, upgrades = ?upstream.upgrade.protocols, tls = tls.is_some(), "proxy listening");
     let alt_svc = quic.and_then(|q| q.alt_svc);
     let tcp = async {
         match limiter {

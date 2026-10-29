@@ -144,3 +144,27 @@ from configured backends and are parsed by `hyper`.
   `upstream`.
 - **Off switch:** remove `[pool]` and set `upstream`; `retries = 0` and
   `eject_after = 0` turn those parts off.
+
+## Implementation notes
+
+Found while building:
+
+- `ReverseProxy` always holds an `Arc<Pool>`: `new` and `with_config`
+  build a pool of one endpoint with no checks, ejection or retries, so a
+  plain `upstream` behaves as before. `with_pool` takes a shared one; the
+  HTTP/3 listener builds its own client (the body type differs) over the
+  TCP listener's pool.
+- With `upstream` alone, every other `[pool]` key must stay at its
+  default, so tuning a pool that is not there is an error instead of
+  silently ignored. A bad `[pool]` refuses a reload too, although pool
+  changes need a restart.
+- A retry pick does not move the round robin: with two endpoints, one of
+  them dead, each request otherwise started on the dead one and the
+  budget ran out after 14 requests.
+- A request is retried only when its body is empty at the start
+  (`is_end_stream`); the retry sends an empty body, so nothing is
+  buffered. A `GET` with a body is not retried.
+- In flight counts last until the response headers, not the end of the
+  body.
+- A pick over 16 endpoints with least requests measured about 71 ns
+  (budget 100 ns), most of it reading the clock for ejection.
