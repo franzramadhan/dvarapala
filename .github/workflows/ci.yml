@@ -32,7 +32,7 @@ jobs:
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
           printf '%s\n' "$files"
           rust=false
-          if grep -qE '^(crates/|fuzz/|examples/|sdk/|ui/dist/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
+          if grep -qE '^(crates/|fuzz/|examples/|sdk/|ui/dist/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|Dockerfile$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
           printf 'rust=%s\n' "$rust" >> "$GITHUB_OUTPUT"
           ui=false
           if grep -qE '^(ui/|\.github/workflows/ci\.yml$)' <<<"$files"; then ui=true; fi
@@ -183,6 +183,21 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo build --locked --release -p dvarapala
+      # The release image is FROM scratch: without a CA bundle the OIDC
+      # client and https upstreams find no roots. The glibc binary only fills
+      # the COPY; release.yml builds the image from musl binaries.
+      - name: image has root CAs
+        run: |
+          set -euo pipefail
+          mkdir -p dist/amd64 && cp target/release/dvarapala dist/amd64/
+          docker build -q --platform linux/amd64 -t dvarapala:ci . >/dev/null
+          id=$(docker create dvarapala:ci)
+          docker cp "$id:/etc/ssl/certs/ca-certificates.crt" "$RUNNER_TEMP/ca.crt"
+          docker rm "$id" >/dev/null
+          n=$(grep -c 'BEGIN CERTIFICATE' "$RUNNER_TEMP/ca.crt")
+          echo "image roots: $n"
+          [ "$n" -gt 50 ] || { echo "::error::image has $n root certificates"; exit 1; }
+          rm -rf dist
       - name: idle RSS and smoke
         run: |
           set -euo pipefail
