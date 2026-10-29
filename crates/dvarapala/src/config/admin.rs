@@ -1,5 +1,4 @@
 //! The `[admin]` section (RFC 0014).
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -36,7 +35,22 @@ impl Default for Admin {
 impl Admin {
     /// The listener address when the API is on, after checking the token.
     pub fn addr(&self) -> Result<Option<SocketAddr>, String> {
-        todo!("rfc 0014")
+        if self.listen.is_empty() {
+            return Ok(None);
+        }
+        if self.token.len() < MIN_TOKEN {
+            return Err(format!(
+                "admin.token must be at least {MIN_TOKEN} bytes when admin.listen is set"
+            ));
+        }
+        if self.max_block_ttl.is_zero() {
+            return Err("admin.max_block_ttl must be above 0".into());
+        }
+        let addr = self
+            .listen
+            .parse()
+            .map_err(|e| format!("admin.listen {:?}: {e}", self.listen))?;
+        Ok(Some(addr))
     }
 }
 
@@ -46,7 +60,6 @@ mod tests {
 
     // RFC 0014 case 11
     #[test]
-    #[ignore = "rfc 0014"]
     fn token_required_with_listen() {
         let off = Admin::default();
         assert_eq!(off.addr(), Ok(None));

@@ -1,6 +1,5 @@
 //! RFC 0014 config reload: the keys a new config file changes in place,
 //! and the ones that keep their running value until a restart.
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -39,41 +38,157 @@ impl Reloader {
         ja4: bool,
         start: Config,
     ) -> Self {
-        todo!("rfc 0014")
+        Self {
+            path,
+            layer,
+            ja4,
+            routes: Mutex::new(start.routes.clone()),
+            start,
+            last: Mutex::new(None),
+        }
     }
 
     /// Reads the file again and applies it, or keeps everything running
     /// when it does not load or validate. Logs and counts the outcome.
     pub fn reload(&self) -> Outcome {
-        todo!("rfc 0014")
+        let result = self.apply();
+        match &result {
+            Ok(restart) => {
+                tracing::info!(msg = "config reloaded", restart = restart.join(","));
+                ::metrics::counter!("dvarapala_config_reloads_total", "result" => "ok")
+                    .increment(1);
+            }
+            Err(e) => {
+                tracing::warn!(msg = "config reload failed", error = %e);
+                ::metrics::counter!("dvarapala_config_reloads_total", "result" => "failed")
+                    .increment(1);
+            }
+        }
+        let outcome = Outcome {
+            at: unix_now(),
+            result,
+        };
+        *lock(&self.last) = Some(outcome.clone());
+        outcome
     }
 
     pub fn last(&self) -> Option<Outcome> {
-        todo!("rfc 0014")
+        lock(&self.last).clone()
     }
 
     fn apply(&self) -> Result<Vec<&'static str>, String> {
-        todo!("rfc 0014")
+        let new = config::load(self.path.as_deref()).map_err(|e| e.to_string())?;
+        let mut reload = policy(&new)?;
+        let mut restart = restart(&self.start, &new);
+        let ja4 = reload.fingerprints.enabled()
+            || reload
+                .routes
+                .iter()
+                .flatten()
+                .any(|r| r.key == RouteKey::Ja4);
+        if ja4 && !self.ja4 {
+            restart.push("fingerprint (JA4 at the TLS listener)");
+        }
+        let mut routes = lock(&self.routes);
+        if new.routes == *routes {
+            reload.routes = None;
+        }
+        if let Some(l) = &self.layer {
+            l.reload(reload).map_err(|e| e.to_string())?;
+        }
+        *routes = new.routes;
+        Ok(restart)
     }
 }
 
 /// Reloads on every `SIGHUP`.
 pub fn on_hangup(r: Arc<Reloader>) -> std::io::Result<()> {
-    todo!("rfc 0014")
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut hup = signal(SignalKind::hangup())?;
+        tokio::spawn(async move {
+            while hup.recv().await.is_some() {
+                r.reload();
+            }
+        });
+    }
+    #[cfg(not(unix))]
+    let _ = r;
+    Ok(())
 }
 
 /// The keys the layer applies in place, validated as at start.
 pub fn policy(cfg: &Config) -> Result<Reload, String> {
-    todo!("rfc 0014")
+    let trusted = cfg
+        .trusted_proxies
+        .iter()
+        .map(|c| {
+            c.parse::<Cidr>()
+                .map_err(|e| format!("trusted_proxies: {e}"))
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(Reload {
+        limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)
+            .map_err(|e| format!("rate_limit: {e}"))?,
+        trusted: TrustedProxies::new(trusted),
+        enforce: cfg.detection.mode == config::Mode::Enforce,
+        attack_rate_factor: cfg.detection.attack_rate_factor,
+        challenge: cfg.challenge.config(cfg.detection.enabled)?,
+        fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
+        routes: Some(config::routes(&cfg.routes)?),
+    })
 }
 
 /// The keys that differ from `start` but need a restart.
 pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
-    todo!("rfc 0014")
+    // detection keys other than the two a reload applies
+    let fixed = |d: &config::Detection| config::Detection {
+        mode: config::Mode::Observe,
+        attack_rate_factor: 0.0,
+        ..d.clone()
+    };
+    let (a, b) = (&start.rate_limit, &new.rate_limit);
+    let shared = start.store.backend != config::Backend::Memory;
+    [
+        ("mode", start.mode != new.mode),
+        ("listen", start.listen != new.listen),
+        ("upstream", start.upstream != new.upstream),
+        (
+            "upstream_protocol",
+            start.upstream_protocol != new.upstream_protocol,
+        ),
+        ("metrics", start.metrics != new.metrics),
+        ("rate_limit.enabled", a.enabled != b.enabled),
+        ("rate_limit.max_clients", a.max_clients != b.max_clients),
+        // the cluster budget (RFC 0010) is set at start
+        (
+            "rate_limit (store budget)",
+            shared && (a.rate, a.burst) != (b.rate, b.burst),
+        ),
+        (
+            "detection",
+            fixed(&start.detection) != fixed(&new.detection),
+        ),
+        ("ml", start.ml != new.ml),
+        ("tls", start.tls != new.tls),
+        ("upstream_tls", start.upstream_tls != new.upstream_tls),
+        ("http2", start.http2 != new.http2),
+        ("upgrade", start.upgrade != new.upgrade),
+        ("forward", start.forward != new.forward),
+        ("l4", start.l4 != new.l4),
+        ("quic", start.quic != new.quic),
+        ("store", start.store != new.store),
+        ("xdp", start.xdp != new.xdp),
+        ("admin", start.admin != new.admin),
+    ]
+    .into_iter()
+    .filter_map(|(k, changed)| changed.then_some(k))
+    .collect()
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    todo!("rfc 0014")
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
@@ -113,7 +228,6 @@ mod tests {
 
     // RFC 0014 case 7
     #[test]
-    #[ignore = "rfc 0014"]
     fn rate_applied_listen_needs_a_restart() {
         Jail::expect_with(|j| {
             j.create_file("d.toml", &format!("{BASE}[rate_limit]\nrate = 10\n"))?;
@@ -131,7 +245,6 @@ mod tests {
 
     // RFC 0014 case 8
     #[test]
-    #[ignore = "rfc 0014"]
     fn invalid_route_refused_whole() {
         Jail::expect_with(|j| {
             j.create_file("d.toml", BASE)?;
@@ -151,7 +264,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0014"]
     fn detection_mode_and_factor_reload_in_place() {
         let start = Config {
             upstream: Some("http://127.0.0.1:8081".into()),

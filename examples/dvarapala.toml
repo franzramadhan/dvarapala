@@ -149,6 +149,14 @@ prefix_v6 = 64
 # challenge = true
 # max_keys = 10000
 
+# Admin API and config reload (RFC 0014). SIGHUP reloads the config
+# file without the admin API. Set the token with DVARAPALA__ADMIN__TOKEN.
+# [admin]
+# listen = "127.0.0.1:9091"
+# token = "<at least 32 bytes>"
+# max_blocks = 4096
+# max_block_ttl = "24h"
+
 # JA4 TLS fingerprints (RFC 0012), on the TLS listener.
 # [fingerprint]
 # deny = []

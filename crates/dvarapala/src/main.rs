@@ -12,7 +12,6 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
-#[cfg(feature = "ml")]
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -90,6 +89,7 @@ fn main() -> ExitCode {
 #[tokio::main]
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
+    let admin = cfg.admin.addr()?;
     // first: a fast path that was asked for and cannot attach stops here
     let block = xdp::start(&cfg)?;
     let h2 = http2(&cfg.http2)?;
@@ -135,6 +135,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             cluster,
         })?;
         let listener = bind(&cfg, block).await?;
+        control(&cfg, config, admin, None, false).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
         listen(listener, tls, h2, proxy).await;
         tracing::info!("stopped");
@@ -188,6 +189,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         None
     };
     let listener = bind(&cfg, block).await?;
+    control(&cfg, config, admin, limiter.clone(), layered && ja4).await?;
     #[cfg(feature = "http3")]
     let h3 = match (&quic, &tls) {
         (Some(q), Some(t)) => Some(quic::start(q, t, target, &upstream, limiter.clone())?),
@@ -225,6 +227,33 @@ async fn bind(cfg: &config::Config, block: Option<BlockSink>) -> Result<Listener
         Some(b) => listener.with_block(b),
         None => listener,
     })
+}
+
+/// RFC 0014: `SIGHUP` and the admin API reload the config; the admin API
+/// also reads the state and blocks networks.
+async fn control(
+    cfg: &config::Config,
+    path: Option<PathBuf>,
+    admin: Option<std::net::SocketAddr>,
+    layer: Option<RateLimitLayer>,
+    ja4: bool,
+) -> Result<(), Box<dyn Error>> {
+    let reloader = Arc::new(reload::Reloader::new(path, layer.clone(), ja4, cfg.clone()));
+    reload::on_hangup(reloader.clone())?;
+    if let Some(addr) = admin {
+        let a = admin::Admin {
+            token: cfg.admin.token.clone(),
+            max_block_ttl: cfg.admin.max_block_ttl,
+            layer,
+            reloader,
+            mode: match cfg.mode {
+                config::ProxyMode::Reverse => "reverse",
+                config::ProxyMode::Forward => "forward",
+            },
+        };
+        admin::serve(addr, a).await?;
+    }
+    Ok(())
 }
 
 fn detection(d: &config::Detection) -> Option<Detection> {
