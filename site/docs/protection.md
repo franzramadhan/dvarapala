@@ -104,6 +104,22 @@ to the upstream. Entries are a full JA4 or a prefix ending in `*`.
 
 Keys: [`[fingerprint]`](configuration.html#fingerprint).
 
+## Routes
+
+`[[routes]]` entries apply a policy to the requests they match, first
+match wins. A route matches on `host`, `path` (a prefix, `=` for exact),
+`methods` and `clients` (CIDRs); every condition set must hold. A route
+can `deny` (`403` and the connection closed, before any bucket), add its
+own bucket (`rate`, `burst`) keyed by the client, a request header or the
+JA4, and turn the challenge off with `challenge = false` for clients that
+cannot run a script.
+
+Routes only tighten: the global bucket, detection and `fingerprint.deny`
+still apply to every request. Each route's table holds at most
+`max_keys` keys.
+
+Keys: [`[[routes]]`](configuration.html#routes).
+
 ## Across replicas
 
 With a `[store]` (Redis or PostgreSQL, features `redis` and `postgres`),
