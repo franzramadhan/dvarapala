@@ -51,6 +51,9 @@ impl Console {
                 groups_claim: o.groups_claim.clone(),
                 trust_email: !o.require_email_verified,
             };
+            if cfg.trust_email {
+                tracing::warn!(msg = "oidc email trusted without email_verified", issuer = %o.issuer);
+            }
             let issuer = Arc::new(Issuer::new(cfg, o.label.clone())?);
             let i = issuer.clone();
             tokio::spawn(async move { i.provider().await });

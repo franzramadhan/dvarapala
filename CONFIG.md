@@ -477,7 +477,13 @@ token endpoint over verified TLS, so its claims are checked (`iss`,
 | `allow_emails` | list | `[]` | Verified emails allowed in (case does not matter) |
 | `allow_groups` | list | `[]` | Groups allowed in. One of the two lists must name someone |
 | `groups_claim` | string | `"groups"` | The ID token claim holding the groups |
+| `require_email_verified` | bool | `true` | `false` (RFC 0020): an `email` claim without `email_verified` counts as verified for `allow_emails`; an explicit `false` still denies. Logs `oidc email trusted without email_verified` at start |
 | `label` | string | `"SSO"` | The login button: "Sign in with SSO" |
+
+Set `require_email_verified = false` only for an issuer that verifies
+every address itself and never sends the claim, such as Cloudflare Access
+in front of Google. With a provider where users can edit their email, it
+lets anyone who types an allowed address into a profile log in.
 
 ### Reload
 

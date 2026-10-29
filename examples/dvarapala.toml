@@ -173,6 +173,7 @@ prefix_v6 = 64
 # allow_emails = ["<email>"]
 # allow_groups = []
 # groups_claim = "groups"
+# require_email_verified = true
 # label = "SSO"
 
 # Upstream pool (RFC 0015): in place of upstream, not together with it.

@@ -25,4 +25,7 @@ allow_emails = ["<email>"]
 # or by group, with the scope that carries it:
 # scopes = ["openid", "email", "groups"]
 # allow_groups = ["sre"]
+# an issuer that verifies emails but never sends email_verified
+# (Cloudflare Access, RFC 0020):
+# require_email_verified = false
 label = "SSO"
