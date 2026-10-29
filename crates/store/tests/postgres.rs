@@ -195,3 +195,31 @@ async fn sweep_deletes_expired_rows_on_one_replica() {
     s.sweep_now().await.unwrap();
     assert_eq!(count().await, 1);
 }
+
+// the first round after a start does not sweep: a new replica waits on it,
+// and the rows other clusters left can take longer than the timeout
+#[tokio::test(flavor = "multi_thread")]
+async fn first_round_does_not_sweep() {
+    let Some(url) = fresh().await else { return };
+    let mut s = store(&url, true);
+    s.connect().await.unwrap();
+    let c = client(&url).await;
+    c.batch_execute(
+        "INSERT INTO dvarapala.counters VALUES ('c', 'old', 0, 1, now() - interval '1 second')",
+    )
+    .await
+    .unwrap();
+    let count = async || -> i64 {
+        c.query_one("SELECT count(*) FROM dvarapala.counters", &[])
+            .await
+            .unwrap()
+            .get(0)
+    };
+    round(&mut s).await.unwrap();
+    assert_eq!(count().await, 1);
+    // a sweep every 10 rounds
+    for _ in 1..10 {
+        round(&mut s).await.unwrap();
+    }
+    assert_eq!(count().await, 0);
+}
