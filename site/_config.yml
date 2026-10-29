@@ -20,6 +20,7 @@ nav:
   - { title: Forward proxy, url: /docs/forward-proxy.html }
   - { title: SDKs, url: /docs/sdk.html }
   - { title: Clusters, url: /docs/clusters.html }
+  - { title: Kubernetes, url: /docs/kubernetes.html }
   - { title: Operations, url: /docs/operations.html }
   - { title: Configuration, url: /docs/configuration.html }
   - { title: Examples, url: /docs/examples.html }

@@ -23,5 +23,5 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0016](rfc/0016-replay.md) | `dvarapala replay`: a config's protection layers over a recorded JSON Lines access log on a virtual clock, with the verdict counts | implemented | v0.11.0 |
 | [0017](rfc/0017-waf.md) | WAF: a sidecar agent over SPOP (`coraza-spoa`: OWASP Coraza with the CRS) inspects requests that passed the limits, `observe` then `enforce`, fail closed, off until enabled | implemented | v0.12.0 |
 | [0018](rfc/0018-admin-ui.md) | Admin web UI on the admin listener (`admin.ui_enabled`): live overview, top talkers, blocks, reload; login by token or OIDC | implemented | v0.12.0 |
-| [0019](rfc/0019-operator.md) | Kubernetes operator: label an Ingress, HTTPRoute or GRPCRoute and a webhook routes it through a managed dvarapala gateway, policy CRD, reload on policy change | accepted | |
-| [0020](rfc/0020-oidc-email-trust.md) | Console OIDC login trusts the issuer's email without `email_verified` (`admin.oidc.require_email_verified = false`), for Cloudflare Access | accepted | |
+| [0019](rfc/0019-operator.md) | Kubernetes operator: label an Ingress, HTTPRoute or GRPCRoute and a webhook routes it through a managed dvarapala gateway, policy CRD, reload on policy change | implemented | v0.13.0 |
+| [0020](rfc/0020-oidc-email-trust.md) | Console OIDC login trusts the issuer's email without `email_verified` (`admin.oidc.require_email_verified = false`), for Cloudflare Access | implemented | v0.13.0 |

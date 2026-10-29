@@ -61,6 +61,8 @@
         <div class="card"><span class="tag">RFC 0016</span><h3>Replay</h3><p>Try a new limit, route or detection threshold on yesterday's access log before it reaches clients: <code>dvarapala replay</code> runs the same layers on a virtual clock and prints the verdict counts.</p></div>
         <div class="card"><span class="tag">RFC 0017</span><h3>WAF</h3><p>OWASP Coraza with the Core Rule Set, in a <code>coraza-spoa</code> sidecar, inspects what passed the limits and blocks SQL injection, XSS and similar attacks. Start in <code>observe</code>, add exclusions, then enforce.</p></div>
         <div class="card"><span class="tag">RFC 0018</span><h3>Admin console</h3><p>A web console on the admin listener: live request rates, the detection state, top talkers, blocks and reload. Log in with the admin token or through your OIDC provider.</p></div>
+        <div class="card"><span class="tag">RFC 0019</span><h3>Kubernetes operator</h3><p>Label an Ingress, HTTPRoute or GRPCRoute and a webhook points it at a dvarapala gateway the operator runs for its Service. No change to the app or its manifests; policy edits reload the gateways in place.</p></div>
+        <div class="card"><span class="tag">RFC 0020</span><h3>OIDC through Cloudflare Access</h3><p>Console login trusts the issuer's verified email when it sends no <code>email_verified</code> claim, as Cloudflare Access does. Off by default, and an explicit <code>false</code> still denies.</p></div>
         <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store, XDP and the WAF on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
@@ -100,7 +102,7 @@ mode = "observe"  <span class="c"># log only; "enforce" later</span>
 
 [metrics]
 listen = "127.0.0.1:9090"</pre>
-        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters, XDP and the WAF.</p>
+        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters, XDP, the WAF and Kubernetes.</p>
       </div>
     </div>
   </section>

@@ -48,7 +48,10 @@ state and live request rates, top talkers, manual blocks and reload. It is
 embedded in the binary (the `ui` feature, in the default build).
 
 Log in with the admin token, or through an OIDC issuer with
-`[admin.oidc]`. The console then holds an `HttpOnly` session cookie that
+`[admin.oidc]`. For an issuer that verifies emails but never sends the
+`email_verified` claim, such as Cloudflare Access, set
+`require_email_verified = false` ([RFC 0020](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0020-oidc-email-trust.md));
+keep the default for any provider where users can edit their email. The console then holds an `HttpOnly` session cookie that
 the API calls above accept in place of the bearer token; calls that
 change state also need the CSRF header the console sends. The listener
 stays plain HTTP: off loopback, put a TLS terminator in front and set an

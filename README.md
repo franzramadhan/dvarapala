@@ -30,13 +30,14 @@ requests, learns what normal traffic looks like, and drops floods before
 they reach the upstream. It is named after the Dvarapala, the guardian
 statues at Javanese temple gates.
 
-## Three ways to run it
+## Ways to run it
 
 | Mode | What it does | Start with |
 |---|---|---|
 | **Reverse proxy** | Protects your app from inbound floods: HTTP/1.1, HTTP/2, gRPC, WebSocket, optional HTTP/3 | [`dvarapala.toml`](examples/dvarapala.toml) |
 | **Forward proxy** | Holds your outbound calls to each third-party API's agreed rate and concurrency | [`forward-proxy.toml`](examples/forward-proxy.toml) |
 | **In process** | The same limits inside a Go, Python or JavaScript service, over a C ABI | [`sdk/`](sdk/README.md) |
+| **Kubernetes** | Label an Ingress, HTTPRoute or GRPCRoute and the operator puts a dvarapala gateway in front of its Service | [`kubernetes.yaml`](examples/kubernetes.yaml) |
 
 Either proxy mode scales out: replicas behind one load balancer share their
 limits through Redis or PostgreSQL ([`cluster.toml`](examples/cluster.toml)).
@@ -58,7 +59,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Challenge** | Proof-of-work page for browsers during an attack or always, stateless HMAC pass cookie; JA4 TLS fingerprints to deny, challenge or forward | [RFC 0012](rfc/0012-challenges.md) |
 | **WAF** | OWASP Coraza with the Core Rule Set in a `coraza-spoa` sidecar inspects requests that passed the limits, over SPOP; `observe` first, fails closed, per-route opt-out | [RFC 0017](rfc/0017-waf.md) |
 | **Operations** | Admin API with status, top talkers and manual blocks; `SIGHUP` or `POST /reload` applies the protection keys without a restart | [RFC 0014](rfc/0014-admin.md) |
-| **Console** | Web console on the admin listener: live rates, top talkers, blocks and reload; login by admin token or OIDC | [RFC 0018](rfc/0018-admin-ui.md) |
+| **Console** | Web console on the admin listener: live rates, top talkers, blocks and reload; login by admin token or OIDC, also through issuers that send no `email_verified` such as Cloudflare Access | [RFC 0018](rfc/0018-admin-ui.md), [RFC 0020](rfc/0020-oidc-email-trust.md) |
 | **Replay** | `dvarapala replay` runs a config over a recorded access log on a virtual clock and reports what it would have throttled, dropped or challenged | [RFC 0016](rfc/0016-replay.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
 | **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
@@ -66,6 +67,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Egress** | Per-destination rate, concurrency and bounded queue; provider `Retry-After` pauses; `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
 | **Embedding** | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
 | **Cluster** | One per-client limit, egress budget and heavy hitter list across replicas, synced off the request path. Features `redis`, `postgres` | [RFC 0010](rfc/0010-shared-state.md) |
+| **Kubernetes** | An operator: a `DvarapalaPolicy` and a label on a route; a webhook points the route at a managed gateway, `config_watch` reloads on policy edits | [RFC 0019](rfc/0019-operator.md) |
 
 ## Install
 
@@ -104,6 +106,14 @@ from outside the container. The image carries Alpine's root CAs, so
 `https://` upstreams, OIDC issuers and TLS stores verify against public
 roots; for a private CA set `upstream_tls.ca_file` or `store.ca_file`.
 
+On Kubernetes, the operator (`ghcr.io/franzramadhan/dvarapala-operator`)
+installs from the release's manifest:
+
+```sh
+kubectl apply --server-side -f \
+  https://github.com/franzramadhan/dvarapala/releases/download/v<version>/operator.yaml
+```
+
 <details>
 <summary><b>Build from source</b></summary>
 
@@ -139,7 +149,7 @@ variables override the file (`DVARAPALA__RATE_LIMIT__RATE=5`).
 
 - Every key and metric: [CONFIG.md](CONFIG.md)
 - TLS, gRPC, WebSocket, HTTP/3, connection limits, forward proxy, clusters,
-  XDP and the WAF: [examples/](examples/README.md)
+  XDP, the WAF and Kubernetes: [examples/](examples/README.md)
 
 ## How it works
 
@@ -149,23 +159,36 @@ flowchart LR
   X -->|drop| D1((x))
   X --> L4{L4}
   L4 -->|close| D2((x))
-  L4 --> T[TLS / QUIC]
-  T --> R{rate limit}
-  R -->|429| D3((x))
+  L4 --> T[TLS / QUIC, JA4]
+  T --> B{blocks, JA4 rules, routes}
+  B -->|403 / 429| D3((x))
+  B --> R{rate limit}
+  R -->|429| D4((x))
   R --> DT{detection}
-  DT -->|403| D4((x))
-  DT --> W{WAF}
-  W -->|403| D5((x))
-  W --> U[upstream]
+  DT -->|403| D5((x))
+  DT --> C{challenge}
+  C -->|proof of work| D6((x))
+  C --> W{WAF}
+  W -->|403| D7((x))
+  W --> PL[pool]
+  PL --> U[upstream]
   L4 -.->|block source| X
   DT -.->|block source| X
+  A[admin API, console] -.->|blocks, reload| B
 ```
 
 Each stage is cheaper than the next, so expensive work only happens for
 traffic that survived the cheap checks. In `enforce` mode, sources refused
 by L4 or dropped by detection are blocked in the XDP program for a while.
 Both completed a TCP handshake, so a spoofed address cannot get a victim
-blocked.
+blocked. During an attack, browsers can earn a pass with a proof of work
+instead of sharing the attack limit, and the WAF only sees requests that
+passed every limit. The pool sends what is left to a healthy upstream.
+
+The admin API and its web console run on their own listener: manual
+blocks, top talkers and reload apply to the running gateway in place. On
+Kubernetes, the operator runs this same binary as a gateway in front of
+each labeled route's Service.
 
 One engine decides every verdict and does no I/O, so the binary and the
 SDKs share the same logic.
@@ -186,9 +209,10 @@ SDKs share the same logic.
 | `ffi` | C ABI (`dvarapala.h`) for the SDKs |
 | `node` | N-API addon for the JavaScript SDK |
 | `dvarapala` | The binary: config, metrics, signals |
+| `operator` | Kubernetes operator: policy CRD, route rewrite webhook, gateway controller |
 
 Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
-`tokio-postgres` and `aya`; the console is SolidJS. CI fails when the idle binary goes over a
+`tokio-postgres`, `aya` and `kube` (the operator); the console is SolidJS. CI fails when the idle binary goes over a
 10 MB RSS budget. Rust crates embed as a git dependency; they are not on
 crates.io.
 

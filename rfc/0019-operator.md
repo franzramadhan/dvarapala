@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #140 | |
+| implemented | 2026-10-29 | #140 | v0.13.0 |
 
 > A Kubernetes operator that puts dvarapala in front of a Service when
 > the Ingress, HTTPRoute or GRPCRoute that reaches it, or its namespace,
@@ -311,7 +311,7 @@ New dvarapala key (in `CONFIG.md`, `examples/dvarapala.toml`):
 
 ## Rollout
 
-- **Rollout:** a minor release after acceptance. Nothing changes for
+- **Rollout:** v0.13.0, a minor release after acceptance. Nothing changes for
   existing users: the operator is a new image and manifest, and
   `config_watch` is off unless set. Install with
   `kubectl apply -f https://github.com/franzramadhan/dvarapala/releases/download/v<version>/operator.yaml`,
