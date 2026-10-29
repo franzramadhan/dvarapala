@@ -34,7 +34,6 @@ fn names(route: &Value) -> Vec<String> {
 
 // case 1
 #[test]
-#[ignore = "rfc 0019"]
 fn weighted_backends_each_get_their_gateway() {
     let out = rewrite(
         Kind::HttpRoute,
@@ -78,7 +77,6 @@ fn weighted_backends_each_get_their_gateway() {
 
 // case 2
 #[test]
-#[ignore = "rfc 0019"]
 fn ingress_service_backends_rewritten_resource_kept() {
     let ing = json!({
         "metadata": {"name": "i"},
@@ -108,7 +106,6 @@ fn ingress_service_backends_rewritten_resource_kept() {
 
 // case 3
 #[test]
-#[ignore = "rfc 0019"]
 fn label_removed_restores_the_originals() {
     let original = http_route();
     let out = rewrite(Kind::HttpRoute, &original, "shop", Some("default"), &all);
@@ -120,7 +117,6 @@ fn label_removed_restores_the_originals() {
 
 // case 4
 #[test]
-#[ignore = "rfc 0019"]
 fn rewriting_twice_changes_nothing() {
     let once = rewrite(
         Kind::HttpRoute,
@@ -140,7 +136,6 @@ fn rewriting_twice_changes_nothing() {
 
 // case 5
 #[test]
-#[ignore = "rfc 0019"]
 fn none_opts_a_route_out() {
     assert_eq!(policy(Some("none"), Some("default")), None);
     assert_eq!(policy(None, Some("default")), Some("default"));
@@ -149,7 +144,6 @@ fn none_opts_a_route_out() {
 }
 
 #[test]
-#[ignore = "rfc 0019"]
 fn a_gateway_not_there_yet_keeps_the_original() {
     let web = gateway::name("web", "80", "default");
     let out = rewrite(
@@ -164,7 +158,6 @@ fn a_gateway_not_there_yet_keeps_the_original() {
 }
 
 #[test]
-#[ignore = "rfc 0019"]
 fn odd_shapes_do_not_panic() {
     for v in [
         json!(null),

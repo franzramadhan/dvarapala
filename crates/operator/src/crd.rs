@@ -1,5 +1,4 @@
 //! The `DvarapalaPolicy` custom resource.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use k8s_openapi::api::core::v1::ResourceRequirements;
 use kube::CustomResource;
@@ -104,7 +103,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "rfc 0019"]
     fn deploy_manifest_has_this_crd() {
         let manifest = include_str!("../../../deploy/operator.yaml");
         let doc = manifest

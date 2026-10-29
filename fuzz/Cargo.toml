@@ -25,6 +25,9 @@ dvarapala-store = { path = "../crates/store", features = ["redis"] }
 redis = { version = "1.8.0", default-features = false }
 # RFC 0011 case 2: the XDP packet parser
 dvarapala-xdp-common = { path = "../crates/xdp-common" }
+# RFC 0019 case 11: the operator's route rewrite
+dvarapala-operator = { path = "../crates/operator" }
+serde_json = "1.0.154"
 
 # Its own workspace: fuzzing needs nightly and sanitizer flags that the main
 # workspace must not inherit.
@@ -146,6 +149,13 @@ bench = false
 [[bin]]
 name = "waf_frame"
 path = "fuzz_targets/waf_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "route_rewrite"
+path = "fuzz_targets/route_rewrite.rs"
 test = false
 doc = false
 bench = false

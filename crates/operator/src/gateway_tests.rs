@@ -43,7 +43,6 @@ fn env_of(d: &Deployment, k: &str) -> String {
 }
 
 #[test]
-#[ignore = "rfc 0019"]
 fn names_are_stable_short_and_distinct() {
     assert_eq!(name("web", "80", "default"), name("web", "80", "default"));
     assert_ne!(name("web", "80", "default"), name("web", "80", "strict"));
@@ -59,7 +58,6 @@ fn names_are_stable_short_and_distinct() {
 
 // case 7
 #[test]
-#[ignore = "rfc 0019"]
 fn h2c_backend_gets_an_http2_gateway() {
     let g = plan(&web(Some("kubernetes.io/h2c")), "80", "default", false).unwrap();
     assert_eq!(g.port, 80);
@@ -84,7 +82,6 @@ fn h2c_backend_gets_an_http2_gateway() {
 
 // case 8
 #[test]
-#[ignore = "rfc 0019"]
 fn passthrough_then_protecting() {
     let b = web(None);
     let g = plan(&b, "80", "default", false).unwrap();
@@ -109,7 +106,6 @@ fn passthrough_then_protecting() {
 
 // case 6
 #[test]
-#[ignore = "rfc 0019"]
 fn unsupported_backends_have_a_reason() {
     let mut ext = web(None);
     ext.spec.as_mut().unwrap().type_ = Some("ExternalName".into());
@@ -138,7 +134,6 @@ fn unsupported_backends_have_a_reason() {
 }
 
 #[test]
-#[ignore = "rfc 0019"]
 fn autoscaling_leaves_replicas_to_the_hpa() {
     let g = plan(&web(None), "80", "p", false).unwrap();
     let mut p = PolicySpec::default();
