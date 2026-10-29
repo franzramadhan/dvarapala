@@ -78,6 +78,32 @@ that would pass; a score above `threshold` gets `429`.
 Keys: [`[detection]`](configuration.html#detection),
 [`[ml]`](configuration.html#ml).
 
+## Challenge
+
+During an attack every client without a pass shares the attack limit
+(`attack_rate_factor`). With `challenge.mode = "attack"`, a browser
+instead gets a `403` page whose script finds a SHA-256 proof of work
+(`difficulty` leading zero bits, under a second at the default 16), then
+gets a pass cookie and the normal limit back. `"always"` challenges every
+request without a pass.
+
+The pass is an HMAC bound to the client key, so the server keeps no
+state. Set `challenge.secret` so passes survive a restart and work on
+every replica. The client's bucket still comes first, and heavy hitters
+in `enforce` mode are dropped with or without a pass. Clients that do not
+accept `text/html`, and gRPC, get `429` instead of the page.
+
+Keys: [`[challenge]`](configuration.html#challenge).
+
+## JA4 fingerprints
+
+With `[fingerprint]` set, the TLS listener computes the JA4 of each
+ClientHello. `deny` drops matching clients, `challenge` makes them solve
+the challenge whatever the detector says, and `header` forwards the JA4
+to the upstream. Entries are a full JA4 or a prefix ending in `*`.
+
+Keys: [`[fingerprint]`](configuration.html#fingerprint).
+
 ## Across replicas
 
 With a `[store]` (Redis or PostgreSQL, features `redis` and `postgres`),
