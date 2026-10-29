@@ -2,11 +2,12 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 mod ready;
+use ready::port;
 mod stop;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
@@ -23,14 +24,6 @@ impl Drop for Proxy {
         stop::stop(&mut self.child);
         let _ = std::fs::remove_file(&self.config);
     }
-}
-
-fn port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 /// `admin_extra` goes at the end of `[admin]`.
