@@ -11,7 +11,7 @@ keys of `[l4]`) with the gateway's defaults.
 |---|---|---|
 | `go` | `cargo build --release -p dvarapala-ffi` | `cd sdk/go && go test -race ./...` |
 | `python` | `cargo build --release -p dvarapala-ffi` | `cd sdk/python && DVARAPALA_LIB=../../target/release/libdvarapala.so PYTHONPATH=src python -m unittest discover -s tests` |
-| `js` | `cargo build --release -p dvarapala-node` | `cd sdk/js && DVARAPALA_NODE=../../target/release/libdvarapala_node.so node --test` |
+| `js` | `cargo build --release -p dvarapala-node` | `cd sdk/js && DVARAPALA_NODE=../../target/release/libdvarapala_node.so node --test test/*.test.js` |
 
 On macOS the shared libraries end in `.dylib`. Releases attach prebuilt
 libraries per platform as `dvarapala-sdk-<tag>-<target>.tar.gz`.
