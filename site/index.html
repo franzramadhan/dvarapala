@@ -57,6 +57,7 @@
         <div class="card"><span class="tag">RFC 0012</span><h3>Challenges and JA4</h3><p>During an attack, browsers solve a small proof of work instead of sharing the attack limit; a signed cookie keeps them out of it. JA4 fingerprints deny or challenge known bot TLS stacks.</p></div>
         <div class="card"><span class="tag">RFC 0013</span><h3>Per-route policy</h3><p>Deny scanner paths outright, give a login page its own low rate, limit an API per key or per JA4, and keep machine endpoints out of the challenge. Routes only tighten the global policy.</p></div>
         <div class="card"><span class="tag">RFC 0014</span><h3>Admin API and reload</h3><p>Block a network for an hour, see the top talkers and the detection state, and change limits, routes or the challenge with <code>SIGHUP</code>: clients keep their buckets, a bad file is refused whole.</p></div>
+        <div class="card"><span class="tag">RFC 0015</span><h3>Upstream pools</h3><p>Spread traffic over several upstreams by round robin or least requests. Health checks and passive ejection take a failing one out; idempotent requests retry on another within a budget.</p></div>
         <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
@@ -74,7 +75,7 @@
           <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
           <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
           <li><b>Challenge</b> browsers with a proof of work during an attack, and fingerprint TLS clients by JA4.</li>
-          <li><b>Forward</b> what passes, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
+          <li><b>Forward</b> what passes to a healthy upstream of the pool, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
           <li><b>Share</b> counts across replicas through Redis or PostgreSQL, so a cluster holds one limit.</li>
           <li><b>Report</b> every verdict as a metric and a structured log line.</li>
         </ul>

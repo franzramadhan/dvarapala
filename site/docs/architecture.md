@@ -43,11 +43,21 @@ carry out what it decides.
   challenge  no pass during an attack (or always) -> proof-of-work page,
     |        then a signed cookie and the normal limit
     v
+  pool       round robin or least requests over healthy endpoints,
+    |        budgeted retry of an idempotent request on a connect error
+    v
   proxy      HTTP/1.1, HTTP/2 (h2c or ALPN) or a WebSocket tunnel
     |
     v
   upstream
 ```
+
+With `[pool]` ([RFC 0015](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0015-upstream-pools.md)),
+one pool serves the TCP and HTTP/3 listeners. Active health checks and
+passive ejection after consecutive errors take an endpoint out until it
+passes a check again. With every endpoint out the pool still picks one
+and counts it as degraded, so a wrong health check is not an outage.
+Without `[pool]`, `upstream` is a pool of one with no checks.
 
 The admin API ([Operations](operations.html)) runs on its own listener,
 next to the metrics one, and changes the running policy in place.

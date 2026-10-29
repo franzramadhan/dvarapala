@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | | |
+| implemented | 2026-10-29 | #124 | v0.10.0 |
 
 > The reverse proxy sends to a pool of upstreams instead of one: round
 > robin or least requests, active health checks, passive ejection after

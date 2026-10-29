@@ -58,6 +58,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Challenge** | Proof-of-work page for browsers during an attack or always, stateless HMAC pass cookie; JA4 TLS fingerprints to deny, challenge or forward | [RFC 0012](rfc/0012-challenges.md) |
 | **Operations** | Admin API with status, top talkers and manual blocks; `SIGHUP` or `POST /reload` applies the protection keys without a restart | [RFC 0014](rfc/0014-admin.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
+| **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
 | **WebSocket** | Upgrades rate limited like any request; tunnel count, idle and lifetime limits | [RFC 0005](rfc/0005-websocket.md) |
 | **Egress** | Per-destination rate, concurrency and bounded queue; provider `Retry-After` pauses; `CONNECT` tunnels | [RFC 0007](rfc/0007-forward-proxy.md) |
 | **Embedding** | Rate limit, detection and connection limits for Go, Python and JavaScript, with HTTP middleware | [RFC 0008](rfc/0008-sdk.md) |
