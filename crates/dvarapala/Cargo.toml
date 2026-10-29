@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [features]
-default = ["tls"]
+default = ["tls", "replay"]
 # TLS listener and https:// upstreams (RFC 0003).
 tls = ["dvarapala-proxy/tls"]
 # XGBoost scoring (RFC 0002), off by default to keep the binary small.
@@ -19,6 +19,8 @@ http3 = ["tls", "dvarapala-proxy/http3"]
 # Shared state across replicas (RFC 0010), each backend opt-in.
 redis = ["dvarapala-store/redis"]
 postgres = ["dvarapala-store/postgres"]
+# `dvarapala replay` (RFC 0016).
+replay = ["dvarapala-l7/replay"]
 # XDP fast path (RFC 0011), Linux only.
 xdp = ["dvarapala-xdp/load"]
 
