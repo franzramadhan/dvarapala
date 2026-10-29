@@ -74,7 +74,6 @@ async fn status(l: &WafLayer, req: Request<Full<Bytes>>) -> StatusCode {
 }
 
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn crs_blocks_attacks_and_passes_ordinary_requests() {
     let Some(agent) = agent() else { return };
     let l = layer(agent);

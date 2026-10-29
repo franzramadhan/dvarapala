@@ -153,7 +153,6 @@ async fn agent(reply: Reply) -> (SocketAddr, Seen) {
 
 // RFC 0017 case 3
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn hello_frame_size_and_refusal() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -189,7 +188,6 @@ async fn hello_frame_size_and_refusal() {
 
 // RFC 0017 case 4
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn observe_forwards_and_counts() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -207,7 +205,6 @@ async fn observe_forwards_and_counts() {
 
 // RFC 0017 case 5
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn enforce_blocks_and_sends_the_request() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -266,7 +263,6 @@ async fn enforce_blocks_and_sends_the_request() {
 
 // RFC 0017 case 6
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn body_over_limit_rejects_or_passes() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -308,7 +304,6 @@ async fn body_over_limit_rejects_or_passes() {
 
 // RFC 0017 case 7
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn agent_failures_fail_closed() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -369,7 +364,6 @@ fn limiter(rate: u32, routes: Vec<RouteConfig>) -> RateLimitLayer {
 
 // RFC 0017 case 8
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn route_skips_the_waf() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -403,7 +397,6 @@ async fn route_skips_the_waf() {
 
 // RFC 0017 case 9
 #[tokio::test]
-#[ignore = "rfc 0017"]
 async fn rate_limit_runs_first() {
     let _g = SERIAL.lock().await;
     metrics();
@@ -423,7 +416,6 @@ async fn rate_limit_runs_first() {
 
 // RFC 0017 case 10
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "rfc 0017"]
 async fn connections_are_reused_and_bounded() {
     let _g = SERIAL.lock().await;
     metrics();
