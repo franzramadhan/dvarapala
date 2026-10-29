@@ -92,7 +92,6 @@ async fn send(addr: SocketAddr, method: Method) -> StatusCode {
 
 // case 7
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0015"]
 async fn connect_failures_are_retried_for_idempotent_requests_only() {
     let (live, hits) = upstream(StatusCode::OK).await;
     let mut c = config(&[dead().await, live]);
@@ -118,7 +117,6 @@ async fn connect_failures_are_retried_for_idempotent_requests_only() {
 
 // case 8
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0015"]
 async fn failing_health_checks_take_an_endpoint_out() {
     let (sick, sick_hits) = upstream(StatusCode::INTERNAL_SERVER_ERROR).await;
     let (well, well_hits) = upstream(StatusCode::OK).await;

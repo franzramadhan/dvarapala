@@ -245,7 +245,6 @@ async fn zero_rtt_is_refused() {
 
 // RFC 0015 case 9
 #[tokio::test]
-#[ignore = "rfc 0015"]
 async fn http3_shares_the_pool_with_tcp() {
     let _s = serial().await;
     let up = quic::upstream().await;

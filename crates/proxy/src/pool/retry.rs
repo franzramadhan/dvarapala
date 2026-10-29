@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Retries earned by traffic (RFC 0015): each request adds `per_request`,
@@ -15,16 +14,27 @@ impl RetryBudget {
 
     /// Starts full. `per_request` is clamped to `[0, 1]`.
     pub fn new(per_request: f64) -> Self {
-        todo!("rfc 0015")
+        Self {
+            milli: AtomicU64::new(Self::MAX * 1000),
+            per_request: (per_request.clamp(0.0, 1.0) * 1000.0) as u64,
+        }
     }
 
     pub fn earn(&self) {
-        todo!("rfc 0015")
+        let _ = self
+            .milli
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |m| {
+                Some((m + self.per_request).min(Self::MAX * 1000))
+            });
     }
 
     /// Spends one retry; `false` when the budget is empty.
     pub fn spend(&self) -> bool {
-        todo!("rfc 0015")
+        self.milli
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |m| {
+                m.checked_sub(1000)
+            })
+            .is_ok()
     }
 }
 
@@ -34,7 +44,6 @@ mod tests {
 
     // RFC 0015 case 6
     #[test]
-    #[ignore = "rfc 0015"]
     fn retries_stay_a_share_of_traffic() {
         let b = RetryBudget::new(0.2);
         let mut retries = 0;
