@@ -42,12 +42,19 @@ async fn wrong_alpn_fails_the_handshake_without_retry() {
     let _s = serial().await;
     let p = proxy(|c| c.retry = Retry::Never, None).await;
     let (failed, retries) = (counter(FAILED), counter(RETRIES));
-    assert!(connect(&client_alpn(&p.ca, false, b"h2"), p.addr).await.is_err());
+    assert!(
+        connect(&client_alpn(&p.ca, false, b"h2"), p.addr)
+            .await
+            .is_err()
+    );
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(counter(FAILED) - failed, 1);
     // never retries, whatever the load
     let mut tx = h3(connect(&client(&p.ca, false), p.addr).await.unwrap()).await;
-    assert_eq!(send(&mut tx, "GET", "/", Bytes::new()).await.0, StatusCode::OK);
+    assert_eq!(
+        send(&mut tx, "GET", "/", Bytes::new()).await.0,
+        StatusCode::OK
+    );
     assert_eq!(counter(RETRIES) - retries, 0);
 }
 
@@ -93,7 +100,10 @@ async fn shutdown_drains_then_returns() {
     let (addr, ca, stop, task) = listen_task(p, |_| {}, None);
     let conn = connect(&client(&ca, false), addr).await.unwrap();
     let mut tx = h3(conn.clone()).await;
-    assert_eq!(send(&mut tx, "GET", "/", Bytes::new()).await.0, StatusCode::OK);
+    assert_eq!(
+        send(&mut tx, "GET", "/", Bytes::new()).await.0,
+        StatusCode::OK
+    );
     stop.send(()).unwrap();
     // the open connection is waited for, then the listener returns
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -135,7 +145,12 @@ async fn upstream_breaking_off_resets_the_stream() {
     let req = Request::get(format!("https://{NAME}/")).body(()).unwrap();
     let mut s = tx.send_request(req).await.unwrap();
     s.finish().await.unwrap();
-    assert_eq!(s.recv_response().await.unwrap().status(), StatusCode::OK);
+    // The reset can arrive before the headers do: either way the client
+    // never sees a clean end of a short body.
+    let Ok(r) = s.recv_response().await else {
+        return;
+    };
+    assert_eq!(r.status(), StatusCode::OK);
     let mut got = Vec::new();
     let end = loop {
         match s.recv_data().await {

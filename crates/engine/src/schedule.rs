@@ -207,8 +207,7 @@ mod tests {
             burst: 0,
             ..ScheduleConfig::default()
         })
-        .err()
-        .expect("refused");
+        .expect_err("refused");
         assert_eq!(e.to_string(), "burst must be at least 1");
     }
 

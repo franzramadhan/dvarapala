@@ -113,8 +113,7 @@ async fn a_store_that_hangs_fails_open_once_logged() {
 async fn a_round_over_max_keys_still_syncs() {
     let c = cluster(1);
     for i in 1..=3u8 {
-        let k: dvarapala_engine::ClientKey =
-            std::net::IpAddr::from([192, 0, 2, i]).into();
+        let k: dvarapala_engine::ClientKey = std::net::IpAddr::from([192, 0, 2, i]).into();
         c.lock().unwrap().record(k);
     }
     let (task, status) = spawn(Memory::default(), c, config());

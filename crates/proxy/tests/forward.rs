@@ -154,7 +154,13 @@ async fn tunnel_to_a_closed_port_is_bad_gateway() {
         .unwrap()
         .local_addr()
         .unwrap();
-    let (p, _stop) = proxy(config(vec![dest("gone", &format!("http://{gone}"), 100.0, 10)])).await;
+    let (p, _stop) = proxy(config(vec![dest(
+        "gone",
+        &format!("http://{gone}"),
+        100.0,
+        10,
+    )]))
+    .await;
     assert_eq!(
         connect(p, &gone.to_string()).await.unwrap_err(),
         StatusCode::BAD_GATEWAY

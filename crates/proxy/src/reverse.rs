@@ -359,7 +359,8 @@ mod tests {
     #[cfg(feature = "tls")]
     #[test]
     fn a_ca_file_without_certificates_is_refused() {
-        let ca = std::env::temp_dir().join(format!("dvarapala-empty-ca-{}.pem", std::process::id()));
+        let ca =
+            std::env::temp_dir().join(format!("dvarapala-empty-ca-{}.pem", std::process::id()));
         std::fs::write(&ca, "").unwrap();
         let mut config = UpstreamConfig::default();
         config.tls.ca_file = Some(ca.clone());

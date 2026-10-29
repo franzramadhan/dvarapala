@@ -89,7 +89,8 @@ mod tests {
         let mut s = Prefixed::new(b"hello".to_vec(), Vec::new());
         assert_eq!(s.is_write_vectored(), Vec::<u8>::new().is_write_vectored());
         s.write_all(b"one ").await.unwrap();
-        s.write_vectored(&[io::IoSlice::new(b"two")]).await.unwrap();
+        let n = s.write_vectored(&[io::IoSlice::new(b"two")]).await.unwrap();
+        assert_eq!(n, 3);
         s.flush().await.unwrap();
         s.shutdown().await.unwrap();
         assert_eq!(s.io, b"one two");

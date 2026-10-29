@@ -303,5 +303,9 @@ async fn versions_or_none(c: &Client) -> Option<Vec<i32>> {
         .await
         .unwrap()
         .get(0);
-    if exists { Some(versions(c).await) } else { None }
+    if exists {
+        Some(versions(c).await)
+    } else {
+        None
+    }
 }

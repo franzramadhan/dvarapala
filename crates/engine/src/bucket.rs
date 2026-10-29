@@ -174,6 +174,9 @@ mod tests {
             LimitError::ZeroRate.to_string(),
             "rate must be at least 1 per second"
         );
-        assert_eq!(LimitError::ZeroBurst.to_string(), "burst must be at least 1");
+        assert_eq!(
+            LimitError::ZeroBurst.to_string(),
+            "burst must be at least 1"
+        );
     }
 }

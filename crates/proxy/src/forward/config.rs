@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn errors_name_the_destination() {
         let e = refused(config(vec![dest("ftp://x.example", 1.0)]));
-        assert!(e.starts_with("forward destination: origin \"ftp://x.example\""), "{e}");
+        assert!(
+            e.starts_with("forward destination: origin \"ftp://x.example\""),
+            "{e}"
+        );
         let e = refused(config(vec![dest("http://x.example", 0.0)]));
         assert!(e.starts_with("forward destination limits: d: "), "{e}");
         assert_eq!(
