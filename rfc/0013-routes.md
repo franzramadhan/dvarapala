@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #110 | |
+| implemented | 2026-10-29 | #110 | v0.8.0 |
 
 > Rules matched on host, path, method and client network that add a
 > stricter limit, deny the request, or exempt it from the challenge, so

@@ -28,6 +28,9 @@ carry out what it decides.
   ja4 rules  fingerprint deny -> 403, challenge -> needs a pass
     |
     v
+  routes     first match on host, path, method, client: deny -> 403,
+    |        own bucket -> 429, challenge exemption
+    v
   rate limit token bucket per client          -> 429 + Retry-After
     |
     v
