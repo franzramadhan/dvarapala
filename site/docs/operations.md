@@ -40,12 +40,28 @@ curl -sH "$H" -X POST http://127.0.0.1:9091/reload
 | `DELETE /blocks` | removes a block, `404` when it is not listed |
 | `POST /reload` | the same as `SIGHUP` |
 
+## Console
+
+With `admin.ui_enabled = true` the admin listener also serves a web
+console at `/ui/` ([RFC 0018](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0018-admin-ui.md)): the detection
+state and live request rates, top talkers, manual blocks and reload. It is
+embedded in the binary (the `ui` feature, in the default build).
+
+Log in with the admin token, or through an OIDC issuer with
+`[admin.oidc]`. The console then holds an `HttpOnly` session cookie that
+the API calls above accept in place of the bearer token; calls that
+change state also need the CSRF header the console sends. The listener
+stays plain HTTP: off loopback, put a TLS terminator in front and set an
+`https` `admin.public_url`.
+
+Keys: [`[admin]`](configuration.html#admin).
+
 ## Reload
 
 `SIGHUP` or `POST /reload` reads the config file and the environment
 again. A file that does not load or validate is refused whole and the
 running config stays. Limits, trusted proxies, the detection mode,
-`[challenge]`, `[fingerprint]` and `[[routes]]` apply in place: clients
+`[challenge]`, `[fingerprint]`, `[[routes]]` and `[waf]` apply in place: clients
 keep their buckets and the detector its baseline. Any other changed key
 is named in the `config reloaded` log line (`restart=`) and waits for a
 restart. The full list is in [Configuration](configuration.html#reload).

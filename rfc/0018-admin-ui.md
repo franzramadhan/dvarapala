@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #139 | |
+| implemented | 2026-10-29 | #139 | v0.12.0 |
 
 > An optional web console on the admin listener (`admin.ui_enabled`, off
 > by default) that shows the gateway's state live and drives the admin
@@ -279,7 +279,7 @@ Found while building:
 
 ## Rollout
 
-- **Rollout:** the release after acceptance. Nothing changes on upgrade:
+- **Rollout:** v0.12.0, in the release binaries and the image. Nothing changes on upgrade:
   `ui_enabled` defaults to `false`, the bearer calls answer as before and
   `/status` only gains a field.
 - **Off switch:** `ui_enabled = false` and a restart; this also drops

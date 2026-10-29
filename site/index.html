@@ -59,7 +59,9 @@
         <div class="card"><span class="tag">RFC 0014</span><h3>Admin API and reload</h3><p>Block a network for an hour, see the top talkers and the detection state, and change limits, routes or the challenge with <code>SIGHUP</code>: clients keep their buckets, a bad file is refused whole.</p></div>
         <div class="card"><span class="tag">RFC 0015</span><h3>Upstream pools</h3><p>Spread traffic over several upstreams by round robin or least requests. Health checks and passive ejection take a failing one out; idempotent requests retry on another within a budget.</p></div>
         <div class="card"><span class="tag">RFC 0016</span><h3>Replay</h3><p>Try a new limit, route or detection threshold on yesterday's access log before it reaches clients: <code>dvarapala replay</code> runs the same layers on a virtual clock and prints the verdict counts.</p></div>
-        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
+        <div class="card"><span class="tag">RFC 0017</span><h3>WAF</h3><p>OWASP Coraza with the Core Rule Set, in a <code>coraza-spoa</code> sidecar, inspects what passed the limits and blocks SQL injection, XSS and similar attacks. Start in <code>observe</code>, add exclusions, then enforce.</p></div>
+        <div class="card"><span class="tag">RFC 0018</span><h3>Admin console</h3><p>A web console on the admin listener: live request rates, the detection state, top talkers, blocks and reload. Log in with the admin token or through your OIDC provider.</p></div>
+        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store, XDP and the WAF on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
   </section>
@@ -76,6 +78,7 @@
           <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
           <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
           <li><b>Challenge</b> browsers with a proof of work during an attack, and fingerprint TLS clients by JA4.</li>
+          <li><b>Inspect</b> what passed with the OWASP Core Rule Set: an optional Coraza sidecar blocks SQL injection, XSS and similar attacks.</li>
           <li><b>Forward</b> what passes to a healthy upstream of the pool, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
           <li><b>Share</b> counts across replicas through Redis or PostgreSQL, so a cluster holds one limit.</li>
           <li><b>Report</b> every verdict as a metric and a structured log line.</li>
@@ -97,7 +100,7 @@ mode = "observe"  <span class="c"># log only; "enforce" later</span>
 
 [metrics]
 listen = "127.0.0.1:9090"</pre>
-        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters and XDP.</p>
+        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters, XDP and the WAF.</p>
       </div>
     </div>
   </section>
@@ -135,7 +138,7 @@ docker run --rm -p 8080:8080 \
 
 <footer>
   <div class="wrap">
-    <span>dvarapala, MIT licensed.</span>
+    <span>dvarapala, MIT licensed. <a href="https://github.com/franzramadhan/dvarapala/blob/main/CREDITS.md">Credits</a>.</span>
     <span class="right">
       <a href="docs/">Docs</a>
       <a href="https://github.com/franzramadhan/dvarapala/blob/main/CHANGELOG.md">Changelog</a>

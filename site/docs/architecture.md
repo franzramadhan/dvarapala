@@ -43,6 +43,9 @@ carry out what it decides.
   challenge  no pass during an attack (or always) -> proof-of-work page,
     |        then a signed cookie and the normal limit
     v
+  waf        optional coraza-spoa sidecar over SPOP  -> observe: log only
+    |        (OWASP CRS), body up to max_body           enforce: 403
+    v
   pool       round robin or least requests over healthy endpoints,
     |        budgeted retry of an idempotent request on a connect error
     v
@@ -59,8 +62,13 @@ passes a check again. With every endpoint out the pool still picks one
 and counts it as degraded, so a wrong health check is not an outage.
 Without `[pool]`, `upstream` is a pool of one with no checks.
 
-The admin API ([Operations](operations.html)) runs on its own listener,
-next to the metrics one, and changes the running policy in place.
+The admin API and its web console ([Operations](operations.html)) run on
+its own listener, next to the metrics one, and change the running policy
+in place.
+
+With `[waf]` ([RFC 0017](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0017-waf.md)), the agent is a separate
+process: rules change without a dvarapala build, and its memory and CPU
+stay out of the proxy. See [WAF](waf.html).
 
 Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 `grpc-status`), so clients see a status code instead of a broken stream.
@@ -105,7 +113,8 @@ background task syncs every `sync_interval`. See [Clusters](clusters.html).
 
 The protection path fails closed: when a limit cannot be decided, the
 request does not pass. It fails open only where an RFC says so, and logs
-it: a lost store falls back to local limits. Shutdown drains in-flight requests and open tunnels for up to 30 s.
+it: a lost store falls back to local limits, and `waf.on_error = "pass"`
+forwards when the WAF agent fails. Shutdown drains in-flight requests and open tunnels for up to 30 s.
 
 ## Stack
 
