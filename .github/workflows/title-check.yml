@@ -44,6 +44,7 @@ jobs:
             store
             xdp
             ffi
+            operator
             sdk
             cli
             config

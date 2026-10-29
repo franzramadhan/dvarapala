@@ -192,6 +192,7 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
         ("xdp", start.xdp != new.xdp),
         ("admin", start.admin != new.admin),
         ("pool", start.pool != new.pool),
+        ("config_watch", start.config_watch != new.config_watch),
     ]
     .into_iter()
     .filter_map(|(k, changed)| changed.then_some(k))

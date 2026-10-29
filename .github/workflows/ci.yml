@@ -23,6 +23,7 @@ jobs:
     outputs:
       rust: ${{ steps.files.outputs.rust }}
       ui: ${{ steps.files.outputs.ui }}
+      operator: ${{ steps.files.outputs.operator }}
     steps:
       - id: files
         env:
@@ -37,6 +38,9 @@ jobs:
           ui=false
           if grep -qE '^(ui/|\.github/workflows/ci\.yml$)' <<<"$files"; then ui=true; fi
           printf 'ui=%s\n' "$ui" >> "$GITHUB_OUTPUT"
+          operator=false
+          if grep -qE '^(crates/(operator|dvarapala)/|deploy/|Dockerfile$|Cargo\.lock$|\.github/workflows/ci\.yml$)' <<<"$files"; then operator=true; fi
+          printf 'operator=%s\n' "$operator" >> "$GITHUB_OUTPUT"
 
   # betterleaks over the PR's commits only. Pinned by version and sha256
   # from the release's checksums.txt; keep the version in step with mise.toml.
@@ -275,6 +279,54 @@ jobs:
           xdp=$(stat -c %s target/release/dvarapala)
           echo "binary: ${BASE_SIZE} bytes, with xdp: ${xdp} bytes"
           [ $((xdp - BASE_SIZE)) -lt 1048576 ] || { echo "::error::xdp adds $((xdp - BASE_SIZE)) bytes, budget 1048576"; exit 1; }
+
+  # RFC 0019 cases 15 to 21: the operator on kind, with Envoy Gateway and
+  # ingress-nginx, then with Cilium replacing kube-proxy. One job, so a
+  # skipped run reports the one required check.
+  operator-e2e:
+    needs: changes
+    if: needs.changes.outputs.operator == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # skips until the stack layer with deploy/e2e lands
+      - id: has
+        run: if [ -x deploy/e2e/run.sh ]; then echo "e2e=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.has.outputs.e2e == 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - if: steps.has.outputs.e2e == 'true'
+        run: rustup target add x86_64-unknown-linux-musl
+      - if: steps.has.outputs.e2e == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: operator-e2e
+      - if: steps.has.outputs.e2e == 'true'
+        name: Images
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target x86_64-unknown-linux-musl -p dvarapala -p dvarapala-operator
+          mkdir -p dist/amd64
+          cp target/x86_64-unknown-linux-musl/release/{dvarapala,dvarapala-operator} dist/amd64/
+          docker build --platform linux/amd64 -t dvarapala:e2e .
+          docker build --platform linux/amd64 --target operator -t dvarapala-operator:e2e .
+      - if: steps.has.outputs.e2e == 'true'
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          install_only: true
+      - if: steps.has.outputs.e2e == 'true'
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - if: steps.has.outputs.e2e == 'true'
+        run: deploy/e2e/run.sh default
+      - if: failure() && steps.has.outputs.e2e == 'true'
+        run: deploy/e2e/dump.sh default
+      - if: steps.has.outputs.e2e == 'true'
+        run: kind delete cluster --name dvarapala-e2e-default
+      - if: steps.has.outputs.e2e == 'true'
+        run: deploy/e2e/run.sh cilium
+      - if: failure() && steps.has.outputs.e2e == 'true'
+        run: deploy/e2e/dump.sh cilium
 
   # RFC 0008 cases 9, 10, 17: the Go package over the static library
   go:
