@@ -10,9 +10,9 @@ use dvarapala_l4::{BodyRate, MinBodyRate, is_too_slow};
 use dvarapala_l7::{GrpcStatus, PeerAddr, grpc_response, is_grpc};
 use http::header::{CONNECTION, HeaderValue, UPGRADE};
 use http::uri::{Authority, Scheme};
-use http::{Request, Response, StatusCode, Uri, Version};
+use http::{Method, Request, Response, StatusCode, Uri, Version};
 use http_body_util::combinators::BoxBody;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Either, Empty};
 use hyper::body::Body;
 use hyper_util::client::legacy::Client;
 #[cfg(not(feature = "tls"))]
@@ -20,7 +20,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use tower_service::Service;
 
 use crate::hop::{allowed_upgrade, append_forwarded_for, strip_hop_by_hop};
-use crate::pool::Pool;
+use crate::pool::{Pool, PoolConfig, PoolError};
 use crate::tunnels::Tunnels;
 use crate::upgrade::{self, Drain};
 use crate::{UpstreamConfig, UpstreamProtocol};
@@ -50,18 +50,20 @@ impl fmt::Display for UpstreamError {
 
 impl std::error::Error for UpstreamError {}
 
-/// Forwards every request to one upstream. Hop-by-hop headers are removed,
-/// the peer is appended to `X-Forwarded-For`, and the path and query are
-/// joined onto the upstream's base path. Allowed HTTP/1.1 upgrades become
-/// tunnels when the upstream answers `101` (RFC 0005).
+/// Forwards every request to an upstream of its pool (RFC 0015). Hop-by-hop
+/// headers are removed, the peer is appended to `X-Forwarded-For`, and the
+/// path and query are joined onto the upstream's base path. Allowed
+/// HTTP/1.1 upgrades become tunnels when the upstream answers `101` (RFC
+/// 0005).
 pub struct ReverseProxy<B> {
-    scheme: Scheme,
-    authority: Authority,
-    base_path: String,
+    pool: Arc<Pool>,
     protocol: UpstreamProtocol,
     tunnels: Arc<Tunnels>,
-    client: Client<Connector, MinBodyRate<B>>,
+    client: Client<Connector, ReqBody<B>>,
 }
+
+/// The client's body, or none for a request that may be retried.
+type ReqBody<B> = Either<MinBodyRate<B>, Empty<Bytes>>;
 
 #[cfg(feature = "tls")]
 type Connector = crate::tls::Connector;
@@ -71,9 +73,7 @@ type Connector = HttpConnector;
 impl<B> Clone for ReverseProxy<B> {
     fn clone(&self) -> Self {
         Self {
-            scheme: self.scheme.clone(),
-            authority: self.authority.clone(),
-            base_path: self.base_path.clone(),
+            pool: self.pool.clone(),
             protocol: self.protocol,
             tunnels: self.tunnels.clone(),
             client: self.client.clone(),
@@ -88,7 +88,7 @@ where
 {
     /// An `http://` upstream.
     pub fn new(upstream: &str) -> Result<Self, UpstreamError> {
-        let (scheme, authority, base_path) = parse(upstream, false)?;
+        parse(upstream, false)?;
         #[cfg(feature = "tls")]
         let connector = crate::tls::UpstreamTls::default()
             .connector(false, UpstreamProtocol::Http1)
@@ -96,60 +96,57 @@ where
         #[cfg(not(feature = "tls"))]
         let connector = HttpConnector::new();
         Ok(Self::build(
-            scheme,
-            authority,
-            base_path,
+            single(upstream)?,
             connector,
             &UpstreamConfig::default(),
         ))
     }
 
-    /// Every request to an endpoint of `pool`; listeners share one pool
-    /// and its health (RFC 0015).
-    pub fn with_pool(_pool: Arc<Pool>, _config: &UpstreamConfig) -> Result<Self, UpstreamError> {
-        todo!("rfc 0015")
-    }
-
     /// Like [`ReverseProxy::new`], with the protocol from `config`, and
     /// also `https://` upstreams with the `tls` feature (RFC 0003, 0004).
     pub fn with_config(upstream: &str, config: &UpstreamConfig) -> Result<Self, UpstreamError> {
-        let (scheme, authority, base_path) = parse(upstream, cfg!(feature = "tls"))?;
+        Self::with_pool(single(upstream)?, config)
+    }
+
+    /// Every request to an endpoint of `pool`; listeners share one pool
+    /// and its health (RFC 0015).
+    pub fn with_pool(pool: Arc<Pool>, config: &UpstreamConfig) -> Result<Self, UpstreamError> {
         #[cfg(feature = "tls")]
         let connector = config
             .tls
-            .connector(scheme == Scheme::HTTPS, config.protocol)
+            .connector(pool.https(), config.protocol)
             .map_err(UpstreamError::Tls)?;
         #[cfg(not(feature = "tls"))]
         let connector = HttpConnector::new();
-        Ok(Self::build(scheme, authority, base_path, connector, config))
+        Ok(Self::build(pool, connector, config))
     }
 
-    fn build(
-        scheme: Scheme,
-        authority: Authority,
-        base_path: String,
-        connector: Connector,
-        config: &UpstreamConfig,
-    ) -> Self {
+    fn build(pool: Arc<Pool>, connector: Connector, config: &UpstreamConfig) -> Self {
         Self {
-            scheme,
-            authority,
-            base_path,
+            pool,
             protocol: config.protocol,
             tunnels: Tunnels::new(config.upgrade.clone()),
             client: config.protocol.client(connector),
         }
     }
+}
 
-    /// The upstream URI for `uri`: base path, then the request's path and query.
-    fn target(&self, uri: &Uri) -> Result<Uri, http::Error> {
-        let pq = uri.path_and_query().map_or("/", |pq| pq.as_str());
-        Uri::builder()
-            .scheme(self.scheme.clone())
-            .authority(self.authority.clone())
-            .path_and_query(format!("{}{pq}", self.base_path))
-            .build()
+fn single(upstream: &str) -> Result<Arc<Pool>, UpstreamError> {
+    match Pool::new(PoolConfig::single(upstream)) {
+        Ok(p) => Ok(Arc::new(p)),
+        Err(PoolError::Upstream(e)) => Err(e),
+        Err(_) => Err(UpstreamError::Invalid(upstream.to_owned())),
     }
+}
+
+/// The URI on endpoint `i`: its base path, then the request's path and query.
+fn target(pool: &Pool, i: usize, pq: &str) -> Result<Uri, http::Error> {
+    let e = &pool.endpoints[i];
+    Uri::builder()
+        .scheme(e.scheme.clone())
+        .authority(e.authority.clone())
+        .path_and_query(format!("{}{pq}", e.base_path))
+        .build()
 }
 
 impl<B> Service<Request<B>> for ReverseProxy<B>
@@ -181,11 +178,17 @@ where
         };
         let (mut parts, body) = req.into_parts();
         let drain = parts.extensions.remove::<Drain>();
-        let target = match self.target(&parts.uri) {
+        let pq = parts
+            .uri
+            .path_and_query()
+            .map_or("/", |pq| pq.as_str())
+            .to_owned();
+        let pool = self.pool.clone();
+        let first = pool.pick(None);
+        parts.uri = match target(&pool, first, &pq) {
             Ok(t) => t,
             Err(_) => return Box::pin(async { Ok(status(StatusCode::BAD_REQUEST)) }),
         };
-        parts.uri = target;
         // the upstream protocol is fixed by config, not by the client
         parts.version = self.protocol.version();
         let grpc = is_grpc(&parts.headers);
@@ -196,11 +199,56 @@ where
         if let Some(PeerAddr(peer)) = parts.extensions.get::<PeerAddr>() {
             append_forwarded_for(&mut parts.headers, peer.ip());
         }
-        let rate = parts.extensions.get::<BodyRate>().map_or(0, |r| r.0);
-        let body = MinBodyRate::new(body, rate);
-        let fut = self.client.request(Request::from_parts(parts, body));
+        pool.budget.earn();
+        // only a request without a body can be sent again
+        let again = (pool.retries > 0
+            && tunnel.is_none()
+            && matches!(parts.method, Method::GET | Method::HEAD | Method::OPTIONS)
+            && body.is_end_stream())
+        .then(|| (parts.method.clone(), parts.headers.clone(), parts.version));
+        let body = if again.is_some() {
+            Either::Right(Empty::new())
+        } else {
+            let rate = parts.extensions.get::<BodyRate>().map_or(0, |r| r.0);
+            Either::Left(MinBodyRate::new(body, rate))
+        };
+        let client = self.client.clone();
+        let mut req = Request::from_parts(parts, body);
         Box::pin(async move {
-            Ok(match fut.await {
+            let mut i = first;
+            let mut retries = 0;
+            let result = loop {
+                // ponytail: in flight until the response headers, not the body end
+                let flight = pool.start(i);
+                let result = client.request(req).await;
+                drop(flight);
+                pool.report(i, healthy(&result));
+                let e = match result {
+                    Err(e) if e.is_connect() && retries < pool.retries => e,
+                    result => break result,
+                };
+                let Some((method, headers, version)) = &again else {
+                    break Err(e);
+                };
+                if !pool.budget.spend() {
+                    metrics::counter!("dvarapala_upstream_retries_total", "result" => "budget")
+                        .increment(1);
+                    break Err(e);
+                }
+                metrics::counter!("dvarapala_upstream_retries_total", "result" => "sent")
+                    .increment(1);
+                retries += 1;
+                i = pool.pick(Some(i));
+                let Ok(uri) = target(&pool, i, &pq) else {
+                    break Err(e);
+                };
+                req = Request::new(Either::Right(Empty::new()));
+                *req.method_mut() = method.clone();
+                *req.headers_mut() = headers.clone();
+                *req.version_mut() = *version;
+                *req.uri_mut() = uri;
+            };
+            Ok(match result {
                 Ok(mut res) => {
                     let switched = res.status() == StatusCode::SWITCHING_PROTOCOLS;
                     let tunnel = tunnel.filter(|_| switched);
@@ -226,6 +274,15 @@ where
                 }
             })
         })
+    }
+}
+
+/// Whether the endpoint answered: a connect error, a timeout or a `502`
+/// to `504` count against it, a client too slow to send its body does not.
+fn healthy<T>(result: &Result<Response<T>, hyper_util::client::legacy::Error>) -> bool {
+    match result {
+        Ok(res) => !matches!(res.status().as_u16(), 502..=504),
+        Err(e) => is_too_slow(e),
     }
 }
 

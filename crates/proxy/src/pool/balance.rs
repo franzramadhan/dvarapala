@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unreachable_code)]
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -41,7 +40,16 @@ impl PoolConfig {
     /// One upstream, no health checks, no ejection, no retries: the
     /// behavior before RFC 0015.
     pub fn single(upstream: &str) -> Self {
-        todo!("rfc 0015")
+        Self {
+            upstreams: vec![upstream.to_owned()],
+            balance: Balance::RoundRobin,
+            health: None,
+            eject_after: 0,
+            eject_time: Duration::ZERO,
+            retries: 0,
+            retry_budget: 0.0,
+            now: Instant::now,
+        }
     }
 }
 
@@ -54,7 +62,11 @@ pub enum PoolError {
 
 impl fmt::Display for PoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("rfc 0015")
+        match self {
+            Self::Empty => f.write_str("the pool has no upstream"),
+            Self::TooMany(n) => write!(f, "{n} upstreams, at most {MAX_ENDPOINTS}"),
+            Self::Upstream(e) => e.fmt(f),
+        }
     }
 }
 
@@ -98,54 +110,192 @@ pub(crate) struct InFlight<'a>(&'a Endpoint);
 
 impl Drop for InFlight<'_> {
     fn drop(&mut self) {
-        todo!("rfc 0015")
+        let n = self.0.in_flight.fetch_sub(1, Ordering::Relaxed) - 1;
+        metrics::gauge!("dvarapala_upstream_in_flight", "upstream" => self.0.label).set(n as f64);
     }
 }
 
 impl Pool {
     /// Fails on an empty list, more than 64 upstreams or a bad URL.
     pub fn new(config: PoolConfig) -> Result<Self, PoolError> {
-        todo!("rfc 0015")
+        let n = config.upstreams.len();
+        if n == 0 {
+            return Err(PoolError::Empty);
+        }
+        if n > MAX_ENDPOINTS {
+            return Err(PoolError::TooMany(n));
+        }
+        let endpoints = config
+            .upstreams
+            .iter()
+            .map(|u| {
+                let (scheme, authority, base_path) =
+                    parse(u, cfg!(feature = "tls")).map_err(PoolError::Upstream)?;
+                let label = Box::leak(authority.as_str().to_owned().into_boxed_str());
+                Ok(Endpoint {
+                    scheme,
+                    authority,
+                    base_path,
+                    label,
+                    in_flight: AtomicUsize::new(0),
+                    failures: AtomicU32::new(0),
+                    ejected_until: AtomicU64::new(0),
+                    down: AtomicBool::new(false),
+                    streak: AtomicU32::new(0),
+                })
+            })
+            .collect::<Result<_, PoolError>>()?;
+        let pool = Self {
+            endpoints,
+            balance: config.balance,
+            next: AtomicUsize::new(0),
+            eject_after: config.eject_after,
+            eject_time: config.eject_time,
+            retries: config.retries,
+            budget: RetryBudget::new(config.retry_budget),
+            health: config.health,
+            now: config.now,
+            epoch: (config.now)(),
+            degraded_log: AtomicU64::new(0),
+        };
+        pool.endpoints.iter().for_each(|e| pool.gauge(e));
+        Ok(pool)
     }
 
     /// Whether any endpoint is `https://`.
     #[cfg(feature = "tls")]
     pub(crate) fn https(&self) -> bool {
-        todo!("rfc 0015")
+        self.endpoints.iter().any(|e| e.scheme == Scheme::HTTPS)
     }
 
     fn ms(&self) -> u64 {
-        todo!("rfc 0015")
+        // +1 so that 0 stays "not ejected"
+        (self.now)()
+            .saturating_duration_since(self.epoch)
+            .as_millis() as u64
+            + 1
     }
 
     fn up(&self, e: &Endpoint, now: u64) -> bool {
-        todo!("rfc 0015")
+        !e.down.load(Ordering::Relaxed) && e.ejected_until.load(Ordering::Relaxed) <= now
     }
 
     /// The endpoint for the next request, never `skip` when another is
     /// left. With none up, any of them (fail open, counted).
     pub fn pick(&self, skip: Option<usize>) -> usize {
-        todo!("rfc 0015")
+        let n = self.endpoints.len();
+        // a retry does not move the rotation
+        let start = match skip {
+            None => self.next.fetch_add(1, Ordering::Relaxed),
+            Some(_) => self.next.load(Ordering::Relaxed),
+        };
+        let now = self.ms();
+        let order = (0..n)
+            .map(|k| (start + k) % n)
+            .filter(|&i| Some(i) != skip || n == 1);
+        let best = |up: bool| {
+            let mut found: Option<(usize, usize)> = None;
+            for i in order.clone() {
+                let e = &self.endpoints[i];
+                if up && !self.up(e, now) {
+                    continue;
+                }
+                let load = match self.balance {
+                    Balance::RoundRobin => return Some(i),
+                    Balance::LeastRequests => e.in_flight.load(Ordering::Relaxed),
+                };
+                if found.is_none_or(|(_, l)| load < l) {
+                    found = Some((i, load));
+                }
+            }
+            found.map(|(i, _)| i)
+        };
+        if let Some(i) = best(true) {
+            return i;
+        }
+        metrics::counter!("dvarapala_upstream_degraded_total").increment(1);
+        let last = self.degraded_log.load(Ordering::Relaxed);
+        if now >= last + 1000
+            && self
+                .degraded_log
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            tracing::warn!(
+                msg = "pool degraded",
+                "no upstream healthy, picking among all"
+            );
+        }
+        best(false).unwrap_or(start % n)
     }
 
     pub(crate) fn start(&self, i: usize) -> InFlight<'_> {
-        todo!("rfc 0015")
+        let e = &self.endpoints[i];
+        let n = e.in_flight.fetch_add(1, Ordering::Relaxed) + 1;
+        metrics::gauge!("dvarapala_upstream_in_flight", "upstream" => e.label).set(n as f64);
+        InFlight(e)
     }
 
     /// A finished request: `ok` false on a connect error, a timeout or a
     /// `502` to `504`.
     pub fn report(&self, i: usize, ok: bool) {
-        todo!("rfc 0015")
+        let e = &self.endpoints[i];
+        let result = if ok { "ok" } else { "error" };
+        metrics::counter!("dvarapala_upstream_requests_total", "upstream" => e.label, "result" => result)
+            .increment(1);
+        if ok {
+            e.failures.store(0, Ordering::Relaxed);
+            if e.ejected_until.swap(0, Ordering::Relaxed) != 0 {
+                self.gauge(e);
+            }
+            return;
+        }
+        let failures = e.failures.fetch_add(1, Ordering::Relaxed) + 1;
+        if self.eject_after == 0 || failures < self.eject_after {
+            return;
+        }
+        // one failure short, so that a failed trial ejects again
+        e.failures.store(self.eject_after - 1, Ordering::Relaxed);
+        let until = self.ms() + self.eject_time.as_millis() as u64;
+        e.ejected_until.store(until, Ordering::Relaxed);
+        metrics::counter!("dvarapala_upstream_ejections_total", "upstream" => e.label).increment(1);
+        self.gauge(e);
+        tracing::warn!(msg = "upstream ejected", upstream = e.label, failures, eject_time = ?self.eject_time);
     }
 
     /// An active check result; `unhealthy_after` and `healthy_after` from
     /// the health config.
     pub fn check(&self, i: usize, ok: bool) {
-        todo!("rfc 0015")
+        let Some(h) = &self.health else { return };
+        let e = &self.endpoints[i];
+        // streak: passes in the low half, failures in the high half
+        let s = e.streak.load(Ordering::Relaxed);
+        let (passed, failed) = if ok {
+            ((s & 0xffff) + 1, 0)
+        } else {
+            (0, (s >> 16) + 1)
+        };
+        e.streak.store(
+            (failed.min(0xffff) << 16) | passed.min(0xffff),
+            Ordering::Relaxed,
+        );
+        let down = e.down.load(Ordering::Relaxed);
+        if !down && failed >= h.unhealthy_after {
+            e.down.store(true, Ordering::Relaxed);
+            tracing::warn!(msg = "upstream unhealthy", upstream = e.label, failed);
+        } else if down && passed >= h.healthy_after {
+            e.down.store(false, Ordering::Relaxed);
+            tracing::info!(msg = "upstream healthy", upstream = e.label, passed);
+        } else {
+            return;
+        }
+        self.gauge(e);
     }
 
     fn gauge(&self, e: &Endpoint) {
-        todo!("rfc 0015")
+        let up = self.up(e, self.ms());
+        metrics::gauge!("dvarapala_upstream_healthy", "upstream" => e.label)
+            .set(f64::from(u8::from(up)));
     }
 }
 
@@ -166,7 +316,6 @@ mod tests {
 
     // RFC 0015 case 1
     #[test]
-    #[ignore = "rfc 0015"]
     fn round_robin_spreads_evenly() {
         let p = pool(3, Balance::RoundRobin);
         let mut n = [0; 3];
@@ -178,7 +327,6 @@ mod tests {
 
     // RFC 0015 case 2
     #[test]
-    #[ignore = "rfc 0015"]
     fn least_requests_picks_the_idlest() {
         let p = pool(3, Balance::LeastRequests);
         let a = [p.start(0), p.start(0)];
@@ -202,7 +350,6 @@ mod tests {
 
     // RFC 0015 case 3
     #[test]
-    #[ignore = "rfc 0015"]
     fn ejection_and_trial() {
         let t0 = Instant::now();
         *NOW.lock().unwrap() = Some(t0);
@@ -236,7 +383,6 @@ mod tests {
 
     // RFC 0015 case 4
     #[test]
-    #[ignore = "rfc 0015"]
     fn active_checks_take_out_and_bring_back() {
         let mut c = PoolConfig::single("http://192.0.2.1:80");
         c.upstreams.push("http://192.0.2.2:80".into());
@@ -262,7 +408,6 @@ mod tests {
 
     // RFC 0015 case 5
     #[test]
-    #[ignore = "rfc 0015"]
     fn none_up_picks_among_all() {
         let mut c = PoolConfig::single("http://192.0.2.1:80");
         c.upstreams.push("http://192.0.2.2:80".into());
@@ -278,7 +423,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0015"]
     fn bounds() {
         let mut c = PoolConfig::single("http://192.0.2.1:80");
         c.upstreams.clear();
