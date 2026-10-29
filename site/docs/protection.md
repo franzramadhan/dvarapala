@@ -120,6 +120,16 @@ still apply to every request. Each route's table holds at most
 
 Keys: [`[[routes]]`](configuration.html#routes).
 
+## Manual blocks
+
+`POST /blocks?cidr=<net>&ttl=<duration>` on the admin API blocks a
+network until the `ttl` ends: `403` and the connection closed before any
+other check, and an XDP drop too when `[xdp]` is on. At most
+`admin.max_blocks` blocks, each at most `admin.max_block_ttl` long. See
+[Operations](operations.html).
+
+Keys: [`[admin]`](configuration.html#admin).
+
 ## Across replicas
 
 With a `[store]` (Redis or PostgreSQL, features `redis` and `postgres`),

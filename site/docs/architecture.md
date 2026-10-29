@@ -25,6 +25,9 @@ carry out what it decides.
   identity   peer address, or X-Forwarded-For from a trusted proxy
     |
     v
+  blocks     manual blocks from the admin API -> 403, connection closed
+    |
+    v
   ja4 rules  fingerprint deny -> 403, challenge -> needs a pass
     |
     v
@@ -45,6 +48,9 @@ carry out what it decides.
     v
   upstream
 ```
+
+The admin API ([Operations](operations.html)) runs on its own listener,
+next to the metrics one, and changes the running policy in place.
 
 Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 `grpc-status`), so clients see a status code instead of a broken stream.

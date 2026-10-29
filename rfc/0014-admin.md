@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #112 | |
+| implemented | 2026-10-29 | #112 | v0.9.0 |
 
 > An authenticated admin listener to see the state, block a network by
 > hand and reload the config file, and `SIGHUP` reloading the protection
