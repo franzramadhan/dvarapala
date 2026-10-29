@@ -90,6 +90,9 @@ pub struct Config {
     pub pool: Pool,
     #[serde(default)]
     pub waf: Waf,
+    /// RFC 0019: poll the `--config` file and reload on a change; `None` is off.
+    #[serde(default, deserialize_with = "optional_duration")]
+    pub config_watch: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -195,6 +198,14 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
 
 fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
     parse_duration(&String::deserialize(d)?).map_err(de::Error::custom)
+}
+
+/// A duration, or `""` for none.
+fn optional_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+    match String::deserialize(d)?.as_str() {
+        "" => Ok(None),
+        s => parse_duration(s).map(Some).map_err(de::Error::custom),
+    }
 }
 
 fn default_listen() -> SocketAddr {
