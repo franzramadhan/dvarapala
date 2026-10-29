@@ -265,6 +265,8 @@ dependencies = [
  "metrics",
  "pin-project-lite",
  "ring",
+ "serde",
+ "serde_json",
  "tower-layer",
  "tower-service",
  "tracing",
