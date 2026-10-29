@@ -312,6 +312,49 @@ root) and only looks at packets to the TCP `listen` port and the UDP
 | `prefix_v4` / `prefix_v6` | integer | `32` / `64` | Source grouping for the rates |
 | `max_sources` | integer | `1048576` | Sources tracked, least recently seen evicted first: about 40 MB of kernel memory at the default, outside the process RSS |
 
+## `[challenge]`
+
+Proof-of-work challenge ([RFC 0012](rfc/0012-challenges.md)), in the
+reverse proxy's rate limiter (`rate_limit.enabled`). A browser without a
+pass gets a `403` page whose script finds a nonce such that
+`SHA-256(seed ":" nonce)` starts with `difficulty` zero bits, then loads
+`/.well-known/dvarapala/verify`. A right answer sets the pass cookie
+`dvarapala_pass` (HMAC, bound to the client key: the IPv4 address or IPv6
+/64) and redirects back. No state is kept on the server.
+
+- The client's bucket comes first: over its limit it gets `429` as before.
+- Heavy hitters in `enforce` mode are dropped, pass or not.
+- A client that does not accept `text/html` gets `429` without
+  `Retry-After`, gRPC gets `grpc-status: 8`. Exempt API paths from the
+  challenge by running them on another listener until per-route rules
+  exist.
+- A `POST` answered with the page is not replayed: the browser comes
+  back with a `GET` to the same URL.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mode` | `"off"`, `"attack"` or `"always"` | `"off"` | `"attack"`: requests without a pass are challenged while detection is in `Attack` and `detection.mode = "enforce"`; a pass keeps the normal limit instead of `attack_rate_factor`. Needs `detection.enabled`. `"always"`: every request without a pass |
+| `difficulty` | integer | `16` | Leading zero bits of work, 8 to 24; 16 is about 65 000 hashes, under a second in a browser |
+| `timeout` | duration | `"60s"` | How long a page's seed can be solved |
+| `pass_ttl` | duration | `"1h"` | How long a pass is valid |
+| `secret` | string | `""` | HMAC key, at least 32 bytes. Empty: a random key per process, so passes do not survive a restart or cross replicas (a warning when `store.backend` is not `"memory"`). Set it with `DVARAPALA__CHALLENGE__SECRET` |
+| `cookie_secure` | bool | `true` | `Secure` on the cookie; `false` for plain-HTTP labs |
+
+## `[fingerprint]`
+
+JA4 TLS fingerprints ([RFC 0012](rfc/0012-challenges.md)). With any key
+set, the TLS listener reads each ClientHello (up to 16 KiB, inside
+`tls.handshake_timeout`), computes its JA4 and replays the bytes to the
+handshake. Entries are a full JA4 (`"t13d1516h2_8daaf6152771_e5627efa2ab1"`)
+or a prefix ending in `*` (`"t13d1516h2_*"`). HTTP/3 and cleartext
+requests have no fingerprint and match no rule.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `deny` | list of strings | `[]` | Matching requests get `403` and the connection is closed |
+| `challenge` | list of strings | `[]` | Matching requests need a pass whatever the detector says; needs `challenge.mode` other than `"off"` |
+| `header` | string | `""` | Request header that carries the JA4 to the upstream, for example `"x-ja4"`; the client's own copy is removed. Empty sends none |
+
 ## gRPC
 
 Requests with `content-type: application/grpc` or `application/grpc+<codec>`
@@ -321,7 +364,8 @@ get local errors in gRPC form: HTTP 200 with `grpc-status` and
 | Cause | `grpc-status` |
 |---|---|
 | Rate limit or model score (`Throttle`) | `8` RESOURCE_EXHAUSTED, with `retry-after` and `grpc-retry-pushback-ms` |
-| Detection `Drop` | `7` PERMISSION_DENIED |
+| Challenge without a pass ([RFC 0012](rfc/0012-challenges.md)) | `8` RESOURCE_EXHAUSTED, without pushback |
+| Detection `Drop`, `fingerprint.deny` | `7` PERMISSION_DENIED |
 | Upstream unreachable | `14` UNAVAILABLE |
 
 Use `upstream_protocol = "http2"` for gRPC upstreams.
@@ -358,6 +402,9 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_l4_rejected_total{reason}` | Connections closed on accept: `total`, `per_client`, `rate`; logged as `connection limit` at most once a second |
 | `dvarapala_l4_timeouts_total{kind}` | Connections or requests cut by a timeout: `header`, `idle`, `body` (`408`) |
 | `dvarapala_l4_clients` | Clients in the per-client connection table |
+| `dvarapala_challenges_total{result}` | Challenges ([RFC 0012](rfc/0012-challenges.md)): `issued` (pages), `passed`, `failed` (stale or foreign seed, too little work), `invalid_pass` (a cookie that does not verify); `verdict="challenge"` in `dvarapala_requests_total` counts pages and `429`s for clients without a pass |
+| `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
+| `dvarapala_tls_ja4_total{result}` | ClientHellos fingerprinted (`ok`) or not (`unparsed`: not a whole ClientHello within 16 KiB) |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |
 | `dvarapala_tls_handshakes_in_progress` | Handshakes running now |
 | `dvarapala_tls_resumed_total` | Resumed sessions |

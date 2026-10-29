@@ -91,7 +91,22 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     // first: a fast path that was asked for and cannot attach stops here
     let block = xdp::start(&cfg)?;
     let h2 = http2(&cfg.http2)?;
-    let tls = listener_tls(&cfg.tls)?;
+    // RFC 0012: both run inside the reverse proxy's rate limiter
+    let fingerprints = cfg.fingerprint.rules(cfg.challenge.mode)?;
+    let challenge = cfg.challenge.config(cfg.detection.enabled)?;
+    let layered = cfg.mode == config::ProxyMode::Reverse && cfg.rate_limit.enabled;
+    if !layered && (fingerprints.enabled() || challenge.is_some()) {
+        tracing::warn!(
+            "challenge and fingerprint run inside the reverse proxy's rate limiter, which is off"
+        );
+    }
+    if challenge.is_some()
+        && cfg.challenge.secret.is_empty()
+        && cfg.store.backend != config::Backend::Memory
+    {
+        tracing::warn!("challenge.secret is empty: passes from one replica fail on the others");
+    }
+    let tls = listener_tls(&cfg.tls, layered && fingerprints.enabled())?;
     let tunnels = upgrade(&cfg.upgrade)?;
     #[cfg(feature = "tls")]
     let upstream_tls = UpstreamTls {
@@ -154,8 +169,8 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             now: Instant::now,
             cluster,
             block: block.clone(),
-            challenge: None,
-            fingerprints: Default::default(),
+            challenge,
+            fingerprints,
         })?)
     } else {
         if cfg.store.backend != config::Backend::Memory {
@@ -298,7 +313,7 @@ fn no_tls(tls: &config::Tls, upstream: &str) -> Result<(), String> {
 
 /// The listener's TLS, when `[tls]` is set.
 #[cfg(feature = "tls")]
-fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
+fn listener_tls(t: &config::Tls, fingerprint: bool) -> Result<Option<Tls>, Box<dyn Error>> {
     let Some((cert, key)) = t.paths()? else {
         return Ok(None);
     };
@@ -310,7 +325,7 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
         key: key.to_owned(),
         handshake_timeout: t.handshake_timeout,
         max_handshakes: t.max_handshakes,
-        fingerprint: false,
+        fingerprint,
     })
     .map_err(|e| format!("tls: {e}"))?;
     #[cfg(unix)]
@@ -329,7 +344,7 @@ fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
 }
 
 #[cfg(not(feature = "tls"))]
-fn listener_tls(t: &config::Tls) -> Result<Option<Tls>, Box<dyn Error>> {
+fn listener_tls(t: &config::Tls, _fingerprint: bool) -> Result<Option<Tls>, Box<dyn Error>> {
     no_tls(t, "")?;
     Ok(None)
 }
