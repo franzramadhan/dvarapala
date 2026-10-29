@@ -22,6 +22,12 @@ tracing.workspace = true
 # RFC 0012: HMAC passes and the proof-of-work hash; already in the tree
 # through rustls
 ring.workspace = true
+# RFC 0016: access log lines for dvarapala replay
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+replay = ["dep:serde", "dep:serde_json"]
 
 [dev-dependencies]
 criterion.workspace = true

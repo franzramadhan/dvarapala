@@ -8,6 +8,8 @@ mod fingerprint;
 mod grpc;
 mod peer;
 mod rate_limit;
+#[cfg(feature = "replay")]
+mod replay;
 mod reply;
 mod routes;
 
@@ -19,4 +21,6 @@ pub use fingerprint::{Fingerprints, Ja4};
 pub use grpc::{GrpcStatus, grpc_response, is_grpc};
 pub use peer::PeerAddr;
 pub use rate_limit::{RateLimit, RateLimitConfig, RateLimitLayer};
+#[cfg(feature = "replay")]
+pub use replay::{Line, MAX_HEADERS, MAX_LINE, fuzz_replay_line};
 pub use routes::{Host, Matcher, PathMatch, RouteConfig, RouteKey, Routes, fuzz_route_match};
