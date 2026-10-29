@@ -65,7 +65,7 @@ Every protection change is a guess until it runs on real traffic:
 
 | Crate / module | Responsibility |
 |---|---|
-| `crates/l7/src/replay/line.rs` | `Line`: parse one log line, build the request with its `PeerAddr` and `Ja4` (feature `replay`) |
+| `crates/l7/src/replay.rs` | `Line`: parse one log line, build the request with its `PeerAddr` and `Ja4` (feature `replay`) |
 | `crates/dvarapala/src/replay.rs` | the subcommand: read lines, the virtual clock, drive the layer, the report and `--out` |
 
 ### Configuration
@@ -126,3 +126,23 @@ No new keys. The subcommand reads the same file as `serve`.
   unless it grows the release binary by more than 150 KB, in which case
   it stays opt-in and the implementation notes say so.
 - **Off switch:** a subcommand, nothing runs unless it is called.
+
+## Implementation notes
+
+Found while building:
+
+- `Line` is one file, `crates/l7/src/replay.rs`, not a `replay/`
+  module: it has one concern.
+- The layer's config moved out of `main.rs` into
+  `crates/dvarapala/src/layer.rs`, which `serve` and `replay` both call;
+  `serve` then adds the store and the XDP block list.
+- The virtual clock is a `fn() -> Instant` over a static base and an
+  atomic offset, since `RateLimitConfig.now` takes a plain function.
+- Replay needs `mode = "reverse"` and `rate_limit.enabled`, the only
+  setup where the layer runs, and exits with status 2 otherwise.
+- Lines over 64 KiB are cut while reading and the rest is skipped
+  unbuffered, so one huge line costs no more than 64 KiB of memory.
+- `replay` adds 116 KB to the release binary (macOS arm64), under the
+  150 KB bar, so the binary enables it by default.
+- The bench (case 10) is a plain timing of the release binary, not
+  criterion: 1.7 s for one million lines from 10000 clients on a laptop.

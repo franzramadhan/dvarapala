@@ -480,6 +480,37 @@ get local errors in gRPC form: HTTP 200 with `grpc-status` and
 
 Use `upstream_protocol = "http2"` for gRPC upstreams.
 
+## Replay
+
+`dvarapala replay --config <file> [--out <file>] <log | ->`
+([RFC 0016](rfc/0016-replay.md)) runs the reverse proxy's protection layer
+from the same config over a JSON Lines access log, on a virtual clock taken
+from each line's `ts`, and prints the protection metrics. Needs `mode =
+"reverse"` and `rate_limit.enabled`; `upstream` may be any URL, nothing is
+sent. In builds with the `replay` feature (on by default).
+
+| Field | Default | Description |
+|---|---|---|
+| `ts` | required | Unix time in seconds, fractions allowed; a `ts` earlier than the previous one keeps the clock where it is |
+| `client` | required | Peer address, IPv4 or IPv6 |
+| `method` | `"GET"` | |
+| `host` | `""` | The `Host` header |
+| `path` | `"/"` | Path and query |
+| `xff` | none | `X-Forwarded-For`, used only from `trusted_proxies` |
+| `ja4` | none | The client's JA4 |
+| `headers` | `{}` | Other request headers, name to value |
+
+Unknown fields are ignored. A line that does not parse, is over 64 KiB or
+has over 64 headers is skipped and counted; the first ten are logged as
+`line skipped` and listed in the report. The report has the line counts,
+the virtual time span, then the `dvarapala_requests_total`,
+`dvarapala_challenges_total`, `dvarapala_fingerprint_matches_total`,
+`dvarapala_route_requests_total` and `dvarapala_detection_*` series as
+`/metrics` shows them. `--out` writes `{"line":N,"status":S}` per replayed
+line. `upstream`, `[pool]`, `[tls]`, `[quic]`, `[l4]`, `[store]`, `[xdp]` and
+`[admin]` are ignored, named in one `replay ignores` warning. A config that
+does not load or a log that cannot be opened exits with status 2.
+
 ## Metrics
 
 Served on `metrics.listen` at `/metrics`.

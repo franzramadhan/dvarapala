@@ -68,7 +68,6 @@ fn series(report: &str, series: &str) -> u64 {
 
 // RFC 0016 case 3
 #[test]
-#[ignore = "rfc 0016"]
 fn virtual_clock_refills_the_bucket() {
     let d = Dir::new("clock");
     let cfg = d.file("c.toml", &base(1, 1));
@@ -87,7 +86,6 @@ fn virtual_clock_refills_the_bucket() {
 
 // RFC 0016 case 4
 #[test]
-#[ignore = "rfc 0016"]
 fn time_going_back_keeps_the_clock() {
     let d = Dir::new("back");
     let cfg = d.file("c.toml", &base(1, 1));
@@ -113,7 +111,6 @@ fn time_going_back_keeps_the_clock() {
 
 // RFC 0016 case 5
 #[test]
-#[ignore = "rfc 0016"]
 fn route_drops_are_reported() {
     let d = Dir::new("route");
     let cfg = d.file(
@@ -146,7 +143,6 @@ fn route_drops_are_reported() {
 
 // RFC 0016 case 6
 #[test]
-#[ignore = "rfc 0016"]
 fn detection_drops_the_flooding_prefix_only() {
     let d = Dir::new("detect");
     let cfg = d.file(
@@ -186,7 +182,6 @@ fn detection_drops_the_flooding_prefix_only() {
 
 // RFC 0016 case 7
 #[test]
-#[ignore = "rfc 0016"]
 fn out_has_one_line_per_replayed_line() {
     let d = Dir::new("out");
     let cfg = d.file("c.toml", &base(1, 1));
@@ -213,7 +208,6 @@ fn out_has_one_line_per_replayed_line() {
 
 // RFC 0016 case 8
 #[test]
-#[ignore = "rfc 0016"]
 fn network_keys_warn_and_bad_lines_skip() {
     let d = Dir::new("skip");
     let cfg = d.file(
@@ -237,7 +231,6 @@ fn network_keys_warn_and_bad_lines_skip() {
 
 // RFC 0016 case 9
 #[test]
-#[ignore = "rfc 0016"]
 fn bad_inputs_exit_2() {
     let d = Dir::new("bad");
     let cfg = d.file("c.toml", &base(1, 1));
