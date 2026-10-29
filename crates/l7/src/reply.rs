@@ -1,5 +1,6 @@
 //! Local answers to requests the layer refuses, and their metrics.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use dvarapala_engine::Verdict;
@@ -8,7 +9,23 @@ use http::{Response, StatusCode};
 
 use crate::{GrpcStatus, grpc_response};
 
+/// The `verdict` values of `dvarapala_requests_total`.
+const VERDICTS: [&str; 5] = ["allow", "throttle", "challenge", "drop", "error"];
+static TOTALS: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+
+/// The totals behind `dvarapala_requests_total` per verdict since start,
+/// protocol and scope folded in (RFC 0018, admin `/status`).
+pub fn totals() -> [(&'static str, u64); 5] {
+    let _ = (&VERDICTS, &TOTALS, Ordering::Relaxed);
+    todo!("rfc 0018")
+}
+
+fn total(verdict: &str) {
+    let _ = verdict;
+}
+
 pub(crate) fn count(verdict: &'static str, protocol: &'static str) {
+    total(verdict);
     metrics::counter!("dvarapala_requests_total", "verdict" => verdict, "protocol" => protocol)
         .increment(1);
 }
@@ -51,13 +68,16 @@ pub(crate) fn reject<R: Default>(
     };
     match scope {
         Scope::Local => count(label, protocol),
-        Scope::Cluster | Scope::Block => metrics::counter!(
+        Scope::Cluster | Scope::Block => {
+            total(label);
+            metrics::counter!(
             "dvarapala_requests_total",
             "verdict" => label,
             "protocol" => protocol,
             "scope" => if scope == Scope::Block { "block" } else { "cluster" }
-        )
-        .increment(1),
+            )
+            .increment(1);
+        }
     }
     if grpc {
         return grpc_response(grpc_status, retry_after);
