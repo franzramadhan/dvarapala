@@ -19,10 +19,13 @@ carry out what it decides.
   l4         connection caps, accept rate, timeouts -> close
     |
     v
-  listener   TCP or TLS (ALPN h2, http/1.1), bounded handshakes;
-    |        or QUIC (HTTP/3, Retry under load)
+  listener   TCP or TLS (ALPN h2, http/1.1), bounded handshakes,
+    |        JA4 of the ClientHello; or QUIC (HTTP/3, Retry under load)
     v
   identity   peer address, or X-Forwarded-For from a trusted proxy
+    |
+    v
+  ja4 rules  fingerprint deny -> 403, challenge -> needs a pass
     |
     v
   rate limit token bucket per client          -> 429 + Retry-After
@@ -30,6 +33,9 @@ carry out what it decides.
     v
   detection  heavy hitters, baseline, entropy -> observe: log only
     |                                            enforce: 403, slower buckets
+    v
+  challenge  no pass during an attack (or always) -> proof-of-work page,
+    |        then a signed cookie and the normal limit
     v
   proxy      HTTP/1.1, HTTP/2 (h2c or ALPN) or a WebSocket tunnel
     |

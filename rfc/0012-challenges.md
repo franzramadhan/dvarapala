@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | #102 | |
+| implemented | 2026-10-29 | #102 | v0.7.0 |
 
 > A stateless proof-of-work challenge that browsers solve once for a signed
 > pass cookie, issued during an attack (or always), and the JA4 fingerprint

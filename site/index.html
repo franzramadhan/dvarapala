@@ -54,7 +54,8 @@
         <div class="card"><span class="tag">RFC 0008</span><h3>SDKs</h3><p>The same rate limit, detection and connection limits in process for Go, Python and JavaScript, over a C ABI, with HTTP middleware.</p></div>
         <div class="card"><span class="tag">RFC 0010</span><h3>Clusters</h3><p>Replicas behind one load balancer share one per-client limit, one egress budget and one heavy hitter list through Redis or PostgreSQL, synced off the request path.</p></div>
         <div class="card"><span class="tag">RFC 0011</span><h3>XDP fast path</h3><p>An optional eBPF program on Linux drops blocked sources and SYN or packet floods in the NIC driver. L4 and L7 feed it sources that completed a handshake.</p></div>
-        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
+        <div class="card"><span class="tag">RFC 0012</span><h3>Challenges and JA4</h3><p>During an attack, browsers solve a small proof of work instead of sharing the attack limit; a signed cookie keeps them out of it. JA4 fingerprints deny or challenge known bot TLS stacks.</p></div>
+        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store and XDP on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
   </section>
@@ -70,6 +71,7 @@
           <li><b>Identify</b> the client: peer address, or <code>X-Forwarded-For</code> from a trusted proxy.</li>
           <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
           <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
+          <li><b>Challenge</b> browsers with a proof of work during an attack, and fingerprint TLS clients by JA4.</li>
           <li><b>Forward</b> what passes, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
           <li><b>Share</b> counts across replicas through Redis or PostgreSQL, so a cluster holds one limit.</li>
           <li><b>Report</b> every verdict as a metric and a structured log line.</li>

@@ -1,0 +1,42 @@
+# Public website with a browser challenge during attacks.
+#
+# Use case: an HTTPS site for people with browsers. During an attack every
+# client without a pass shares a quarter of the normal rate; with
+# challenge.mode = "attack", a browser solves a short proof of work instead
+# and keeps the normal rate with a pass cookie. A shared secret keeps the
+# pass valid across restarts and replicas. Known bot TLS stacks are
+# challenged at all times by a JA4 prefix, and the JA4 goes to the
+# upstream for its own logs.
+#
+# Detection must be in enforce mode for "attack" to challenge anyone.
+# Placeholders: <cert dir>, app.example.
+
+listen = "0.0.0.0:443"
+upstream = "http://app.example:8080"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "enforce"
+attack_rate_factor = 0.25
+
+[tls]
+cert = "/etc/dvarapala/<cert dir>/fullchain.pem"
+key = "/etc/dvarapala/<cert dir>/privkey.pem"
+
+[challenge]
+mode = "attack"
+difficulty = 16
+pass_ttl = "1h"
+# secret: at least 32 bytes, shared by every replica. Set it with
+# DVARAPALA__CHALLENGE__SECRET instead of writing it here.
+
+[fingerprint]
+# TLS 1.2 without SNI: rare from browsers, common from scripts.
+challenge = ["t12i*"]
+header = "x-ja4"
