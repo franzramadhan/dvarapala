@@ -53,3 +53,23 @@ restart. The full list is in [Configuration](configuration.html#reload).
 Metrics: `dvarapala_config_reloads_total{result}`, and
 `dvarapala_requests_total{scope="block"}` for requests refused by a
 manual block.
+
+## Replay
+
+`dvarapala replay --config <file> [--out <file>] <log>` tries a config
+on recorded traffic before it reaches clients ([RFC 0016](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0016-replay.md)).
+It runs the same protection layer as `serve` over a JSON Lines access
+log (`-` for stdin) on a virtual clock taken from each line's `ts`, so a
+day of traffic replays in seconds. Nothing listens and nothing is sent.
+
+```sh
+jq -c '{ts: .time, client: .remote_addr, method, host, path: .uri}' access.json \
+  | dvarapala replay --config candidate.toml --out candidate.jsonl -
+```
+
+The report lists the lines read and skipped, the time span, and the
+`dvarapala_requests_total`, `dvarapala_challenges_total`,
+`dvarapala_fingerprint_matches_total`, `dvarapala_route_requests_total`
+and `dvarapala_detection_*` series. `--out` writes one
+`{"line":N,"status":S}` per line: replay two configs and diff the files.
+The fields are in [Configuration](configuration.html#replay).

@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-29 | | |
+| implemented | 2026-10-29 | #130 | v0.11.0 |
 
 > `dvarapala replay` runs a config's protection layers over a recorded
 > access log on a virtual clock and reports what they would have done, so
