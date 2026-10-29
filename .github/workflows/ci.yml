@@ -389,7 +389,7 @@ jobs:
         env:
           DVARAPALA_NODE: ${{ github.workspace }}/target/release/libdvarapala_node.so
         run: |
-          node --test
+          node --test test/*.test.js
           npx --yes -p typescript@5.9.3 tsc --noEmit --strict --module nodenext --moduleResolution nodenext test/types.ts
 
   # RFC 0018 cases 18 to 20: the console's tests and accessibility scan,

@@ -9,6 +9,6 @@
   "files": ["index.js", "index.d.ts", "dvarapala.node"],
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test test/*.test.js"
   }
 }

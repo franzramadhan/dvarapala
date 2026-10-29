@@ -3,5 +3,17 @@
   "extends": [
     "config:recommended",
     "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "packageRules": [
+    {
+      "description": "kube pins k8s-openapi: bump them in one PR, and k8s-openapi only when a kube release accepts it",
+      "matchPackageNames": ["kube", "k8s-openapi"],
+      "groupName": "kube"
+    },
+    {
+      "description": "A new nightly changes the checked-in XDP object (crates/xdp/dvarapala-xdp.o): monthly, and the PR needs the rebuilt object from the test job's artifact",
+      "matchFileNames": ["crates/xdp-ebpf/rust-toolchain.toml"],
+      "schedule": ["* * 1 * *"]
+    }
   ]
 }
