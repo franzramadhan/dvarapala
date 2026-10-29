@@ -4,14 +4,15 @@
 mod quic;
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_engine::{Limit, TrustedProxies};
 use dvarapala_l7::{RateLimitConfig, RateLimitLayer};
-use dvarapala_proxy::quic::Retry;
-use dvarapala_proxy::{AltSvc, Http2Limits, ReverseProxy, serve};
+use dvarapala_proxy::quic::{H3Body, Retry};
+use dvarapala_proxy::{AltSvc, Http2Limits, Pool, PoolConfig, ReverseProxy, UpstreamConfig, serve};
 use http::StatusCode;
 use hyper::body::Incoming;
 use quic::{Mode, client, connect, counter, h3, proxy, record, relay, send, serial};
@@ -240,4 +241,49 @@ async fn zero_rtt_is_refused() {
         send(&mut tx, "GET", "/", Bytes::new()).await.0,
         StatusCode::OK
     );
+}
+
+// RFC 0015 case 9
+#[tokio::test]
+#[ignore = "rfc 0015"]
+async fn http3_shares_the_pool_with_tcp() {
+    let _s = serial().await;
+    let up = quic::upstream().await;
+    let gone = TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let mut c = PoolConfig::single("http://192.0.2.1");
+    c.upstreams = vec![format!("http://{gone}"), format!("http://{}", up.addr)];
+    c.eject_after = 1;
+    c.eject_time = Duration::from_secs(60);
+    let pool = Arc::new(Pool::new(c).unwrap());
+    let tcp =
+        ReverseProxy::<Incoming>::with_pool(pool.clone(), &UpstreamConfig::default()).unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(serve(
+        l,
+        Http2Limits::default(),
+        tcp,
+        std::future::pending(),
+    ));
+    // round robin starts on the dead one: one failure ejects it
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    s.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut res = String::new();
+    s.read_to_string(&mut res).await.unwrap();
+    assert!(res.starts_with("HTTP/1.1 502"), "{res}");
+    let h3p = ReverseProxy::<H3Body>::with_pool(pool, &UpstreamConfig::default()).unwrap();
+    let (h3addr, ca, _stop) = quic::listen(h3p, |_| {}, None);
+    let mut tx = h3(connect(&client(&ca, false), h3addr).await.unwrap()).await;
+    for _ in 0..4 {
+        let (status, ..) = send(&mut tx, "GET", "/", Bytes::new()).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    assert_eq!(up.hits.load(Ordering::SeqCst), 4);
 }

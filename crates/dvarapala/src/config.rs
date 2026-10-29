@@ -14,6 +14,7 @@ mod admin;
 mod challenge;
 mod forward;
 mod l4;
+mod pool;
 mod protocols;
 mod quic;
 mod routes;
@@ -24,6 +25,7 @@ pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
 pub use l4::L4;
+pub use pool::Pool;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
 pub use quic::Quic;
 #[cfg(feature = "http3")]
@@ -80,6 +82,8 @@ pub struct Config {
     pub routes: Vec<Route>,
     #[serde(default)]
     pub admin: Admin,
+    #[serde(default)]
+    pub pool: Pool,
 }
 
 impl Config {

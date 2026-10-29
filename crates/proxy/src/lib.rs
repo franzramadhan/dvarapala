@@ -6,6 +6,7 @@ mod alt_svc;
 mod forward;
 mod hop;
 mod http2;
+mod pool;
 #[cfg(feature = "http3")]
 pub mod quic;
 mod reverse;
@@ -20,6 +21,7 @@ pub use alt_svc::AltSvc;
 pub use forward::{Destination, ForwardConfig, ForwardError, ForwardProxy, Routes};
 pub use hop::allowed_upgrade;
 pub use http2::Http2Limits;
+pub use pool::{Balance, HealthConfig, Pool, PoolConfig, PoolError, spawn_health};
 pub use reverse::{ProxyBody, ReverseProxy, UpstreamError};
 pub use server::serve;
 #[cfg(feature = "tls")]

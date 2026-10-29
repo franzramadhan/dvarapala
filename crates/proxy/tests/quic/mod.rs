@@ -79,6 +79,23 @@ pub struct Proxy {
 /// The reverse proxy on a QUIC listener at 127.0.0.1, `tune` applied to
 /// the defaults, behind `limiter` when given.
 pub async fn proxy(tune: impl FnOnce(&mut QuicConfig), limiter: Option<RateLimitLayer>) -> Proxy {
+    let up = upstream().await;
+    let p = ReverseProxy::<H3Body>::new(&format!("http://{}", up.addr)).unwrap();
+    let (addr, ca, stop) = listen(p, tune, limiter);
+    Proxy {
+        addr,
+        ca,
+        upstream: up,
+        _stop: stop,
+    }
+}
+
+/// `p` on a QUIC listener at 127.0.0.1; drop the sender to stop it.
+pub fn listen(
+    p: ReverseProxy<H3Body>,
+    tune: impl FnOnce(&mut QuicConfig),
+    limiter: Option<RateLimitLayer>,
+) -> (SocketAddr, Ca, oneshot::Sender<()>) {
     let ca = Ca::new();
     let (cert_pem, key_pem) = ca.leaf(&[NAME]);
     let dir = tempdir();
@@ -90,8 +107,6 @@ pub async fn proxy(tune: impl FnOnce(&mut QuicConfig), limiter: Option<RateLimit
         fingerprint: false,
     })
     .unwrap();
-    let up = upstream().await;
-    let p = ReverseProxy::<H3Body>::new(&format!("http://{}", up.addr)).unwrap();
     let mut cfg = QuicConfig::new("127.0.0.1:0".parse().unwrap());
     tune(&mut cfg);
     let l = QuicListener::bind(cfg, &tls).unwrap();
@@ -104,12 +119,7 @@ pub async fn proxy(tune: impl FnOnce(&mut QuicConfig), limiter: Option<RateLimit
         None => tokio::spawn(l.serve(p, stop)),
         Some(layer) => tokio::spawn(l.serve(layer.layer(p), stop)),
     };
-    Proxy {
-        addr,
-        ca,
-        upstream: up,
-        _stop: tx,
-    }
+    (addr, ca, tx)
 }
 
 /// A client endpoint trusting `ca`, ALPN `h3`; `early` offers 0-RTT.
