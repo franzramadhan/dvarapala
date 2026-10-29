@@ -21,3 +21,4 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0014](rfc/0014-admin.md) | Admin API (status, top talkers, manual blocks, reload) and `SIGHUP` config reload of the protection keys without a restart | implemented | v0.9.0 |
 | [0015](rfc/0015-upstream-pools.md) | Upstream pools: round robin or least requests, active health checks, passive ejection, budgeted retries of idempotent requests | implemented | v0.10.0 |
 | [0016](rfc/0016-replay.md) | `dvarapala replay`: a config's protection layers over a recorded JSON Lines access log on a virtual clock, with the verdict counts | implemented | v0.11.0 |
+| [0018](rfc/0018-admin-ui.md) | Admin web UI on the admin listener (`admin.ui_enabled`): live overview, top talkers, blocks, reload; login by token or OIDC | accepted | |
