@@ -63,21 +63,39 @@ pub fn authorized(header: Option<&HeaderValue>, token: &[u8]) -> bool {
 
 /// The `name` cookie from `Cookie` headers.
 pub fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    let _ = (headers, name, COOKIE);
-    todo!("rfc 0018")
+    headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|h| h.split(';'))
+        .find_map(|kv| kv.trim().split_once('=').filter(|(k, _)| *k == name))
+        .map(|(_, v)| v)
 }
 
 /// The CSRF header a cookie session's state changing call carries
 /// (RFC 0018), compared in constant time.
 pub fn csrf_ok(header: Option<&HeaderValue>, expected: &str) -> bool {
-    let _ = (header, expected);
-    todo!("rfc 0018")
+    header.is_some_and(|h| !expected.is_empty() && same(h.as_bytes(), expected.as_bytes()))
 }
 
 /// `https`, or `http` to a loopback host (a local IdP, tests).
 pub fn secure_url(url: &str) -> bool {
-    let _ = url;
-    todo!("rfc 0018")
+    if url.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if auth.contains('@') {
+        return false;
+    }
+    let host = if auth.starts_with('[') {
+        auth.split_inclusive(']').next().unwrap_or("")
+    } else {
+        auth.split(':').next().unwrap_or("")
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]")
 }
 
 /// `cidr=<net>`, required, host bits cleared so that `192.0.2.7/24` and
@@ -197,7 +215,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0018"]
     fn cookie_and_csrf() {
         let mut m = HeaderMap::new();
         m.append(
