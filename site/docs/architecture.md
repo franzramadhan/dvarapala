@@ -2,8 +2,8 @@
 title: Architecture
 ---
 
-One engine, several entry points. The protection logic lives in the
-`engine` crate, which decides a verdict for a connection or a request and
+dvarapala has one engine and several entry points. The protection logic
+lives in the `engine` crate, which decides a verdict for a connection or a request and
 does no I/O. The proxy and the binary are thin wrappers that feed it and
 carry out what it decides.
 
