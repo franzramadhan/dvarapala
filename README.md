@@ -92,12 +92,26 @@ installs to `/usr/local/bin` (when writable) or `~/.local/bin`.
 picks the directory. Tarballs are also on the
 [releases](https://github.com/franzramadhan/dvarapala/releases) page.
 
-From crates.io, built on your machine with the default features (add
-`--features` as in Build from source below):
+From crates.io, built on your machine:
 
 ```sh
-cargo install dvarapala
+cargo install dvarapala                                  # default features
+cargo install dvarapala --features ml,redis,postgres     # add features
+cargo install dvarapala --no-default-features --features tls  # smallest build
 ```
+
+| Feature | Default | Adds |
+|---|---|---|
+| `tls` | yes | TLS listener and `https://` upstreams (RFC 0003) |
+| `ui` | yes | Admin web console with token and OIDC login (RFC 0018); turns on `tls` |
+| `waf` | yes | WAF over an SPOP agent such as coraza-spoa (RFC 0017) |
+| `replay` | yes | `dvarapala replay` (RFC 0016) |
+| `llm` | yes | LLM labels for sampled traffic (RFC 0023); turns on `tls` |
+| `ml` | no | XGBoost scoring (RFC 0002) |
+| `redis` | no | Redis state backend across replicas (RFC 0010) |
+| `postgres` | no | PostgreSQL state backend and persisted traffic history (RFC 0010, RFC 0022) |
+| `http3` | no | HTTP/3 listener over QUIC (RFC 0006), experimental; turns on `tls` |
+| `xdp` | no | XDP fast path (RFC 0011), Linux only |
 
 Container image (`linux/amd64`, `linux/arm64`), `FROM scratch` with the
 static binary built with the Redis and PostgreSQL stores (`[store]`, RFC 0010),
