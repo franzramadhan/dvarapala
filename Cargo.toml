@@ -5,21 +5,21 @@ members = ["crates/*"]
 exclude = ["crates/xdp-ebpf"]
 
 [workspace.package]
-version = "0.16.0"
+version = "0.16.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/franzramadhan/dvarapala"
 rust-version = "1.99"
 
 [workspace.dependencies]
-dvarapala-engine = { path = "crates/engine", version = "0.16.0" }
-dvarapala-ffi = { path = "crates/ffi", version = "0.16.0" }
-dvarapala-l4 = { path = "crates/l4", version = "0.16.0" }
-dvarapala-l7 = { path = "crates/l7", version = "0.16.0" }
-dvarapala-proxy = { path = "crates/proxy", version = "0.16.0" }
-dvarapala-store = { path = "crates/store", version = "0.16.0" }
-dvarapala-xdp = { path = "crates/xdp", version = "0.16.0" }
-dvarapala-xdp-common = { path = "crates/xdp-common", version = "0.16.0" }
+dvarapala-engine = { path = "crates/engine", version = "0.16.1" }
+dvarapala-ffi = { path = "crates/ffi", version = "0.16.1" }
+dvarapala-l4 = { path = "crates/l4", version = "0.16.1" }
+dvarapala-l7 = { path = "crates/l7", version = "0.16.1" }
+dvarapala-proxy = { path = "crates/proxy", version = "0.16.1" }
+dvarapala-store = { path = "crates/store", version = "0.16.1" }
+dvarapala-xdp = { path = "crates/xdp", version = "0.16.1" }
+dvarapala-xdp-common = { path = "crates/xdp-common", version = "0.16.1" }
 
 bytes = "1.12.1"
 figment = { version = "0.10.19", default-features = false, features = ["toml", "env"] }
