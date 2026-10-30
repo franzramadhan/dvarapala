@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from 'solid-js';
+import { For, Index, Show, createEffect, createMemo, createSignal, on } from 'solid-js';
 import { useQuery } from '@tanstack/solid-query';
 import { configQuery, errMsg, type ConfigKey } from '../api';
 import { PageHeader } from '../components/Ui';
@@ -45,14 +45,16 @@ export function ConfigPage() {
           Cannot read the configuration: {errMsg(q.error)}
         </p>
       </Show>
-      <For each={sections()} fallback={<p class="text-muted">{q.isPending ? 'Loading...' : 'No key matches the filter.'}</p>}>
-        {([name, keys]) => (
-          <details class="card" open={!!filter() || keys.some((k) => !k.default)}>
+      {/* Index, not For: a refetch brings new objects, and For would rebuild the details the user opened or closed */}
+      <Index each={sections()} fallback={<p class="text-muted">{q.isPending ? 'Loading...' : 'No key matches the filter.'}</p>}>
+        {(s) => (
+          // open sections with set keys, and all of them while filtering; a refetch leaves them as the user left them
+          <details class="card" ref={(el) => createEffect(on(filter, (f) => (el.open = !!f || s()[1].some((k) => !k.default))))}>
             <summary class="cursor-pointer p-3 font-medium">
-              {name} <span class="text-xs text-muted">({keys.filter((k) => !k.default).length} set)</span>
+              {s()[0]} <span class="text-xs text-muted">({s()[1].filter((k) => !k.default).length} set)</span>
             </summary>
             <table class="w-full">
-              <caption class="sr-only">Keys of {name}</caption>
+              <caption class="sr-only">Keys of {s()[0]}</caption>
               <thead class="border-b border-line">
                 <tr>
                   <th scope="col" class="th">Key</th>
@@ -61,7 +63,7 @@ export function ConfigPage() {
                 </tr>
               </thead>
               <tbody>
-                <For each={keys}>
+                <For each={s()[1]}>
                   {(k) => (
                     <tr class="border-t border-line" classList={{ flash: changed().has(k.key) }} data-testid={`key-${k.key}`}>
                       <td class="td font-mono">{k.key}</td>
@@ -79,7 +81,7 @@ export function ConfigPage() {
             </table>
           </details>
         )}
-      </For>
+      </Index>
     </div>
   );
 }

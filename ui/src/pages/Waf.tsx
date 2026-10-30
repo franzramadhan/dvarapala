@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from 'solid-js';
+import { For, Index, Show, createMemo } from 'solid-js';
 import { useQuery } from '@tanstack/solid-query';
 import { configQuery, errMsg, wafQuery, type RuleMatch } from '../api';
 import { ModeSwitch } from '../components/ModeSwitch';
@@ -134,21 +134,22 @@ export function WafPage() {
                 <h2 id="waf-files" class="text-sm font-semibold">
                   Agent rule files (display only)
                 </h2>
-                <For each={w().files}>
+                {/* Index, not For: the 5 s refetch brings new objects, and For would close an open file */}
+                <Index each={w().files}>
                   {(f) => (
                     <details class="card">
                       <summary class="cursor-pointer p-3 font-mono text-sm">
-                        {f.path}
-                        <Show when={f.error} fallback={<span class="text-xs text-muted"> {fmtInt(f.size ?? 0)} bytes</span>}>
-                          <span class="text-danger"> {f.error}</span>
+                        {f().path}
+                        <Show when={f().error} fallback={<span class="text-xs text-muted"> {fmtInt(f().size ?? 0)} bytes</span>}>
+                          <span class="text-danger"> {f().error}</span>
                         </Show>
                       </summary>
-                      <Show when={f.content !== undefined}>
-                        <pre class="overflow-x-auto border-t border-line p-3 text-xs">{f.content}</pre>
+                      <Show when={f().content !== undefined}>
+                        <pre class="overflow-x-auto border-t border-line p-3 text-xs">{f().content}</pre>
                       </Show>
                     </details>
                   )}
-                </For>
+                </Index>
               </section>
             </Show>
           </>
