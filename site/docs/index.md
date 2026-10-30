@@ -64,6 +64,13 @@ Alpine's root CAs, so `https://` upstreams, OIDC issuers and TLS stores
 verify against public roots; for a private CA set `upstream_tls.ca_file`
 or `store.ca_file`.
 
+Or from crates.io, which builds the default features:
+
+```sh
+cargo install dvarapala
+# optional: --features http3,ml,redis,postgres,xdp
+```
+
 Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 
 ```sh

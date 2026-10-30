@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-30 | #193 | |
+| implemented | 2026-10-30 | #193 | v0.16.0 |
 
 > An operator turns on sampling from the console for a while; requests
 > that hit a worthwhile trigger (a WAF match, a failed challenge, an
@@ -241,7 +241,7 @@ suggestion could be steered into blocking real users.
 
 ## Rollout
 
-- **Rollout:** the next minor release. Nothing changes without
+- **Rollout:** v0.16.0. Nothing changes without
   `ml.llm.endpoint` and at least one trigger; sampling stays off until
   the console switch or `enabled = true`.
 - **Off switch:** `POST /llm?off`, a reload, or removing `endpoint`.

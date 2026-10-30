@@ -62,6 +62,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Console** | Web console on the admin listener: live rates, top talkers, blocks and reload; login by admin token or OIDC, also through issuers that send no `email_verified` such as Cloudflare Access | [RFC 0018](rfc/0018-admin-ui.md), [RFC 0020](rfc/0020-oidc-email-trust.md) |
 | **Console views** | The running config with secrets redacted, the WAF's matched rules and the agent's rule files, an `observe`/`enforce` switch until the next reload (`admin.mode_switch`), and a health page per layer from `GET /metrics` | [RFC 0021](rfc/0021-admin-ui-config-waf.md) |
 | **Traffic history** | The console graph keeps the last 15 minutes in memory, so a reload or a new tab shows it at once; with `history.persist`, per-minute rows in the PostgreSQL store survive restarts and sum the replicas, up to 7 days | [RFC 0022](rfc/0022-traffic-history.md) |
+| **LLM labels** | Sampled requests from worthwhile triggers (WAF matches, failed challenges, attacks, uncertain model scores, routes), redacted and sent off the request path to a System One decision model or an OpenAI-compatible chat model; the label goes to logs, metrics, the console and a training file, never to a verdict | [RFC 0023](rfc/0023-llm-labels.md) |
 | **Replay** | `dvarapala replay` runs a config over a recorded access log on a virtual clock and reports what it would have throttled, dropped or challenged | [RFC 0016](rfc/0016-replay.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
 | **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
@@ -123,7 +124,7 @@ The toolchain is pinned in `rust-toolchain.toml`. Optional protections are
 cargo features, off by default:
 
 ```sh
-cargo build --release                            # reverse and forward proxy, TLS, replay, console, WAF
+cargo build --release                            # reverse and forward proxy, TLS, replay, console, WAF, LLM labels
 cargo build --release --features http3           # + HTTP/3 over QUIC
 cargo build --release --features ml              # + the XGBoost scorer
 cargo build --release --features redis,postgres  # + shared state backends
@@ -217,8 +218,9 @@ SDKs share the same logic.
 
 Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
 `tokio-postgres`, `aya` and `kube` (the operator); the console is SolidJS. CI fails when the idle binary goes over a
-10 MB RSS budget. Rust crates embed as a git dependency; they are not on
-crates.io.
+10 MB RSS budget. The crates are on crates.io (`dvarapala-engine`,
+`dvarapala-l7` and the rest); `cargo install dvarapala` builds the binary
+with the default features.
 
 </details>
 

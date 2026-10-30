@@ -217,6 +217,26 @@ See [WAF](waf.html).
 
 Keys: [`[waf]`](configuration.html#waf).
 
+## LLM labels
+
+With `[ml.llm]` and at least one trigger, requests that hit a WAF rule,
+fail a challenge, arrive during an attack, score in an uncertain `[ml]`
+band or match a route are sampled, one per client and trigger in
+`per_client`, and sent off the request path to an LLM ([RFC 0023](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0023-llm-labels.md)):
+a System One decision model (`protocol = "systemone"`) or an
+OpenAI-compatible chat model (`"chat"`). The answer is one of `labels`,
+a confidence and a short pattern. Labels go to the logs, the
+`dvarapala_llm_*` metrics, the console's LLM labels page and the
+`export` file; they never change a verdict.
+
+Sampling runs while the console switch is on (`admin.mode_switch`, at
+most `max_duration`) or with `enabled = true`. `Cookie` and
+`Authorization` are never sent, query values become `_`, and the body is
+sent only with `body_bytes`. Use the labels to decide when the WAF can
+leave `observe`, or to train the [scoring model](#scoring-model).
+
+Keys: [`[ml.llm]`](configuration.html#mlllm).
+
 ## Manual blocks
 
 `POST /blocks?cidr=<net>&ttl=<duration>` on the admin API blocks a
