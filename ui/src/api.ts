@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/solid-query';
-import { recordStatus } from './history';
+import { recordStatus, type Sample } from './history';
 
 export type Detection = 'normal' | 'suspect' | 'attack' | 'cooldown' | null;
 export type Verdict = 'allow' | 'throttle' | 'challenge' | 'drop' | 'error';
@@ -35,6 +35,8 @@ export type Waf = {
 };
 export type Session = { subject: string; method: 'token' | 'oidc'; expires_in: number; csrf: string };
 export type Methods = { token: boolean; oidc: { label: string } | null };
+export type HistoryRange = '15m' | '1h' | '6h' | '24h' | '7d';
+export type History = { interval_ms: number; source: 'memory' | 'store'; samples: Sample[] };
 export type Talker = { cidr: string; count: number };
 export type Block = { cidr: string; ttl_secs: number };
 
@@ -92,6 +94,7 @@ export const getStatus = async () => {
   recordStatus(s);
   return s;
 };
+export const getHistory = (range: HistoryRange) => request<History>(`/history?range=${range}`);
 export const getTop = () => request<{ top: Talker[] }>('/top').then((r) => r.top);
 export const getBlocks = () => request<{ blocks: Block[] }>('/blocks').then((r) => r.blocks);
 export const addBlock = (cidr: string, ttl: string) =>
@@ -125,6 +128,9 @@ export const sessionQuery = () =>
   queryOptions({ queryKey: ['session'], queryFn: () => getSession(), retry: false, staleTime: 60_000, refetchInterval: 300_000 });
 export const statusQuery = () =>
   queryOptions({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 2000, retry });
+// The ring answers 15m once (the polls take over); longer ranges come from minute rows.
+export const historyQuery = (range: HistoryRange) =>
+  queryOptions({ queryKey: ['history', range], queryFn: () => getHistory(range), retry, staleTime: range === '15m' ? Infinity : 60_000 });
 export const topQuery = () => queryOptions({ queryKey: ['top'], queryFn: getTop, refetchInterval: 5000, retry });
 export const blocksQuery = () => queryOptions({ queryKey: ['blocks'], queryFn: getBlocks, refetchInterval: 10_000, retry });
 

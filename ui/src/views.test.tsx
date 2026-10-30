@@ -146,8 +146,7 @@ describe('traffic history', () => {
   const now = Date.now();
   const point = (t: number, allow: number) => ({ t, allow, throttle: 0, challenge: 0, drop: 0, error: 0, detection: 'normal' });
 
-  // rfc 0022
-  it.skip('draws the history before the first poll', async () => {
+  it('draws the history before the first poll', async () => {
     mockApi({
       'GET /history': () => ({ body: { interval_ms: 5000, source: 'memory', samples: [point(now - 10_000, 5), point(now - 5_000, 7)] } }),
     });
@@ -157,8 +156,7 @@ describe('traffic history', () => {
     expect(screen.queryByLabelText('Range')).toBeNull();
   });
 
-  // rfc 0022
-  it.skip('offers longer ranges when the store keeps the history', async () => {
+  it('offers longer ranges when the store keeps the history', async () => {
     const { calls } = mockApi({
       'GET /history': (c) => ({
         body: {
