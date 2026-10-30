@@ -30,6 +30,8 @@ impl Admin {
                 return r;
             }
             Call::Mode { layer, enforce } => return self.switch(layer, enforce, actor),
+            Call::Llm => return self.llm(None, actor),
+            Call::LlmSwitch { on } => return self.llm(Some(on), actor),
             _ => {}
         }
         if call == Call::Reload {
@@ -96,12 +98,16 @@ impl Admin {
                     json(StatusCode::NOT_FOUND, error("not blocked"))
                 }
             }
-            Call::Reload | Call::Config | Call::Waf | Call::Metrics | Call::Mode { .. } => {
+            Call::Reload
+            | Call::Config
+            | Call::Waf
+            | Call::Metrics
+            | Call::Mode { .. }
+            | Call::Llm
+            | Call::LlmSwitch { .. } => {
                 unreachable!("answered above")
             }
             Call::History { .. } => unreachable!("answered by the admin router"),
-            // RFC 0023: wired in the binary layer
-            Call::Llm | Call::LlmSwitch { .. } => json(StatusCode::NOT_FOUND, error("not found")),
         }
     }
 
@@ -137,12 +143,13 @@ impl Admin {
             .map(Switch::json)
             .collect();
         format!(
-            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}},\"waf\":{waf},\"switches\":{}}}",
+            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}},\"waf\":{waf},\"switches\":{},\"llm\":{}}}",
             env!("CARGO_PKG_VERSION"),
             self.mode,
             s.as_ref().map_or(0, |s| s.clients),
             s.as_ref().map_or(0, |s| s.blocks),
             serde_json::Value::Array(switches),
+            self.llm_status(),
         )
     }
 }

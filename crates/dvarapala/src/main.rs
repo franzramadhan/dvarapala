@@ -1,6 +1,8 @@
 mod admin;
 mod config;
 mod layer;
+#[cfg(feature = "llm")]
+mod llm;
 mod metrics;
 #[cfg(feature = "http3")]
 mod quic;
@@ -34,6 +36,12 @@ use tokio::net::TcpListener;
 use tower_layer::Layer;
 use tower_service::Service;
 use tracing_subscriber::EnvFilter;
+
+/// RFC 0023: the labels behind `GET /llm`.
+#[cfg(feature = "llm")]
+type Labels = Option<Arc<llm::Labels>>;
+#[cfg(not(feature = "llm"))]
+type Labels = Option<Infallible>;
 
 /// Never built without the `tls` feature.
 #[cfg(not(feature = "tls"))]
@@ -146,7 +154,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         })?;
         let listener = bind(&cfg, block).await?;
         let waf = waf::Layer::new(waf::config(&cfg)?);
-        control(&cfg, config, admin, None, waf, false).await?;
+        control(&cfg, config, admin, None, waf, false, None).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
         listen(listener, tls, h2, proxy).await;
         tracing::info!("stopped");
@@ -192,6 +200,13 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         None
     };
     let listener = bind(&cfg, block).await?;
+    #[cfg(feature = "llm")]
+    let labels = llm::start(&cfg, limiter.as_ref())?;
+    #[cfg(not(feature = "llm"))]
+    let labels = match cfg.ml.llm.sampler(&cfg)? {
+        Some(_) => return Err("ml.llm.endpoint needs a build with the llm feature".into()),
+        None => None,
+    };
     control(
         &cfg,
         config,
@@ -199,6 +214,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         limiter.clone(),
         waf.clone(),
         layered && ja4,
+        labels,
     )
     .await?;
     #[cfg(feature = "http3")]
@@ -259,6 +275,7 @@ async fn control(
     layer: Option<RateLimitLayer>,
     waf: waf::Layer,
     ja4: bool,
+    labels: Labels,
 ) -> Result<(), Box<dyn Error>> {
     let reloader = Arc::new(reload::Reloader::new(
         path.clone(),
@@ -267,6 +284,10 @@ async fn control(
         ja4,
         cfg.clone(),
     ));
+    #[cfg(feature = "llm")]
+    if let Some(l) = labels.clone() {
+        let _ = reloader.on_reload.set(Box::new(move || l.reload()));
+    }
     reload::on_hangup(reloader.clone())?;
     watch::start(path.as_deref(), cfg.config_watch, reloader.clone())?;
     if let Some(addr) = admin {
@@ -279,6 +300,7 @@ async fn control(
             metrics: metrics::install()?,
             mode_switch: cfg.admin.mode_switch,
             history,
+            llm: labels,
             mode: match cfg.mode {
                 config::ProxyMode::Reverse => "reverse",
                 config::ProxyMode::Forward => "forward",

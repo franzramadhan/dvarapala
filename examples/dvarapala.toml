@@ -224,3 +224,28 @@ prefix_v6 = 64
 # deny = []
 # challenge = ["t13i*"]
 # header = "x-ja4"
+
+# LLM labels for sampled traffic (RFC 0023): a label per sample in the
+# logs, metrics, GET /llm and the console; never a verdict. Reverse mode
+# with the rate limiter on. Set the key with DVARAPALA__ML__LLM__API_KEY.
+# Start sampling from the console (needs admin.mode_switch) or with
+# enabled = true.
+# [ml.llm]
+# endpoint = "http://<host>:4000/v1/systemone"
+# protocol = "systemone"
+# model = "<model>"
+# enabled = false
+# instructions = "A public shop; logins and checkout are normal."
+# per_client = "10m"
+# queue = 256
+# concurrency = 4
+# timeout = "20s"
+# body_bytes = 0
+# export = "/var/lib/dvarapala/labels.jsonl"
+# export_max = "64MiB"
+# max_duration = "24h"
+# [[ml.llm.triggers]]
+# on = "waf"
+# [[ml.llm.triggers]]
+# on = "challenge_failed"
+# rate = 0.25

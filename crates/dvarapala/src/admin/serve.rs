@@ -42,6 +42,8 @@ pub struct Admin {
     pub mode_switch: bool,
     /// RFC 0022: `GET /history`.
     pub history: Arc<super::history::History>,
+    /// RFC 0023: `GET /llm`, `POST /llm`.
+    pub llm: crate::Labels,
     /// The console, with `ui_enabled`.
     #[cfg(feature = "ui")]
     pub console: Option<super::Console>,
@@ -128,7 +130,11 @@ impl Admin {
         }
         let audit = matches!(
             call,
-            Call::Reload | Call::Block { .. } | Call::Unblock { .. } | Call::Mode { .. }
+            Call::Reload
+                | Call::Block { .. }
+                | Call::Unblock { .. }
+                | Call::Mode { .. }
+                | Call::LlmSwitch { .. }
         );
         let res = self.call(call, &actor);
         if audit {
@@ -163,7 +169,7 @@ impl Admin {
 fn endpoint(path: &str) -> String {
     match path {
         "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/mode" | "/metrics"
-        | "/history" => path.to_owned(),
+        | "/history" | "/llm" => path.to_owned(),
         p if p == "/ui" || p.starts_with("/ui/") => "ui".into(),
         p if p.starts_with("/session/oidc") => "oidc".into(),
         p if p == "/session" || p.starts_with("/session/") => "session".into(),

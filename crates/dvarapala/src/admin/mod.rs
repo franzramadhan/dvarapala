@@ -3,6 +3,7 @@
 
 mod api;
 pub mod history;
+mod llm;
 #[cfg(feature = "ui")]
 mod login;
 #[cfg(feature = "ui")]

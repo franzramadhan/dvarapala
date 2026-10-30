@@ -37,6 +37,8 @@ pub struct Reloader {
     /// RFC 0021: the file as last applied, and the switches over it
     current: Mutex<Config>,
     pub switches: Switches,
+    /// RFC 0023: ends the console's LLM sampling switch.
+    pub on_reload: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Reloader {
@@ -57,6 +59,7 @@ impl Reloader {
             start,
             last: Mutex::new(None),
             switches: Switches::default(),
+            on_reload: std::sync::OnceLock::new(),
         }
     }
 
@@ -69,6 +72,9 @@ impl Reloader {
                 tracing::info!(msg = "config reloaded", restart = restart.join(","));
                 let cur = lock(&self.current);
                 self.switches.clear(|l| file_enforce(&cur, l));
+                if let Some(f) = self.on_reload.get() {
+                    f();
+                }
                 ::metrics::counter!("dvarapala_config_reloads_total", "result" => "ok")
                     .increment(1);
             }

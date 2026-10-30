@@ -116,7 +116,7 @@ pub fn parse_size(s: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("size {s:?}"))
 }
 
-fn size<'de, D: Deserializer<'de>>(d: D) -> Result<usize, D::Error> {
+pub(super) fn size<'de, D: Deserializer<'de>>(d: D) -> Result<usize, D::Error> {
     #[derive(Deserialize, Serialize)]
     #[serde(untagged)]
     enum Raw {

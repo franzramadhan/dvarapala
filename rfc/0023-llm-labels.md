@@ -245,3 +245,27 @@ suggestion could be steered into blocking real users.
   `ml.llm.endpoint` and at least one trigger; sampling stays off until
   the console switch or `enabled = true`.
 - **Off switch:** `POST /llm?off`, a reload, or removing `endpoint`.
+
+## Implementation notes
+
+- The request body and the reply parser live in `dvarapala-l7`
+  (`llm/wire.rs`, feature `llm`), not in the binary, so the fuzz target
+  (`llm_reply`) can reach the parser. The binary's `llm` feature (in the
+  default build) turns it on; the calls themselves stay in the binary.
+- The sampler reaches the rate limiter through
+  `RateLimitLayer::set_llm` after start, not through a `RateLimitConfig`
+  field: the worker needs the runtime and the admin state.
+- Only the WAF trigger sends the body (`body_bytes`): it is the only
+  layer that buffers it.
+- `[ml]` and `[ml.llm]` stay restart keys. A reload ends the console
+  switch (unless `enabled`) and changes nothing else.
+- Without `ml.model`, a features-only scorer computes the features for
+  the samples and the export and never throttles (its score is `NaN`,
+  kept out of `dvarapala_ml_score`).
+- `GET /status` gains `llm` (`{"sampling": bool}` or `null`), so the
+  console hides its LLM page when the feature is off.
+- `GET /llm` answers `configured: false` without `endpoint` rather than
+  `409`; `until` is in Unix ms. `POST /llm?on` without a duration samples
+  for 30 minutes.
+- The `llm` feature adds 113 KiB to the release binary (no new
+  dependency), under the 150 KiB budget, so it is in the default build.
