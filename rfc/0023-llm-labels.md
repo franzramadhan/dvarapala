@@ -2,12 +2,13 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-30 | #193 | |
+| accepted | 2026-10-30 | #193 | |
 
 > An operator turns on sampling from the console for a while; requests
 > that hit a worthwhile trigger (a WAF match, a failed challenge, an
-> attack, an uncertain model score) are sent off the request path to an
-> OpenAI-compatible model, which answers a label and a short pattern. The
+> attack, an uncertain model score) are sent off the request path to a
+> decision model (System One: Cloudflare Clef, TypeSafe Jev) or an
+> OpenAI-compatible chat model, which answers a label. The
 > labels feed logs, metrics, a console page and a training file for the
 > `[ml]` model. They never change a verdict.
 
@@ -48,15 +49,23 @@ behind one OpenAI-compatible API, with budgets and rate limits per key.
   `rpm_limit`) owns the budget and answers `429` when it is spent;
   dvarapala counts that as an error and carries on. Locally there is only
   a bounded queue and a concurrency cap, which bound memory, not cost.
-- **One protocol.** `POST <endpoint>/chat/completions`, the
-  OpenAI-compatible API that LiteLLM, OpenAI, vLLM, Ollama and others
-  serve. Claude and other models are reached through such a gateway. No
-  per-provider client.
-- **A fixed answer shape.** The model must answer JSON
-  `{"label": <one of ml.llm.labels>, "confidence": 0..1, "pattern":
-  <text>}` (sent as `response_format` with a JSON schema; a reply that
-  does not parse to that shape counts as `invalid`). `pattern` is cut to
-  200 characters and only ever shown as text.
+- **Two protocols, chosen by `protocol`.**
+  - `"systemone"` (the default): decision models in the System One
+    format, such as Cloudflare Clef (`@cf/cloudflare/clef`) and TypeSafe
+    Jev, called directly or through LiteLLM's `/v1/systemone`. One
+    `choice` question whose criteria are `ml.llm.labels` (label to
+    description); the sample is the `state`. The answer is the label with
+    the highest probability in `answers.label.probabilities` and that
+    probability as the confidence (Cloudflare's `{"result": ...}` wrapper
+    is unwrapped). No free text, so `pattern` stays empty.
+  - `"chat"`: `POST <endpoint>/chat/completions`, the OpenAI-compatible
+    API that LiteLLM, OpenAI, vLLM, Ollama and others serve; Claude and
+    other chat models through such a gateway. The model must answer JSON
+    `{"label": <one of the labels>, "confidence": 0..1, "pattern":
+    <text>}` (sent as `response_format` with a JSON schema). `pattern` is
+    cut to 200 characters and only ever shown as text.
+  - Either way, an answer that does not give one of the labels counts as
+    `invalid`. No per-provider client beyond these two.
 - **Minimal, redacted samples.** The prompt carries the trigger, method,
   host, path (the query's keys only, values replaced by `_`, cut to 512
   bytes), allowlisted headers (`user-agent`, `accept`,
@@ -93,12 +102,13 @@ and `serde_json`), otherwise opt-in like `ml`.
 
 | Key | Default | |
 |---|---|---|
-| `endpoint` | unset | Base URL of an OpenAI-compatible API, for example `"http://litellm:4000/v1"`. Unset turns the feature off and `POST /llm` answers `409` |
-| `model` | required with `endpoint` | Model name as the endpoint knows it |
+| `endpoint` | unset | `systemone`: the full URL, for example `"http://litellm:4000/v1/systemone"` or Cloudflare's `.../ai/run/@cf/cloudflare/clef`. `chat`: the base URL, for example `"http://litellm:4000/v1"`. Unset turns the feature off and `POST /llm` answers `409` |
+| `protocol` | `"systemone"` | `"systemone"` (Clef, Jev) or `"chat"` (OpenAI-compatible chat completions) |
+| `model` | required with `endpoint` | Model name as the endpoint knows it, for example `"clef"`, `"clef-flash"`, `"jev"` |
 | `api_key` | `""` | Bearer token; set it with `DVARAPALA__ML__LLM__API_KEY`. Redacted in `GET /config` |
 | `enabled` | `false` | Sample from start, without the console switch |
-| `labels` | `["benign", "scanner", "scraper", "credential_stuffing", "flood", "spam", "other"]` | The only labels the model may answer; 2 to 32 |
-| `instructions` | `""` | Extra text for the system prompt (what the site is, what is normal) |
+| `labels` | the seven below | Table of label to description, 2 to 32 entries; the only labels the model may answer. The descriptions are the `choice` criteria (`systemone`) or listed in the prompt (`chat`). Defaults: `benign`, `scanner` (probing paths and known exploits), `scraper` (bulk reads of content), `credential_stuffing` (login attempts with many credentials), `flood` (volume without intent to use the site), `spam` (posting unsolicited content), `other` |
+| `instructions` | `""` | Extra text for the question (`systemone`) or the system prompt (`chat`): what the site is, what is normal |
 | `per_client` | `"10m"` | One sample per client and trigger in this time |
 | `queue` | `256` | Samples waiting; a full queue drops new ones (`dropped`) |
 | `concurrency` | `4` | Calls in flight |
@@ -150,8 +160,9 @@ and `serde_json`), otherwise opt-in like `ml`.
 | 4 | `per_client = "10m"` | The same client triggers 50 times in a minute | One sample, 49 `deduped` | unit (engine) |
 | 5 | A fake endpoint that never answers, `queue = 4`, `concurrency = 1` | 100 candidates | 5 in flight or queued, the rest `dropped`; requests still answered at normal speed | integration |
 | 6 | A fake endpoint | A sample with `cookie`, `authorization`, a query `?token=abc` and a body | The prompt has none of the cookie, the token value or the body; the path reads `?token=_` | integration |
-| 7 | The endpoint answers `{"label":"scanner","confidence":0.8,"pattern":"..."}` | A sample | `llm label` logged, `labels_total{label="scanner"}` +1, in `GET /llm` | integration |
-| 8 | The endpoint answers a label not in `labels`, plain text or 10 KiB of JSON | A sample | `calls_total{result="invalid"}` +1, nothing labeled | unit (parser) + fuzz |
+| 7 | `protocol = "chat"`, the endpoint answers `{"label":"scanner","confidence":0.8,"pattern":"..."}` | A sample | `llm label` logged, `labels_total{label="scanner"}` +1, in `GET /llm` | integration |
+| 7b | `protocol = "systemone"`, the endpoint answers `answers.label.probabilities` `{"benign":0.1,"scanner":0.7,...}`, bare or wrapped in `{"result": ...}` | A sample | Label `scanner`, confidence 0.7; the request had one `choice` question with the labels as criteria | integration |
+| 8 | The endpoint answers a label not in `labels`, plain text, probabilities that are all 0, or 10 KiB of JSON | A sample | `calls_total{result="invalid"}` +1, nothing labeled | unit (parser) + fuzz |
 | 9 | `pattern` of 5000 characters with `<script>` | Shown in the console | Cut to 200 characters, rendered as text | unit (parser) + ui |
 | 10 | The endpoint answers `429` | A sample | `calls_total{result="limited"}` +1, no retry | integration |
 | 11 | `POST /llm?on=5m` | 5 minutes pass | Sampling off, `llm sampling off reason=expired` | unit (timer) |
@@ -170,17 +181,19 @@ A fuzz target `fuzz_llm_reply` feeds the reply parser.
 |---|---|
 | Inline verdicts from the model | 100 ms to seconds per request, a cost per request an attacker controls, and a prompt an attacker writes. The model may name a pattern; the fixed layers decide |
 | Local budget accounting (tokens, money per day) | Prices differ per model and change; the provider or gateway already enforces budgets and rate limits per key. dvarapala only bounds its own memory |
-| A client per provider (Anthropic, OpenAI, Cloudflare) | One OpenAI-compatible client reaches all of them through LiteLLM or a native compatible endpoint |
+| A client per provider (Anthropic, OpenAI, Cloudflare) | System One covers the decision models (Clef, Jev) and one OpenAI-compatible client covers chat models; LiteLLM fronts both |
+| Chat only | Decision models such as Clef score fixed options in one call, cost a fraction of a chat model (Clef: input tokens only) and give no free text an attacker could steer |
 | Always on from the file | Operators want it while investigating, not every day; the switch with an expiry keeps a forgotten setting from running for weeks. `enabled = true` stays for those who do |
 | A sidecar like the WAF agent | Nothing to inspect inline, only an HTTP call off the path; a sidecar adds a deployment for no gain |
 | Batching several samples per call | Fewer calls, but one bad sample can spoil a batch's answers and the reply parser gets harder. Revisit if call counts matter |
 
 ## Security and resource limits
 
-- **Attacker input in the prompt.** The sample is wrapped as data in the
-  user message with the instructions in the system message, but the
-  model may still be steered. Its answer can only be one of `labels`, a
-  confidence and 200 characters of text; it has no effect on any
+- **Attacker input in the prompt.** The sample is the `state`
+  (`systemone`) or data in the user message with the instructions in the
+  system message (`chat`), but the model may still be steered. Its answer
+  can only be one of `labels`, a confidence and, with `chat`, 200
+  characters of text; it has no effect on any
   verdict, so the worst case is a wrong label in a log, a metric and the
   training file. The training file is for an operator to review.
 - **Cost amplification.** An attacker who floods a trigger gets at most
