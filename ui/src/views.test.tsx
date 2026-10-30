@@ -140,3 +140,38 @@ describe('health pages', () => {
     expect(within(nav).getByText('Top talkers')).toBeTruthy();
   });
 });
+
+// RFC 0022 cases 14 and 15
+describe('traffic history', () => {
+  const now = Date.now();
+  const point = (t: number, allow: number) => ({ t, allow, throttle: 0, challenge: 0, drop: 0, error: 0, detection: 'normal' });
+
+  // rfc 0022
+  it.skip('draws the history before the first poll', async () => {
+    mockApi({
+      'GET /history': () => ({ body: { interval_ms: 5000, source: 'memory', samples: [point(now - 10_000, 5), point(now - 5_000, 7)] } }),
+    });
+    renderApp('/ui/');
+    const chart = await screen.findByRole('img', { name: /Requests per second by verdict/ });
+    await waitFor(() => expect(chart.querySelector('path')).toBeTruthy());
+    expect(screen.queryByLabelText('Range')).toBeNull();
+  });
+
+  // rfc 0022
+  it.skip('offers longer ranges when the store keeps the history', async () => {
+    const { calls } = mockApi({
+      'GET /history': (c) => ({
+        body: {
+          interval_ms: c.url.includes('range=24h') ? 60_000 : 5000,
+          source: 'store',
+          samples: [point(now - 3_600_000, 3), point(now - 60_000, 4)],
+        },
+      }),
+    });
+    renderApp('/ui/');
+    const range = await screen.findByLabelText('Range');
+    fireEvent.change(range, { target: { value: '24h' } });
+    await waitFor(() => expect(calls.some((c) => c.url === '/history?range=24h')).toBe(true));
+    expect(await screen.findByRole('img', { name: /over the last 24 hours/ })).toBeTruthy();
+  });
+});

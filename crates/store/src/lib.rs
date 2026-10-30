@@ -2,6 +2,8 @@
 //! each replica's [`dvarapala_engine::Cluster`] with a store; nothing on the
 //! request path waits for it.
 
+#[cfg(feature = "postgres")]
+mod history;
 mod memory;
 mod migrate;
 #[cfg(feature = "postgres")]

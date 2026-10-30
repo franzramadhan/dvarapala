@@ -309,3 +309,84 @@ async fn versions_or_none(c: &Client) -> Option<Vec<i32>> {
         None
     }
 }
+
+fn minute(minute_ms: u64, allow: u64) -> dvarapala_engine::Minute {
+    dvarapala_engine::Minute {
+        minute_ms,
+        counts: [allow, 1, 0, 0, 0],
+    }
+}
+
+// RFC 0022 case 10
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "rfc 0022"]
+async fn history_sums_the_replicas_per_minute() {
+    let Some(url) = fresh().await else { return };
+    let (mut a, mut b) = (store(&url, true), store(&url, true));
+    a.history_write("c", "a", &minute(60_000, 10))
+        .await
+        .unwrap();
+    b.history_write("c", "b", &minute(60_000, 5)).await.unwrap();
+    a.history_write("c", "a", &minute(120_000, 7))
+        .await
+        .unwrap();
+    // a second write of a minute adds up, another cluster stays apart
+    a.history_write("c", "a", &minute(120_000, 1))
+        .await
+        .unwrap();
+    a.history_write("other", "a", &minute(60_000, 99))
+        .await
+        .unwrap();
+    let rows = a.history_read("c", 0).await.unwrap();
+    assert_eq!(
+        rows,
+        [
+            dvarapala_engine::Minute {
+                minute_ms: 60_000,
+                counts: [15, 2, 0, 0, 0]
+            },
+            dvarapala_engine::Minute {
+                minute_ms: 120_000,
+                counts: [8, 2, 0, 0, 0]
+            },
+        ]
+    );
+    assert_eq!(a.history_read("c", 120_000).await.unwrap().len(), 1);
+}
+
+// RFC 0022 case 12
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "rfc 0022"]
+async fn history_retention_deletes_old_rows() {
+    let Some(url) = fresh().await else { return };
+    let mut s = store(&url, true);
+    for m in [60_000, 120_000, 180_000] {
+        s.history_write("c", "a", &minute(m, 1)).await.unwrap();
+    }
+    s.history_write("other", "a", &minute(60_000, 1))
+        .await
+        .unwrap();
+    assert_eq!(s.history_expire("c", 180_000).await.unwrap(), 2);
+    let left: Vec<u64> = s
+        .history_read("c", 0)
+        .await
+        .unwrap()
+        .iter()
+        .map(|m| m.minute_ms)
+        .collect();
+    assert_eq!(left, [180_000]);
+    assert_eq!(s.history_read("other", 0).await.unwrap().len(), 1);
+}
+
+// RFC 0022 case 13
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "rfc 0022"]
+async fn version_1_migrates_to_the_history_table() {
+    let Some(url) = fresh().await else { return };
+    let mut c = client(&url).await;
+    assert_eq!(apply(&mut c, &MIGRATIONS[..1]).await.unwrap(), 1);
+    round(&mut store(&url, true)).await.unwrap();
+    assert_eq!(versions(&c).await, vec![1, 2]);
+    assert!(render(1).starts_with("-- dvarapala schema version 2\n"));
+    assert!(render(1).contains("dvarapala.traffic_history"));
+}
