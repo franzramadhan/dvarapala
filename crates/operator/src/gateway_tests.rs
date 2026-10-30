@@ -147,3 +147,152 @@ fn autoscaling_leaves_replicas_to_the_hpa() {
     let h = hpa(&g, &p, &a).spec.unwrap();
     assert_eq!((h.min_replicas, h.max_replicas), (Some(3), 10));
 }
+
+// RFC 0025 case 1: `GOLDEN=1` rewrites the file
+#[test]
+fn without_the_new_fields_nothing_changes() {
+    let b = web(None);
+    let g = plan(&b, "80", "default", false).unwrap();
+    let p = PolicySpec {
+        secret_ref: Some(crate::crd::SecretRef { name: "s".into() }),
+        ..PolicySpec::default()
+    };
+    let got = serde_json::json!({
+        "deployment": deployment(&g, &p, "img:1", "abc"),
+        "service": service(&g, &b, true),
+    });
+    if std::env::var_os("GOLDEN").is_some() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/gateway_golden.json");
+        std::fs::write(path, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap();
+    }
+    let want: serde_json::Value =
+        serde_json::from_str(include_str!("gateway_golden.json")).unwrap();
+    assert_eq!(got, want);
+}
+
+fn pod(d: &Deployment) -> PodSpec {
+    d.spec.clone().unwrap().template.spec.unwrap()
+}
+
+fn mount_paths(c: &Container) -> Vec<(String, String, bool)> {
+    c.volume_mounts
+        .iter()
+        .flatten()
+        .map(|m| {
+            (
+                m.name.clone(),
+                m.mount_path.clone(),
+                m.read_only == Some(true),
+            )
+        })
+        .collect()
+}
+
+// RFC 0025 case 2
+#[test]
+#[ignore = "rfc 0025"]
+fn admin_listener_port_and_service() {
+    let g = plan(&web(None), "80", "default", false).unwrap();
+    let mut p = PolicySpec::default();
+    p.gateway.admin = Some(crate::crd::Admin { enabled: true });
+    let d = deployment(&g, &p, "img:1", "abc");
+    assert_eq!(env_of(&d, "DVARAPALA__ADMIN__LISTEN"), "0.0.0.0:9091");
+    let ports = pod(&d).containers[0].ports.clone().unwrap();
+    assert!(
+        ports
+            .iter()
+            .any(|p| p.name.as_deref() == Some("admin") && p.container_port == 9091)
+    );
+    let s = admin::service(&g);
+    assert_eq!(s.metadata.name.as_deref(), Some("web-dvp-admin-80"));
+    let spec = s.spec.unwrap();
+    assert_eq!(spec.session_affinity.as_deref(), Some("ClientIP"));
+    assert_eq!(spec.selector, Some(selector(&g)));
+    assert_eq!(spec.ports.unwrap()[0].port, 9091);
+    // never taken for a gateway Service
+    assert!(!s.metadata.labels.unwrap().contains_key(APP.0));
+}
+
+// RFC 0025 case 5
+#[test]
+#[ignore = "rfc 0025"]
+fn waf_sidecar_shares_the_socket() {
+    let g = plan(&web(None), "80", "default", false).unwrap();
+    let mut p = PolicySpec::default();
+    p.gateway.waf = Some(crate::crd::Waf {
+        image: "ghcr.io/corazawaf/coraza-spoa:0.9.1".into(),
+        config_map: "coraza".into(),
+        resources: None,
+    });
+    let d = deployment(&g, &p, "img:1", "abc");
+    assert_eq!(
+        env_of(&d, "DVARAPALA__WAF__ENDPOINT"),
+        "unix:/run/waf/waf.sock"
+    );
+    let pod = pod(&d);
+    assert_eq!(pod.containers.len(), 2);
+    let (proxy, agent) = (&pod.containers[0], &pod.containers[1]);
+    assert_eq!(agent.name, "waf");
+    let socket = ("waf-socket".to_owned(), "/run/waf".to_owned(), false);
+    assert!(mount_paths(proxy).contains(&socket));
+    assert!(mount_paths(agent).contains(&socket));
+    assert!(mount_paths(proxy).contains(&("waf-config".into(), "/etc/dvarapala-waf".into(), true)));
+    for c in [proxy, agent] {
+        let sc = c.security_context.clone().unwrap();
+        assert_eq!(sc.run_as_non_root, Some(true), "{}", c.name);
+        assert_eq!(sc.read_only_root_filesystem, Some(true), "{}", c.name);
+        assert_eq!(sc.allow_privilege_escalation, Some(false), "{}", c.name);
+        assert_eq!(sc.capabilities.unwrap().drop, Some(vec!["ALL".into()]));
+    }
+    assert_eq!(
+        agent.security_context.clone().unwrap().run_as_user,
+        Some(10001)
+    );
+    let volumes: Vec<String> = pod.volumes.unwrap().into_iter().map(|v| v.name).collect();
+    assert!(volumes.contains(&"waf-socket".into()) && volumes.contains(&"waf-config".into()));
+}
+
+// RFC 0025 case 8
+#[test]
+#[ignore = "rfc 0025"]
+fn mounts_are_read_only_in_the_proxy_only() {
+    let g = plan(&web(None), "80", "default", false).unwrap();
+    let mut p = PolicySpec::default();
+    p.gateway.mounts = vec![
+        crate::crd::Mount {
+            name: "pg-ca".into(),
+            config_map: Some("lab-root-ca".into()),
+            secret: None,
+        },
+        crate::crd::Mount {
+            name: "llm-key".into(),
+            config_map: None,
+            secret: Some("shop-llm".into()),
+        },
+    ];
+    p.gateway.pod_labels = [("team".into(), "shop".into())].into();
+    let d = deployment(&g, &p, "img:1", "abc");
+    let pod_meta = d.spec.clone().unwrap().template.metadata.unwrap();
+    assert_eq!(pod_meta.labels.unwrap()["team"], "shop");
+    let pod = pod(&d);
+    assert_eq!(pod.containers.len(), 1);
+    let m = mount_paths(&pod.containers[0]);
+    assert!(m.contains(&(
+        "mount-pg-ca".into(),
+        "/etc/dvarapala-mounts/pg-ca".into(),
+        true
+    )));
+    assert!(m.contains(&(
+        "mount-llm-key".into(),
+        "/etc/dvarapala-mounts/llm-key".into(),
+        true
+    )));
+    let v = pod.volumes.unwrap();
+    let ca = v.iter().find(|v| v.name == "mount-pg-ca").unwrap();
+    assert_eq!(ca.config_map.as_ref().unwrap().name, "lab-root-ca");
+    let key = v.iter().find(|v| v.name == "mount-llm-key").unwrap();
+    assert_eq!(
+        key.secret.as_ref().unwrap().secret_name.as_deref(),
+        Some("shop-llm")
+    );
+}

@@ -1,0 +1,176 @@
+{
+  "deployment": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/managed-by": "dvarapala-operator",
+        "app.kubernetes.io/name": "dvarapala-gateway",
+        "dvarapala.franzramadhan.dev/backend": "web",
+        "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3",
+        "dvarapala.franzramadhan.dev/policy": "default"
+      },
+      "name": "web-dvp-5d71e6a3",
+      "namespace": "shop"
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "dvarapala.franzramadhan.dev/restart-hash": "abc"
+          },
+          "labels": {
+            "app.kubernetes.io/managed-by": "dvarapala-operator",
+            "app.kubernetes.io/name": "dvarapala-gateway",
+            "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3"
+          }
+        },
+        "spec": {
+          "automountServiceAccountToken": false,
+          "containers": [
+            {
+              "args": [
+                "serve",
+                "--config",
+                "/etc/dvarapala/dvarapala.toml"
+              ],
+              "env": [
+                {
+                  "name": "DVARAPALA__LISTEN",
+                  "value": "0.0.0.0:8080"
+                },
+                {
+                  "name": "DVARAPALA__UPSTREAM",
+                  "value": "http://web.shop.svc:80"
+                },
+                {
+                  "name": "DVARAPALA__UPSTREAM_PROTOCOL",
+                  "value": "http1"
+                },
+                {
+                  "name": "DVARAPALA__METRICS__LISTEN",
+                  "value": "0.0.0.0:9090"
+                },
+                {
+                  "name": "DVARAPALA__CONFIG_WATCH",
+                  "value": "10s"
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "s"
+                  }
+                }
+              ],
+              "image": "img:1",
+              "name": "dvarapala",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http"
+                },
+                {
+                  "containerPort": 9090,
+                  "name": "metrics"
+                }
+              ],
+              "readinessProbe": {
+                "periodSeconds": 2,
+                "tcpSocket": {
+                  "port": 8080
+                }
+              },
+              "resources": {
+                "limits": {
+                  "memory": "64Mi"
+                },
+                "requests": {
+                  "cpu": "50m",
+                  "memory": "16Mi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/dvarapala",
+                  "name": "config",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "dvarapala-default"
+              },
+              "name": "config"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "service": {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "dvarapala.franzramadhan.dev/phase": "protecting"
+      },
+      "labels": {
+        "app.kubernetes.io/managed-by": "dvarapala-operator",
+        "app.kubernetes.io/name": "dvarapala-gateway",
+        "dvarapala.franzramadhan.dev/backend": "web",
+        "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3",
+        "dvarapala.franzramadhan.dev/policy": "default"
+      },
+      "name": "web-dvp-5d71e6a3",
+      "namespace": "shop"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "dvarapala.franzramadhan.dev/gateway": "web-dvp-5d71e6a3"
+      }
+    }
+  }
+}

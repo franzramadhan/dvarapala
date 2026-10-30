@@ -22,6 +22,9 @@ use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use crate::crd::{Autoscaling, PolicySpec};
 use crate::policy::{self, FILE};
 
+pub mod admin;
+pub mod waf;
+
 pub const MANAGED_BY: (&str, &str) = ("app.kubernetes.io/managed-by", "dvarapala-operator");
 pub const APP: (&str, &str) = ("app.kubernetes.io/name", "dvarapala-gateway");
 pub const GATEWAY: &str = "dvarapala.franzramadhan.dev/gateway";
