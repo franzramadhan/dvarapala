@@ -128,8 +128,9 @@ booster.save_model("model.json")
 
 LLM labels ([`[ml.llm]`](configuration.html#mlllm), RFC 0023) can label
 the rows for you: `ml.llm.export` writes one JSON line per answer with
-these columns plus `label`, `confidence`, `trigger` and `at`. Review the
-labels before training on them:
+these columns plus `label`, `confidence`, `trigger` and `at`. With
+`ml.llm.persist`, `GET /llm/export` gives the same lines for every
+replica. Review the labels before training on them:
 
 ```python
 df = pd.read_json("labels.jsonl", lines=True)
@@ -235,6 +236,12 @@ most `max_duration`) or with `enabled = true`. `Cookie` and
 `Authorization` are never sent, query values become `_`, and the body is
 sent only with `body_bytes`. Use the labels to decide when the WAF can
 leave `observe`, or to train the [scoring model](#scoring-model).
+
+With `persist = true` and the PostgreSQL store, every replica writes its
+labels as rows ([RFC 0024](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0024-llm-label-store.md)): the console's counts and recent
+labels cover all replicas and survive restarts, rows older than
+`retention` (30 days) are deleted, and `GET /llm/export` streams them as
+JSON lines. A lost store is logged once and labels stay in memory.
 
 Keys: [`[ml.llm]`](configuration.html#mlllm).
 

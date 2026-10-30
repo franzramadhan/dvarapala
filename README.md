@@ -63,6 +63,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Console views** | The running config with secrets redacted, the WAF's matched rules and the agent's rule files, an `observe`/`enforce` switch until the next reload (`admin.mode_switch`), and a health page per layer from `GET /metrics` | [RFC 0021](rfc/0021-admin-ui-config-waf.md) |
 | **Traffic history** | The console graph keeps the last 15 minutes in memory, so a reload or a new tab shows it at once; with `history.persist`, per-minute rows in the PostgreSQL store survive restarts and sum the replicas, up to 7 days | [RFC 0022](rfc/0022-traffic-history.md) |
 | **LLM labels** | Sampled requests from worthwhile triggers (WAF matches, failed challenges, attacks, uncertain model scores, routes), redacted and sent off the request path to a System One decision model or an OpenAI-compatible chat model; the label goes to logs, metrics, the console and a training file, never to a verdict | [RFC 0023](rfc/0023-llm-labels.md) |
+| **LLM label store** | With `ml.llm.persist`, every replica writes its labels as rows in the PostgreSQL store: the console's counts and recent labels cover all replicas and survive restarts, and `GET /llm/export` streams them as JSON lines for training | [RFC 0024](rfc/0024-llm-label-store.md) |
 | **Replay** | `dvarapala replay` runs a config over a recorded access log on a virtual clock and reports what it would have throttled, dropped or challenged | [RFC 0016](rfc/0016-replay.md) |
 | **Routes** | Per-route policy matched on host, path, method and client: deny, an extra bucket keyed by client, header or JA4, challenge exemption | [RFC 0013](rfc/0013-routes.md) |
 | **Upstreams** | Pools of upstreams with round robin or least requests, active health checks, passive ejection and budgeted retries of idempotent requests | [RFC 0015](rfc/0015-upstream-pools.md) |
@@ -109,7 +110,7 @@ cargo install dvarapala --no-default-features --features tls  # smallest build
 | `llm` | yes | LLM labels for sampled traffic (RFC 0023); turns on `tls` |
 | `ml` | no | XGBoost scoring (RFC 0002) |
 | `redis` | no | Redis state backend across replicas (RFC 0010) |
-| `postgres` | no | PostgreSQL state backend and persisted traffic history (RFC 0010, RFC 0022) |
+| `postgres` | no | PostgreSQL state backend, persisted traffic history and LLM labels (RFC 0010, RFC 0022, RFC 0024) |
 | `http3` | no | HTTP/3 listener over QUIC (RFC 0006), experimental; turns on `tls` |
 | `xdp` | no | XDP fast path (RFC 0011), Linux only |
 

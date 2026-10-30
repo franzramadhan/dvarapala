@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-30 | #212 | |
+| implemented | 2026-10-30 | #212 | v0.17.0 |
 
 > With `ml.llm.persist`, every replica writes its LLM labels (RFC 0023)
 > as rows in the PostgreSQL store (RFC 0010) instead of a file of its
@@ -160,7 +160,7 @@ hand. `ml.llm.export` and `ml.llm.export_max` are unchanged.
 
 ## Rollout
 
-- **Rollout:** a minor release. Off until `ml.llm.persist = true`.
+- **Rollout:** v0.17.0. Off until `ml.llm.persist = true`.
   Migration 3 applies at start with `store.migrate = true`, or
   `dvarapala store schema --from 2` prints it for a role without DDL
   rights.
