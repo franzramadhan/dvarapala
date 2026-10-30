@@ -94,6 +94,18 @@ skipped backends (`ExternalName` Services, Services without a selector,
   gateway.
 - The webhook uses `failurePolicy: Fail`: while it is down, labeled
   routes cannot be updated (unlabeled routes are never sent to it).
+- The gateways run the container image, which has the `redis` and
+  `postgres` stores but not the `ml`, `http3` or `xdp` features. A policy
+  with `ml.model` makes the gateway fail at start.
+- The operator owns `[tls]`, so the gateway listener is cleartext behind
+  the ingress controller: `[fingerprint]` rules and `routes.key = "ja4"`
+  never see a JA4.
+- A gateway pod has no WAF sidecar: `[waf]` needs an agent the pod can
+  reach over TCP (`endpoint = "<host>:<port>"`), for example a
+  `coraza-spoa` Deployment and Service (see [WAF](waf.html)).
+- `[challenge]` with more than one gateway pod needs the same
+  `challenge.secret` on every pod (through `secretRef`), or a pass from
+  one pod fails on the others.
 - With default-deny NetworkPolicies, the gateway pods
   (`app.kubernetes.io/name: dvarapala-gateway`) need ingress from the
   ingress controller and egress to the application, DNS and the store.

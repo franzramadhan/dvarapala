@@ -78,7 +78,9 @@ Keys: [`[admin]`](configuration.html#admin).
 
 `SIGHUP` or `POST /reload` reads the config file and the environment
 again. A file that does not load or validate is refused whole and the
-running config stays. Limits, trusted proxies, the detection mode,
+running config stays. Limits (`rate_limit.rate` and `burst`, unless a
+shared `[store]` is set: the cluster budget is fixed at start), trusted
+proxies, the detection mode,
 `[challenge]`, `[fingerprint]`, `[[routes]]` and `[waf]` apply in place: clients
 keep their buckets and the detector its baseline. Any other changed key
 is named in the `config reloaded` log line (`restart=`) and waits for a

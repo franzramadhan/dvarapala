@@ -8,9 +8,40 @@ connection limits of `[l4]`. Each package is a thin layer over one C ABI
 (`crates/ffi`, header `dvarapala.h`), so the verdicts match the gateway's.
 
 Settings take the [Configuration](configuration.html) names with the
-gateway's defaults: `rate_limit.*`, `detection.*`, `trusted_proxies` and
-the connection keys of `[l4]`. A bad key or value is an error that names
-it.
+gateway's defaults. A bad key or value is an error that names it.
+
+## Keys
+
+| Accepted in process | |
+|---|---|
+| `rate_limit.rate`, `rate_limit.burst`, `rate_limit.max_clients` | The per-client bucket |
+| `trusted_proxies` | Peers allowed to set `X-Forwarded-For` |
+| `detection.*` (every key of `[detection]`) | Flood detection, `observe` or `enforce` |
+| `l4.enabled`, `l4.max_connections`, `l4.max_per_client`, `l4.accept_rate`, `l4.accept_burst`, `l4.prefix_v4`, `l4.prefix_v6`, `l4.max_clients`, `l4.exempt` | Connection limits on accept |
+
+The gateway's own server keys are refused with `does not apply
+in-process`: `mode`, `listen`, `upstream`, `upstream_protocol`, `[metrics]`,
+`[ml]`, `[tls]`, `[upstream_tls]`, `[http2]`, `[upgrade]`, `[forward]` and
+the `[l4]` timeouts (`header_timeout`, `idle_timeout`, `min_body_rate`).
+
+Every other key is refused with `is not a key`, because the SDKs do not
+have that layer: `rate_limit.enabled` (leave the guard out instead),
+`[challenge]`, `[fingerprint]`, `[[routes]]`, `[waf]`, `[store]`,
+`[admin]`, `[pool]`, `[xdp]` and `[quic]`. Run the gateway for those.
+
+## Rust
+
+The crates embed directly, as a git dependency (they are not on
+crates.io): `dvarapala-l7` has the `tower` layers (`RateLimitLayer` with
+`RateLimitConfig`, including detection and the optional `Scoring` hook),
+`dvarapala-l4` the listener wrapper, `dvarapala-engine` the verdict engine
+with no I/O. `crates/dvarapala/src/layer.rs` shows how the binary builds
+them from the configuration.
+
+```toml
+[dependencies]
+dvarapala-l7 = { git = "https://github.com/franzramadhan/dvarapala", tag = "v<version>" }
+```
 
 ## Go
 

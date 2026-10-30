@@ -9,6 +9,12 @@ release branch (see `CLAUDE.md`).
 
 - **ui:** Keep console details open across a refetch (#176)
 
+### Docs
+
+- Which build features each published artifact has, list values in environment variables, validation ranges, what `rate_limit.enabled = false` turns off, forward mode's ignored sections
+- The scoring model: requirements, features, training, expected results
+- The SDKs' accepted keys and Rust embedding, operator gateway limits, cluster store availability
+
 ## [0.14.0] - 2026-10-30
 
 ### Features

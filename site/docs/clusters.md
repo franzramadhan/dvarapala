@@ -10,8 +10,11 @@ budget per destination.
 
 ## Run it
 
-Build with the backend you need (`--features redis`, `--features
-postgres`, or both), then point every replica at the same store and
+The container image has both backends. The release tarballs (and so
+Homebrew and `install.sh`) have neither: with those, a shared backend
+fails at start with `store.backend = "redis" needs a binary built with the
+redis feature`. Use the image, or build with the backend you need
+(`--features redis`, `--features postgres`, or both), then point every replica at the same store and
 cluster name:
 
 ```toml
