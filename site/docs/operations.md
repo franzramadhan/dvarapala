@@ -43,6 +43,7 @@ curl -sH "$H" -X POST http://127.0.0.1:9091/reload
 | `GET /waf` | WAF settings, running mode, matched rules, the agent's rule files |
 | `GET /metrics` | the Prometheus text, behind the admin login |
 | `GET /history` | `range=15m\|1h\|6h\|24h\|7d`: request rates by verdict for the console graph, from memory or, with `history.persist`, the PostgreSQL store ([RFC 0022](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0022-traffic-history.md)) |
+| `GET /llm/export` | `since`, `until`, `label`, `trigger`: the stored LLM labels as JSON lines, oldest first; `409` without `ml.llm.persist` ([RFC 0024](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0024-llm-label-store.md)) |
 | `POST /mode` | `layer=detection\|waf&mode=observe\|enforce`, until the next reload; `403` unless `admin.mode_switch` |
 
 ## Console

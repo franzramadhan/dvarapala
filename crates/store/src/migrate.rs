@@ -139,7 +139,11 @@ mod tests {
 
     // RFC 0010 case 21: append a line here with each new migration, never
     // change one
-    const RELEASED: &[(u32, u64)] = &[(1, 0xb50c0e7f96ea4f9e), (2, 0xccbac390fad33a75)];
+    const RELEASED: &[(u32, u64)] = &[
+        (1, 0xb50c0e7f96ea4f9e),
+        (2, 0xccbac390fad33a75),
+        (3, 0x160e5411e58ed18e),
+    ];
 
     #[test]
     fn released_migrations_never_change() {

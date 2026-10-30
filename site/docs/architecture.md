@@ -115,7 +115,8 @@ background task syncs every `sync_interval`. See [Clusters](clusters.html).
 
 The protection path fails closed: when a limit cannot be decided, the
 request does not pass. It fails open only where an RFC says so, and logs
-it: a lost store falls back to local limits, and `waf.on_error = "pass"`
+it: a lost store falls back to local limits (and keeps LLM labels in
+memory), and `waf.on_error = "pass"`
 forwards when the WAF agent fails. On Kubernetes, a new gateway passes
 traffic straight to the application until its first pod is ready, then
 never again: no ready gateway pod means `503`. Shutdown drains in-flight requests and open tunnels for up to 30 s.
