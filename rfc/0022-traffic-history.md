@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-30 | #178 | |
+| implemented | 2026-10-30 | #178 | v0.15.0 |
 
 > The gateway keeps its own traffic history: a ring buffer in memory,
 > always on with the console, and optionally a per-minute history in the
