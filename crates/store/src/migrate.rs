@@ -8,10 +8,16 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: include_str!("../migrations/0001.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("../migrations/0001.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("../migrations/0002.sql"),
+    },
+];
 
 /// The schema version this binary needs.
 pub const LATEST: u32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
@@ -129,7 +135,7 @@ mod tests {
 
     // RFC 0010 case 21: append a line here with each new migration, never
     // change one
-    const RELEASED: &[(u32, u64)] = &[(1, 0xb50c0e7f96ea4f9e)];
+    const RELEASED: &[(u32, u64)] = &[(1, 0xb50c0e7f96ea4f9e), (2, 0xccbac390fad33a75)];
 
     #[test]
     fn released_migrations_never_change() {
