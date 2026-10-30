@@ -33,6 +33,10 @@ impl Admin {
         };
         match call {
             Call::Status => json(StatusCode::OK, self.status(Some(l))),
+            // RFC 0021: served by the next layer
+            Call::Config | Call::Waf | Call::Metrics | Call::Mode { .. } => {
+                json(StatusCode::NOT_FOUND, error("not found"))
+            }
             Call::Top => {
                 let mut s = String::from("{\"top\":[");
                 for (i, (net, n)) in l.top().iter().enumerate() {

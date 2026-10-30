@@ -19,8 +19,8 @@ mod session;
 mod waf;
 
 pub use admin::{
-    Call, MAX_QUERY, Refusal, authorized, cookie, csrf_ok, fuzz_admin_query, parse as parse_admin,
-    secure_url,
+    Call, MAX_QUERY, ModeLayer, Refusal, authorized, cookie, csrf_ok, fuzz_admin_query,
+    parse as parse_admin, secure_url,
 };
 pub use challenge::{ChallengeConfig, PageBody, fuzz_verify, unix_now};
 pub use control::{Block, Reload, Status};
@@ -43,4 +43,7 @@ pub use routes::{
 };
 pub use session::{Method as LoginMethod, Session, Sessions};
 #[cfg(feature = "waf")]
-pub use waf::{Endpoint, HEADROOM, Waf, WafBody, WafConfig, WafLayer, fuzz_waf_frame};
+pub use waf::{
+    Endpoint, HEADROOM, MAX_RULES, RuleMatch, Rules, Waf, WafBody, WafConfig, WafLayer,
+    fuzz_waf_frame, matched_rules,
+};
