@@ -122,6 +122,29 @@ table stays until dropped by hand.
 | 15 | The console with `source` `store` | the range picker is set to `24h` | `GET /history?range=24h` and a graph of 1 minute points | UI (Vitest) |
 | 16 | Idle binary with the admin listener | footprint job | RSS still under the RFC 0001 budget | CI |
 
+## Implementation notes
+
+Deviations found while building:
+
+- Retention runs in the history task, once every 60 minute rows, under its
+  own advisory lock (`pg_try_advisory_xact_lock(hashtext('dvarapala.history'))`)
+  and at most 10 000 rows per sweep, not in the store's sync sweep: the
+  history has its own connection and does not depend on the shared limiter
+  being on.
+- The ring runs only when `admin.listen` is set, and `[history]` is
+  validated only then (with a reload too).
+- An answer that includes store points reports `interval_ms` 60000 for the
+  whole answer, even though its tail comes from the ring at `interval`.
+- Store points carry `"detection": null`; minute rows keep no state.
+- Case 10 (two replicas, one point per minute) is tested at the store level
+  (`history_read` sums the replicas); case 11 checks the answer from memory
+  and the single log line, not the `writes_total{result="error"}` counter,
+  which a minute boundary would make slow and flaky.
+- The console shows the range picker only when the `15m` answer says
+  `"source": "store"`; otherwise the graph says "This replica, last 15
+  minutes". Longer ranges come from `GET /history` alone, without the
+  polls.
+
 ## Alternatives
 
 | Option | Why not |

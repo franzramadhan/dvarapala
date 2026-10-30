@@ -179,6 +179,15 @@ prefix_v6 = 64
 # require_email_verified = true
 # label = "SSO"
 
+# Traffic history for the console graph (RFC 0022), on with [admin].
+# persist writes a row per minute to the PostgreSQL store, for ranges
+# past the window and across restarts.
+# [history]
+# interval = "5s"
+# window = "15m"
+# persist = false
+# retention = "7d"
+
 # Upstream pool (RFC 0015): in place of upstream, not together with it.
 # See pool.toml.
 # [pool]

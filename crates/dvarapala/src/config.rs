@@ -13,6 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 mod admin;
 mod challenge;
 mod forward;
+mod history;
 mod l4;
 mod pool;
 mod protocols;
@@ -26,6 +27,7 @@ mod xdp;
 pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
+pub use history::History;
 pub use l4::L4;
 pub use pool::Pool;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
@@ -91,6 +93,8 @@ pub struct Config {
     pub pool: Pool,
     #[serde(default)]
     pub waf: Waf,
+    #[serde(default)]
+    pub history: History,
     /// RFC 0019: poll the `--config` file and reload on a change; `None` is off.
     #[serde(
         default,

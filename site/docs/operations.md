@@ -42,6 +42,7 @@ curl -sH "$H" -X POST http://127.0.0.1:9091/reload
 | `GET /config` | the running config, secrets redacted ([RFC 0021](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0021-admin-ui-config-waf.md)) |
 | `GET /waf` | WAF settings, running mode, matched rules, the agent's rule files |
 | `GET /metrics` | the Prometheus text, behind the admin login |
+| `GET /history` | `range=15m\|1h\|6h\|24h\|7d`: request rates by verdict for the console graph, from memory or, with `history.persist`, the PostgreSQL store ([RFC 0022](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0022-traffic-history.md)) |
 | `POST /mode` | `layer=detection\|waf&mode=observe\|enforce`, until the next reload; `403` unless `admin.mode_switch` |
 
 ## Console

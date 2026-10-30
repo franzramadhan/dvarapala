@@ -270,6 +270,7 @@ async fn control(
     reload::on_hangup(reloader.clone())?;
     watch::start(path.as_deref(), cfg.config_watch, reloader.clone())?;
     if let Some(addr) = admin {
+        let history = admin::history::History::start(cfg, layer.clone(), reloader.clone())?;
         let a = admin::Admin {
             token: cfg.admin.token.clone(),
             max_block_ttl: cfg.admin.max_block_ttl,
@@ -277,6 +278,7 @@ async fn control(
             reloader,
             metrics: metrics::install()?,
             mode_switch: cfg.admin.mode_switch,
+            history,
             mode: match cfg.mode {
                 config::ProxyMode::Reverse => "reverse",
                 config::ProxyMode::Forward => "forward",

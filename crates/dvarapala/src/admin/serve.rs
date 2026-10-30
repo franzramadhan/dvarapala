@@ -40,6 +40,8 @@ pub struct Admin {
     pub metrics: metrics_exporter_prometheus::PrometheusHandle,
     /// RFC 0021: allows `POST /mode`.
     pub mode_switch: bool,
+    /// RFC 0022: `GET /history`.
+    pub history: Arc<super::history::History>,
     /// The console, with `ui_enabled`.
     #[cfg(feature = "ui")]
     pub console: Option<super::Console>,
@@ -121,6 +123,9 @@ impl Admin {
             Ok(call) => call,
             Err((status, msg)) => return json(status, error(&msg)),
         };
+        if let Call::History { range_secs } = call {
+            return json(StatusCode::OK, self.history.answer(range_secs).await);
+        }
         let audit = matches!(
             call,
             Call::Reload | Call::Block { .. } | Call::Unblock { .. } | Call::Mode { .. }
@@ -157,9 +162,8 @@ impl Admin {
 /// The `endpoint` label: the API paths, the console's groups, `other`.
 fn endpoint(path: &str) -> String {
     match path {
-        "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/mode" | "/metrics" => {
-            path.to_owned()
-        }
+        "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/mode" | "/metrics"
+        | "/history" => path.to_owned(),
         p if p == "/ui" || p.starts_with("/ui/") => "ui".into(),
         p if p.starts_with("/session/oidc") => "oidc".into(),
         p if p == "/session" || p.starts_with("/session/") => "session".into(),

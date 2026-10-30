@@ -26,7 +26,6 @@ fn auth() -> String {
 
 // RFC 0022 cases 7, 8 and 9
 #[test]
-#[ignore = "rfc 0022"]
 fn history_answers_from_memory() {
     let (listen, admin) = (port(), port());
     let p = serve("history", Some(&toml(listen, admin, "")), &[]);
@@ -68,7 +67,6 @@ fn history_answers_from_memory() {
 
 // RFC 0022 case 6
 #[test]
-#[ignore = "rfc 0022"]
 fn persist_needs_postgres() {
     let path = temp("history-persist.toml");
     let extra = "[store]\nbackend = \"memory\"";
@@ -84,7 +82,6 @@ fn persist_needs_postgres() {
 // RFC 0022 case 11: an unreachable store answers from memory, logged once
 #[cfg(feature = "postgres")]
 #[test]
-#[ignore = "rfc 0022"]
 fn a_lost_store_answers_from_memory() {
     let (listen, admin) = (port(), port());
     let extra = "[store]\nbackend = \"postgres\"\nurl = \"postgres://dvarapala@127.0.0.1:1/dvarapala?sslmode=disable\"";

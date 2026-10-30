@@ -2,6 +2,7 @@
 //! 0018 console and its logins.
 
 mod api;
+pub mod history;
 #[cfg(feature = "ui")]
 mod login;
 #[cfg(feature = "ui")]

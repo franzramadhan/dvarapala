@@ -472,6 +472,7 @@ JSON over HTTP/1.1 on its own listener; every call needs
 | `GET /config` | the running config ([RFC 0021](rfc/0021-admin-ui-config-waf.md)): `keys`, each with `key` (dotted), `value`, `reload` (`true` when a reload applies it in place; a `false` key shows the value the process started with) and `default`. `admin.token`, `admin.oidc.client_secret`, `challenge.secret` and `store.url` show as `"<redacted>"` when set |
 | `GET /waf` | the `[waf]` `settings`, the running `mode` and its `switch`, the matched `rules` (`rule`, `count`, `last_seen`, the last match's `method`, `path` without the query and `anomaly_score`; 256 IDs, then the `other` count) and the `files` of `waf.rules_files` read now (`path`, `size`, `modified`, `content`, or `error`) |
 | `GET /metrics` | the Prometheus text of the metrics listener |
+| `GET /history?range=<15m\|1h\|6h\|24h\|7d>` | the traffic history ([RFC 0022](rfc/0022-traffic-history.md)), default `15m`: `interval_ms`, `source` (`memory` or `store`) and `samples` (`t` in Unix ms, the rate per second of `allow`, `throttle`, `challenge`, `drop`, `error`, and `detection`, `null` for a store point). See [`[history]`](#history); `400` for another range |
 | `POST /mode?layer=<detection\|waf>&mode=<observe\|enforce>` | switches the layer's running mode in place, on this instance, until the next reload or restart (a reload logs `mode switch cleared` per switch). `403` unless `mode_switch`, `409` when the layer is off. Answers `layer`, `mode`, `previous` |
 | `POST /reload` | the same as `SIGHUP`: `restart` lists the changed keys that need a restart; `422` with `error` when the file is refused |
 | `GET /top` | the heavy hitters of the last closed window, `cidr` and `count` |
@@ -543,7 +544,7 @@ lets anyone who types an allowed address into a profile log in.
 again. A file that does not load or validate is refused whole and the
 running config stays. Applied in place, clients keeping their buckets and
 the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
-`trusted_proxies`, `detection.mode`, `detection.attack_rate_factor`,
+`trusted_proxies`, `history.retention`, `detection.mode`, `detection.attack_rate_factor`,
 `[challenge]` (passes stay valid while `secret` is unchanged),
 `[fingerprint]`, `[[routes]]` (route tables start empty when the list
 changes) and `[waf]` (the agent connections stay while `endpoint`,
@@ -551,6 +552,27 @@ changes) and `[waf]` (the agent connections stay while `endpoint`,
 log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
 on after a start without it, and a new rate with a shared `[store]` (the
 cluster budget is set at start). `SIGHUP` also reloads the TLS pair.
+
+## `[history]`
+
+The traffic history behind the console graph ([RFC 0022](rfc/0022-traffic-history.md)),
+answered by `GET /history`. It runs whenever `admin.listen` is set (and
+the section is checked only then): a ring in memory of fixed size, about
+`window / interval x 64` bytes (12 KiB at the defaults). With `persist`,
+each replica also writes one row per minute to `dvarapala.traffic_history`
+in the PostgreSQL store (migration 2), and a range longer than `window`
+reads those rows, summed over the replicas of `store.cluster`, as
+`"source": "store"` with `interval_ms` 60000; the last `window` still comes
+from the ring. A failed write or read is logged once as
+`history store unavailable` (then `history store recovered`) and the call
+answers from the ring with `"source": "memory"`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `interval` | duration | `"5s"` | Sample period of the ring, at least `"1s"`. Restart |
+| `window` | duration | `"15m"` | How much the ring keeps, at most 10 000 samples (`window / interval`). Restart |
+| `persist` | bool | `false` | Write a row per minute to the store. Needs `store.backend = "postgres"` and a build with the `postgres` feature (the container image). Restart |
+| `retention` | duration | `"7d"` | Rows older than this are deleted, by one replica at a time once an hour. At least `"1h"`; also `"<n>d"`. Reload |
 
 ## `[pool]`
 
@@ -745,6 +767,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_store_sync_seconds` | Histogram of one sync round |
 | `dvarapala_store_sync_errors_total` | Failed rounds |
 | `dvarapala_store_keys_dropped_total` | Clients left out of a round by `store.max_keys` |
+| `dvarapala_history_writes_total{result}` | History minute rows ([RFC 0022](rfc/0022-traffic-history.md)): `ok`, `error`, or `skipped` when the previous write was still running |
+| `dvarapala_history_rows_deleted_total` | History rows removed by `history.retention` |
 | `dvarapala_xdp_packets_total{action,reason}` | XDP verdicts ([RFC 0011](rfc/0011-xdp.md)): `action` is `pass`, `drop` or `would_drop`; `reason` is `allow`, `block`, `pps`, `syn`, `udp` or `other` (passed every check, or not to a protected port) |
 | `dvarapala_xdp_blocks` | Entries in the XDP block list, static and dynamic |
 | `dvarapala_xdp_attached{mode}` | 1 while attached, `native` or `generic`; `xdp attached` is logged at start |
