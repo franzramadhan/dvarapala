@@ -33,16 +33,17 @@ function niceMax(v: number): number {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
 }
 
-/** Requests per second by verdict, stacked, over the last 15 minutes. */
-export function StackedArea(props: { samples: Sample[]; label: string }) {
+/** Requests per second by verdict, stacked, over the last `span` seconds (15 minutes by default). */
+export function StackedArea(props: { samples: Sample[]; label: string; span?: number; spanLabel?: string }) {
+  const span = () => (props.span ?? WINDOW_SECS) * 1000;
   const model = createMemo(() => {
     const s = props.samples;
     const last = s[s.length - 1];
     if (s.length < 2 || !last) return null;
-    const start = last.t - WINDOW_SECS * 1000;
+    const start = last.t - span();
     const totals = s.map((x) => VERDICTS.reduce((n, k) => n + Math.max(0, x[k]), 0));
     const max = niceMax(Math.max(...totals));
-    const xs = s.map((x) => ((x.t - start) / (WINDOW_SECS * 1000)) * W);
+    const xs = s.map((x) => ((x.t - start) / span()) * W);
     const y = (v: number) => H - (v / max) * (H - 4);
     const cum = s.map(() => 0);
     const layers = VERDICTS.map((k) => {
@@ -77,7 +78,7 @@ export function StackedArea(props: { samples: Sample[]; label: string }) {
         )}
       </Show>
       <div class="mt-1 flex justify-between text-xs text-muted">
-        <span>15 min ago</span>
+        <span>{props.spanLabel ?? '15 min'} ago</span>
         <span>now</span>
       </div>
     </div>

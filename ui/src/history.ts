@@ -25,6 +25,14 @@ export function resetAll(): void {
   setSince({ state: null, at: Date.now() });
 }
 
+/** Put the gateway's own samples (`GET /history`) before the ones this tab recorded. */
+export function seedHistory(older: Sample[]): void {
+  setSamples((old) => {
+    const first = old[0]?.t ?? Infinity;
+    return [...older.filter((x) => x.t < first), ...old];
+  });
+}
+
 /** Turn cumulative counters into per-second rates; a drop in any counter means a restart. */
 export function recordStatus(s: Status, now = Date.now()): void {
   if (since().state !== s.detection) setSince({ state: s.detection, at: now });

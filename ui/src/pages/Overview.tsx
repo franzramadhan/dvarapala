@@ -1,13 +1,13 @@
-import { For, Show, createMemo, createSignal, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { Link } from '@tanstack/solid-router';
 import { useQuery } from '@tanstack/solid-query';
 import { VERDICTS } from '../api';
-import { errMsg, statusQuery } from '../api';
+import { errMsg, historyQuery, statusQuery, type HistoryRange } from '../api';
 import { Sparkline, StackedArea } from '../components/Charts';
 import { STATE_LABEL, stateKey } from '../components/Shell';
 import { Num, PageHeader } from '../components/Ui';
 import { fmtDuration, fmtRate } from '../format';
-import { history, stateSince } from '../history';
+import { history, seedHistory, stateSince } from '../history';
 import { HEALTH, metricsQuery, present } from '../metrics';
 
 const STATE_NOTE: Record<string, string> = {
@@ -17,6 +17,14 @@ const STATE_NOTE: Record<string, string> = {
   cooldown: 'Attack mode is winding down.',
   unknown: 'The gateway does not report a detection state (detection is off).',
 };
+
+const RANGES: { r: HistoryRange; secs: number; short: string; long: string }[] = [
+  { r: '15m', secs: 900, short: '15 min', long: '15 minutes' },
+  { r: '1h', secs: 3600, short: '1 h', long: 'hour' },
+  { r: '6h', secs: 21_600, short: '6 h', long: '6 hours' },
+  { r: '24h', secs: 86_400, short: '24 h', long: '24 hours' },
+  { r: '7d', secs: 604_800, short: '7 days', long: '7 days' },
+];
 
 function Kpi(props: { label: string; children: unknown; chart?: unknown }) {
   return (
@@ -33,6 +41,14 @@ export function OverviewPage() {
   const m = useQuery(() => metricsQuery());
   const layers = () => HEALTH.filter((p) => present(p, m.data)).map((p) => ({ p, h: p.health?.(m.data!) ?? 'ok' }));
   const state = () => stateKey(q.data?.detection);
+
+  const [range, setRange] = createSignal<HistoryRange>('15m');
+  const seed = useQuery(() => historyQuery('15m'));
+  const long = useQuery(() => ({ ...historyQuery(range()), enabled: range() !== '15m' }));
+  createEffect(() => seed.data && seedHistory(seed.data.samples));
+  const persisted = () => seed.data?.source === 'store';
+  const span = () => RANGES.find((x) => x.r === range())!;
+  const chart = () => (range() === '15m' ? history() : (long.data?.samples ?? []));
 
   const [now, setNow] = createSignal(Date.now());
   const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -98,6 +114,17 @@ export function OverviewPage() {
           <h2 id="chart-title" class="text-sm font-semibold">
             Requests per second by verdict
           </h2>
+          <Show
+            when={persisted()}
+            fallback={<span class="text-xs text-muted">This replica, last 15 minutes</span>}
+          >
+            <label class="flex items-center gap-1.5 text-xs">
+              Range
+              <select class="input py-0.5 text-xs" value={range()} onChange={(e) => setRange(e.currentTarget.value as HistoryRange)}>
+                <For each={RANGES}>{(x) => <option value={x.r}>{x.short}</option>}</For>
+              </select>
+            </label>
+          </Show>
           <ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
             <For each={VERDICTS}>
               {(k) => (
@@ -110,7 +137,12 @@ export function OverviewPage() {
             </For>
           </ul>
         </div>
-        <StackedArea samples={history()} label={`Requests per second by verdict over the last 15 minutes. Now: ${sentence()}.`} />
+        <StackedArea
+          samples={chart()}
+          span={span().secs}
+          spanLabel={span().short}
+          label={`Requests per second by verdict over the last ${span().long}. Now: ${sentence()}.`}
+        />
       </section>
 
       <Show when={layers().length}>
