@@ -30,12 +30,7 @@ impl Admin {
                 return r;
             }
             Call::Mode { layer, enforce } => return self.switch(layer, enforce, actor),
-            Call::Llm => return self.llm(None, actor),
-            Call::LlmSwitch { on } => return self.llm(Some(on), actor),
-            // RFC 0024: no store yet
-            Call::LlmExport(_) => {
-                return json(StatusCode::CONFLICT, error("ml.llm.persist is off"));
-            }
+            Call::LlmSwitch { on } => return self.llm(on, actor),
             _ => {}
         }
         if call == Call::Reload {
@@ -107,12 +102,12 @@ impl Admin {
             | Call::Waf
             | Call::Metrics
             | Call::Mode { .. }
-            | Call::Llm
-            | Call::LlmSwitch { .. }
-            | Call::LlmExport(_) => {
+            | Call::LlmSwitch { .. } => {
                 unreachable!("answered above")
             }
-            Call::History { .. } => unreachable!("answered by the admin router"),
+            Call::History { .. } | Call::Llm | Call::LlmExport(_) => {
+                unreachable!("answered by the admin router")
+            }
         }
     }
 

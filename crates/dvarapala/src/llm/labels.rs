@@ -1,5 +1,5 @@
-//! The sampling switch with its timer, the recent labels, the counts and
-//! the export file.
+//! The sampling switch with its timer, the recent labels, the counts, the
+//! export file and, with `persist`, the store (RFC 0024).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
@@ -11,6 +11,8 @@ use dvarapala_engine::FEATURE_NAMES;
 use dvarapala_l7::{Answer, Llm, Sample};
 use serde_json::{Map, Value, json};
 
+#[cfg(feature = "postgres")]
+use super::persist::Persist;
 use crate::config::{self, parse_duration};
 
 /// Labels `GET /llm` keeps.
@@ -27,6 +29,8 @@ pub struct Labels {
     recent: Mutex<VecDeque<Value>>,
     counts: Mutex<BTreeMap<(String, &'static str), u64>>,
     export: Option<Mutex<Export>>,
+    #[cfg(feature = "postgres")]
+    pub persist: std::sync::OnceLock<Arc<Persist>>,
 }
 
 struct Export {
@@ -63,6 +67,8 @@ impl Labels {
             recent: Mutex::new(VecDeque::new()),
             counts: Mutex::new(BTreeMap::new()),
             export,
+            #[cfg(feature = "postgres")]
+            persist: std::sync::OnceLock::new(),
         }))
     }
 
@@ -110,7 +116,13 @@ impl Labels {
     }
 
     /// A reload ends the console's switch; `enabled = true` keeps sampling.
-    pub fn reload(&self) {
+    /// `retention` applies to the next sweep.
+    #[allow(unused_variables)]
+    pub fn reload(&self, c: &config::Llm) {
+        #[cfg(feature = "postgres")]
+        if let Some(p) = self.persist.get() {
+            p.set_retention(c.retention);
+        }
         if self.llm.enabled() {
             lock(&self.until).0 = None;
         } else {
@@ -140,17 +152,67 @@ impl Labels {
         *lock(&self.counts)
             .entry((a.label.clone(), s.trigger))
             .or_default() += 1;
-        if let (Some(e), Some(f)) = (&self.export, &s.features) {
-            let mut line = Map::new();
-            for (k, v) in FEATURE_NAMES.iter().zip(f) {
-                line.insert((*k).into(), json!(v));
-            }
-            line.insert("label".into(), a.label.as_str().into());
-            line.insert("confidence".into(), a.confidence.into());
-            line.insert("trigger".into(), s.trigger.into());
-            line.insert("at".into(), at.into());
-            lock(e).write(Value::Object(line).to_string());
+        let features = s.features.as_ref().map(|f| {
+            FEATURE_NAMES
+                .iter()
+                .zip(f)
+                .map(|(k, v)| ((*k).to_owned(), json!(v)))
+                .collect::<Map<_, _>>()
+        });
+        if let (Some(e), Some(f)) = (&self.export, &features) {
+            lock(e).write(line(f.clone(), &a.label, a.confidence, s.trigger, at));
         }
+        #[cfg(feature = "postgres")]
+        if let Some(p) = self.persist.get() {
+            p.push(row(s, a, at, features));
+        }
+    }
+
+    /// `GET /llm`: from the store with `persist`, else (or when it fails)
+    /// this process's memory.
+    #[cfg_attr(not(feature = "postgres"), allow(unused_mut))]
+    pub async fn answer(&self) -> String {
+        let mut j = self.json();
+        #[cfg(feature = "postgres")]
+        if let Some(p) = self.persist.get()
+            && let Some((counts, recent)) = p.read().await
+        {
+            j["source"] = "store".into();
+            j["counts"] = counts
+                .iter()
+                .map(|(label, trigger, n)| json!({"label": label, "trigger": trigger, "count": n}))
+                .collect();
+            j["recent"] = recent
+                .iter()
+                .map(|r| {
+                    json!({
+                        "at": r.at_ms,
+                        "trigger": r.trigger,
+                        "route": r.route,
+                        "method": r.method,
+                        "path": r.path,
+                        "label": r.label,
+                        "confidence": r.confidence,
+                        "pattern": r.pattern,
+                    })
+                })
+                .collect();
+        }
+        j.to_string()
+    }
+
+    /// `GET /llm/export`: the stored rows as JSON lines, `None` without
+    /// `persist`.
+    #[allow(unused_variables)]
+    pub fn export(
+        &self,
+        q: dvarapala_l7::ExportQuery,
+    ) -> Option<tokio::sync::mpsc::Receiver<Result<String, dvarapala_store::Error>>> {
+        #[cfg(feature = "postgres")]
+        if let Some(p) = self.persist.get() {
+            return Some(p.export(q));
+        }
+        None
     }
 
     /// `GET /llm`.
@@ -168,8 +230,52 @@ impl Labels {
             "max_duration_secs": self.max_duration.as_secs(),
             "counts": counts,
             "recent": recent,
+            "source": "memory",
         })
     }
+}
+
+/// An export line, in the file and from the store: the features, the
+/// label, the confidence, the trigger and the time.
+fn line(mut o: Map<String, Value>, label: &str, confidence: f64, trigger: &str, at: u64) -> String {
+    o.insert("label".into(), label.into());
+    o.insert("confidence".into(), confidence.into());
+    o.insert("trigger".into(), trigger.into());
+    o.insert("at".into(), at.into());
+    Value::Object(o).to_string()
+}
+
+/// The stored row of one answer.
+#[cfg(feature = "postgres")]
+fn row(
+    s: &Sample,
+    a: &Answer,
+    at: u64,
+    f: Option<Map<String, Value>>,
+) -> dvarapala_store::LabelRow {
+    dvarapala_store::LabelRow {
+        at_ms: at,
+        trigger: s.trigger.into(),
+        route: s.route.clone(),
+        method: s.method.clone(),
+        path: s.path.clone(),
+        label: a.label.clone(),
+        confidence: a.confidence,
+        pattern: a.pattern.clone(),
+        features: f.map(|f| Value::Object(f).to_string()),
+        ..Default::default()
+    }
+}
+
+/// A stored row's export line.
+#[cfg(feature = "postgres")]
+pub fn export_line(r: &dvarapala_store::LabelRow) -> String {
+    let features = r
+        .features
+        .as_deref()
+        .and_then(|f| serde_json::from_str(f).ok())
+        .unwrap_or_default();
+    line(features, &r.label, r.confidence, &r.trigger, r.at_ms)
 }
 
 impl Export {
@@ -245,11 +351,11 @@ mod tests {
     async fn reload_stops_unless_enabled() {
         let l = labels(false);
         l.on("", "token").unwrap();
-        l.reload();
+        l.reload(&config::Llm::default());
         assert!(!l.llm.sampling());
         let l = labels(true);
         l.on("5m", "token").unwrap();
-        l.reload();
+        l.reload(&config::Llm::default());
         assert!(l.llm.sampling());
     }
 
@@ -273,5 +379,44 @@ mod tests {
         assert_eq!(j["recent"].as_array().unwrap().len(), RECENT);
         assert_eq!(j["recent"][0]["confidence"], 249.0 / 250.0);
         assert_eq!(j["counts"][0]["count"], 250);
+        assert_eq!(j["source"], "memory");
+    }
+
+    // RFC 0024 case 7, the line: a stored row exports the file's line
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn a_stored_row_exports_the_file_line() {
+        let path =
+            std::env::temp_dir().join(format!("dvarapala-labels-{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let c = config::Llm {
+            export: Some(path.clone()),
+            ..config::Llm::default()
+        };
+        let l = Labels::new(labels(true).llm.clone(), &c).unwrap();
+        let s = Sample {
+            trigger: "waf",
+            route: "login".into(),
+            features: Some(std::array::from_fn(|i| i as f64 / 3.0)),
+            ..Sample::default()
+        };
+        let a = Answer {
+            label: "scanner".into(),
+            confidence: 0.8413,
+            pattern: "probes".into(),
+            tokens: (0, 0),
+        };
+        l.record(&s, &a);
+        let file = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let at = serde_json::from_str::<Value>(&file).unwrap()["at"]
+            .as_u64()
+            .unwrap();
+        let f = FEATURE_NAMES
+            .iter()
+            .zip(s.features.unwrap())
+            .map(|(k, v)| ((*k).to_owned(), json!(v)))
+            .collect();
+        assert_eq!(export_line(&row(&s, &a, at, Some(f))) + "\n", file);
     }
 }

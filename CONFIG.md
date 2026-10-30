@@ -156,6 +156,9 @@ are cut to 512 bytes. All `[ml.llm]` keys need a restart.
 | `export` | path | unset | JSON lines file for training: the 10 feature columns of [`[ml]`](#ml) plus `label`, `confidence`, `trigger`, `at` (Unix ms) |
 | `export_max` | size | `"64MiB"` | The export stops, with a warning, at this size |
 | `max_duration` | duration | `"24h"` | Longest `POST /llm?on=` duration |
+| `persist` | bool | `false` | Write each label as a row of `dvarapala.llm_labels` in the PostgreSQL store ([RFC 0024](rfc/0024-llm-label-store.md)): `GET /llm` then covers every replica of `store.cluster`, and `GET /llm/export` streams the rows. Needs `store.backend = "postgres"` (an error otherwise) and a build with the `postgres` feature (the container image has it). Writes fail open: `llm store unavailable` is logged once and labels stay in memory. Rows keep the redacted path, which can hold personal data for `retention`. Restart |
+| `persist_queue` | integer | `1024` | Rows waiting for the writer, 1 to 65536; a full queue drops new rows. Batches of up to 100 rows, at most 5 s apart. Restart |
+| `retention` | duration | `"30d"` | Stored rows older than this are deleted, at most 10 000 per hourly sweep, one replica at a time. `"<n>d"` days or a duration, at least `1h`. Reload |
 
 `[[ml.llm.triggers]]`, none by default (then nothing is sampled):
 
@@ -526,6 +529,7 @@ JSON over HTTP/1.1 on its own listener; every call needs
 | `GET /history?range=<15m\|1h\|6h\|24h\|7d>` | the traffic history ([RFC 0022](rfc/0022-traffic-history.md)), default `15m`: `interval_ms`, `source` (`memory` or `store`) and `samples` (`t` in Unix ms, the rate per second of `allow`, `throttle`, `challenge`, `drop`, `error`, and `detection`, `null` for a store point). See [`[history]`](#history); `400` for another range |
 | `POST /mode?layer=<detection\|waf>&mode=<observe\|enforce>` | switches the layer's running mode in place, on this instance, until the next reload or restart (a reload logs `mode switch cleared` per switch). `403` unless `mode_switch`, `409` when the layer is off. Answers `layer`, `mode`, `previous` |
 | `GET /llm` | the LLM labels ([RFC 0023](rfc/0023-llm-labels.md)): `configured` (`false` and nothing else without `ml.llm.endpoint`), `sampling`, `until` (Unix ms, `null` without a console switch), `enabled`, `max_duration_secs`, `counts` (`label`, `trigger`, `count` since start) and `recent` (the last 200, newest first: `at` in Unix ms, `trigger`, `route`, `method`, `path`, `label`, `confidence`, `pattern`) |
+| `GET /llm/export` | the stored labels as JSON lines ([RFC 0024](rfc/0024-llm-label-store.md)), the `ml.llm.export` columns, oldest first, streamed. `since` and `until` (RFC 3339 or Unix ms, inclusive), `label` and `trigger` (repeatable, at most 32 each). With `ml.llm.persist`, `GET /llm` answers from the store (`counts` over the last 24 h of every replica, `recent` the cluster's last 200) with `"source":"store"`, else `"source":"memory"`. `409` without `persist`, `400` naming a bad parameter |
 | `POST /llm?on=<duration>` | samples until now plus the duration (default `30m`, at most `ml.llm.max_duration`); `POST /llm?off` stops. `403` unless `mode_switch`, `409` without `ml.llm.endpoint`, `400` for a bad duration |
 | `POST /reload` | the same as `SIGHUP`: `restart` lists the changed keys that need a restart; `422` with `error` when the file is refused |
 | `GET /top` | the heavy hitters of the last closed window, `cidr` and `count` |
@@ -807,6 +811,9 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_llm_labels_total{label,trigger}` | Answers by label |
 | `dvarapala_llm_call_seconds` | Histogram of call time |
 | `dvarapala_llm_tokens_total{kind}` | `prompt` and `completion`, from the reply's `usage` when present |
+| `dvarapala_llm_store_rows_total{result}` | Label rows ([RFC 0024](rfc/0024-llm-label-store.md)): `ok` written, `error` lost with a failed batch, `dropped` on a full `persist_queue` |
+| `dvarapala_llm_store_rows_deleted_total` | Label rows removed by `ml.llm.retention` |
+| `dvarapala_llm_export_rows_total` | Rows streamed by `GET /llm/export` |
 | `dvarapala_config_reloads_total{result}` | Reloads ([RFC 0014](rfc/0014-admin.md)): `ok`, `failed` |
 | `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`ui`, `session` and `oidc` for the console, `other` for unknown paths) and status, `401` included |
 | `dvarapala_admin_logins_total{method,result}` | Console logins ([RFC 0018](rfc/0018-admin-ui.md)): `method` `token` or `oidc`, `result` `ok`, `denied` (not in the allow lists) or `failed` |

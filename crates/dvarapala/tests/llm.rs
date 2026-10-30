@@ -336,7 +336,6 @@ fn export_writes_one_line_per_label() {
 
 // RFC 0024 cases 13 and 14
 #[test]
-#[ignore = "rfc 0024"]
 fn export_needs_auth_and_persist() {
     let f = fake(Reply::Json(system_one(false)));
     let p = start("export-off", &f, "", "", &[]);
@@ -355,7 +354,6 @@ fn export_needs_auth_and_persist() {
 // RFC 0024 case 10: a lost store keeps labels in memory
 #[cfg(feature = "postgres")]
 #[test]
-#[ignore = "rfc 0024"]
 fn a_lost_store_answers_from_memory() {
     let f = fake(Reply::Json(system_one(false)));
     let store = "[store]\nbackend = \"postgres\"\nurl = \"postgres://dvarapala@127.0.0.1:1/dvarapala?sslmode=disable\"\n";
@@ -377,7 +375,6 @@ fn a_lost_store_answers_from_memory() {
 // read the store
 #[cfg(feature = "postgres")]
 #[test]
-#[ignore = "rfc 0024"]
 fn labels_are_stored_and_exported() {
     let Ok(url) = std::env::var("DVARAPALA_TEST_POSTGRES") else {
         assert!(

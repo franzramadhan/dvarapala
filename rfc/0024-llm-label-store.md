@@ -166,3 +166,30 @@ hand. `ml.llm.export` and `ml.llm.export_max` are unchanged.
   rights.
 - **Off switch:** `ml.llm.persist = false` and a restart. Labels go back
   to memory and the file; the table stays until dropped by hand.
+
+## Implementation notes
+
+Deviations found while building:
+
+- `GET /llm/export` reads pages of 1000 rows by keyset on `(at, id)`, not
+  a server-side cursor: a cursor holds a transaction open for as long as
+  the client reads, on the connection the writer shares. A page holds the
+  lock only while it is read. The table gains `id bigint GENERATED ALWAYS
+  AS IDENTITY` and the first index is `(cluster, at, id)`.
+- `route` is `""` without a route, not `NULL`, as in `GET /llm`.
+- A row without features (no `[ml]` features for the sample) is exported
+  with `label`, `confidence`, `trigger` and `at` only; the file skips it.
+- `persist` has a connection of its own, apart from `history.persist`.
+- The reload hook passes the new config, so `ml.llm.retention` applies at
+  the next sweep. The sweep also runs once at start.
+- Cases 7 (the values), 8, 9, 11, 12 (paging) and 15 are store tests in
+  `crates/store/tests/labels.rs`; case 7 (the line) is a unit test in
+  `crates/dvarapala/src/llm/labels.rs`. `labels_are_stored_and_exported`
+  in `crates/dvarapala/tests/llm.rs` runs `GET /llm` and the export
+  through the binary against PostgreSQL. Case 10 checks `source` and the
+  `error` count; the once-only log follows RFC 0022's `health`, not
+  asserted. Case 12's streaming follows from the pages: the first is sent
+  before the next is read.
+- The `admin_query` fuzz target also feeds its query line to the export
+  parser directly.
+- The console's export link takes whole UTC days.

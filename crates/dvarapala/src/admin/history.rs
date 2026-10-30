@@ -16,7 +16,7 @@ const NAMES: [&str; VERDICTS] = ["allow", "throttle", "challenge", "drop", "erro
 const SWEEP_EVERY: u64 = 60;
 
 #[cfg(feature = "postgres")]
-type Db = Arc<tokio::sync::Mutex<dvarapala_store::Postgres>>;
+pub type Db = Arc<tokio::sync::Mutex<dvarapala_store::Postgres>>;
 
 pub struct History {
     ring: Mutex<Ring>,
@@ -201,10 +201,17 @@ fn db(cfg: &config::Config) -> Result<Option<(Db, String, Duration)>, String> {
     if !cfg.history.persist {
         return Ok(None);
     }
+    connect(cfg, "history.persist").map(Some)
+}
+
+/// A connection of its own to the PostgreSQL store, its cluster and the
+/// timeout of one call; `key` names the setting that needs it.
+#[cfg(feature = "postgres")]
+pub fn connect(cfg: &config::Config, key: &str) -> Result<(Db, String, Duration), String> {
     let url = cfg
         .store
         .shared_url()?
-        .ok_or("history.persist needs store.url")?;
+        .ok_or_else(|| format!("{key} needs store.url"))?;
     let ca = cfg
         .store
         .ca_file
@@ -216,11 +223,11 @@ fn db(cfg: &config::Config) -> Result<Option<(Db, String, Duration)>, String> {
             .map_err(|e| e.to_string())?;
     // connecting, migrations included, may take 10 times a round
     let timeout = cfg.store.timeout * 10;
-    Ok(Some((
+    Ok((
         Arc::new(tokio::sync::Mutex::new(pg)),
         cfg.store.cluster.clone(),
         timeout,
-    )))
+    ))
 }
 
 fn minute_sample(m: &Minute) -> Sample {

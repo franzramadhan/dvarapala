@@ -244,6 +244,11 @@ prefix_v6 = 64
 # export = "/var/lib/dvarapala/labels.jsonl"
 # export_max = "64MiB"
 # max_duration = "24h"
+# RFC 0024: labels as rows in the PostgreSQL store (store.backend =
+# "postgres"), for every replica; GET /llm/export streams them.
+# persist = false
+# persist_queue = 1024
+# retention = "30d"
 # [[ml.llm.triggers]]
 # on = "waf"
 # [[ml.llm.triggers]]

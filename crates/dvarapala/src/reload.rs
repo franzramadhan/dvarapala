@@ -21,6 +21,9 @@ pub struct Outcome {
     pub result: Result<Vec<&'static str>, String>,
 }
 
+/// Runs after each applied reload with the new config.
+pub type OnReload = Box<dyn Fn(&Config) + Send + Sync>;
+
 pub struct Reloader {
     /// The file the process started with; `None` reads the environment only.
     path: Option<PathBuf>,
@@ -37,8 +40,9 @@ pub struct Reloader {
     /// RFC 0021: the file as last applied, and the switches over it
     current: Mutex<Config>,
     pub switches: Switches,
-    /// RFC 0023: ends the console's LLM sampling switch.
-    pub on_reload: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// RFC 0023: ends the console's LLM sampling switch; RFC 0024: the
+    /// label retention.
+    pub on_reload: std::sync::OnceLock<OnReload>,
 }
 
 impl Reloader {
@@ -73,7 +77,7 @@ impl Reloader {
                 let cur = lock(&self.current);
                 self.switches.clear(|l| file_enforce(&cur, l));
                 if let Some(f) = self.on_reload.get() {
-                    f();
+                    f(&cur);
                 }
                 ::metrics::counter!("dvarapala_config_reloads_total", "result" => "ok")
                     .increment(1);
@@ -219,6 +223,8 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
     }
     // RFC 0022: only history.retention applies in place, the rest is checked
     cfg.history.samples(&cfg.store)?;
+    // RFC 0024: likewise ml.llm.retention
+    cfg.ml.llm.check_store(&cfg.store)?;
     Ok(Reload {
         limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)
             .map_err(|e| format!("rate_limit: {e}"))?,
@@ -244,6 +250,8 @@ pub fn in_place(key: &str, cfg: &Config) -> bool {
         "detection" => matches!(rest, "mode" | "attack_rate_factor"),
         // RFC 0022: the sampling task reads it at each sweep
         "history" => rest == "retention",
+        // RFC 0024: the sweep reads it each hour
+        "ml" => rest == "llm.retention",
         _ => false,
     }
 }
@@ -278,7 +286,11 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
             "detection",
             fixed(&start.detection) != fixed(&new.detection),
         ),
-        ("ml", start.ml != new.ml),
+        ("ml", {
+            let mut ml = new.ml.clone();
+            ml.llm.retention = start.ml.llm.retention;
+            start.ml != ml
+        }),
         ("tls", start.tls != new.tls),
         ("upstream_tls", start.upstream_tls != new.upstream_tls),
         ("http2", start.http2 != new.http2),

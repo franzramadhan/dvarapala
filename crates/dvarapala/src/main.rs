@@ -286,7 +286,9 @@ async fn control(
     ));
     #[cfg(feature = "llm")]
     if let Some(l) = labels.clone() {
-        let _ = reloader.on_reload.set(Box::new(move || l.reload()));
+        let _ = reloader
+            .on_reload
+            .set(Box::new(move |c: &config::Config| l.reload(&c.ml.llm)));
     }
     reload::on_hangup(reloader.clone())?;
     watch::start(path.as_deref(), cfg.config_watch, reloader.clone())?;
