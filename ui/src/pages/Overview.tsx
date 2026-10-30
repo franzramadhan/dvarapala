@@ -8,6 +8,7 @@ import { STATE_LABEL, stateKey } from '../components/Shell';
 import { Num, PageHeader } from '../components/Ui';
 import { fmtDuration, fmtRate } from '../format';
 import { history, stateSince } from '../history';
+import { HEALTH, metricsQuery, present } from '../metrics';
 
 const STATE_NOTE: Record<string, string> = {
   normal: 'Traffic is within the learned baseline.',
@@ -29,6 +30,8 @@ function Kpi(props: { label: string; children: unknown; chart?: unknown }) {
 
 export function OverviewPage() {
   const q = useQuery(() => statusQuery());
+  const m = useQuery(() => metricsQuery());
+  const layers = () => HEALTH.filter((p) => present(p, m.data)).map((p) => ({ p, h: p.health?.(m.data!) ?? 'ok' }));
   const state = () => stateKey(q.data?.detection);
 
   const [now, setNow] = createSignal(Date.now());
@@ -57,6 +60,15 @@ export function OverviewPage() {
           {STATE_LABEL[state()]}
         </p>
         <p class="mt-1 text-sm text-muted">{STATE_NOTE[state()]}</p>
+        <Show when={q.data?.waf}>
+          {(w) => (
+            <p class="mt-1 text-sm">
+              <Link to="/waf" class="hover:underline">
+                WAF: {w()}
+              </Link>
+            </p>
+          )}
+        </Show>
         <Show when={q.data}>
           <p class="num mt-2 text-xs text-muted">
             In this state for {fmtDuration((now() - stateSince().at) / 1000)}, as observed by this browser.
@@ -100,6 +112,26 @@ export function OverviewPage() {
         </div>
         <StackedArea samples={history()} label={`Requests per second by verdict over the last 15 minutes. Now: ${sentence()}.`} />
       </section>
+
+      <Show when={layers().length}>
+        <section class="card p-4" aria-labelledby="health-title">
+          <h2 id="health-title" class="label mb-2">
+            Layers
+          </h2>
+          <ul class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+            <For each={layers()}>
+              {(l) => (
+                <li data-testid={`health-${l.p.id}`}>
+                  <Link to="/h/$page" params={{ page: l.p.id }} class="hover:underline">
+                    {l.p.label}
+                  </Link>
+                  : <span classList={{ 'text-ok': l.h === 'ok', 'text-warn': l.h === 'degraded', 'text-danger': l.h === 'failing' }}>{l.h}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </section>
+      </Show>
 
       <dl class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
         <div class="card p-3">

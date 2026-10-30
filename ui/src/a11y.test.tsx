@@ -11,17 +11,34 @@ async function scan(): Promise<string[]> {
   return r.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join('; ')})`);
 }
 
+const WAF = {
+  settings: { enabled: true, mode: 'enforce' },
+  mode: 'enforce',
+  switch: null,
+  rules: [{ rule: 942100, count: 1, last_seen: 1767225600, method: 'GET', path: '/', anomaly_score: 5 }],
+  other: 0,
+  files: [{ path: '/etc/coraza/coraza.yaml', size: 3, content: 'abc' }],
+};
+
 const pages: [string, string, () => Promise<unknown>][] = [
   ['login', '/ui/login', () => screen.findByLabelText('Admin token')],
   ['overview', '/ui/', () => waitFor(() => expect(screen.getByTestId('detection').textContent).toBe('Under attack'))],
   ['top talkers', '/ui/top', () => screen.findByText('198.51.100.0/24')],
   ['blocks', '/ui/blocks', () => screen.findByText('192.0.2.0/24')],
   ['reload', '/ui/reload', () => screen.findByRole('button', { name: 'Reload configuration' })],
+  ['config', '/ui/config', () => screen.findByTestId('key-rate_limit.rate')],
+  ['waf', '/ui/waf', () => screen.findByText('942100')],
+  ['health', '/ui/h/upstreams', () => screen.findByText('ejected')],
 ];
 
 describe.each(['light', 'dark'])('axe, %s theme', (theme) => {
   it.each(pages)('%s has no violations', async (_name, path, ready) => {
-    mockApi({ 'GET /session': () => (path.endsWith('login') ? { status: 401, body: { error: 'no' } } : { body: { subject: 'token', method: 'token', expires_in: 100, csrf: 'c' } }) });
+    mockApi({
+      'GET /config': () => ({ body: { keys: [{ key: 'rate_limit.rate', value: 50, reload: true, default: false }, { key: 'admin.mode_switch', value: true, reload: false, default: false }] } }),
+      'GET /waf': () => ({ body: WAF }),
+      'GET /metrics': () => ({ body: 'dvarapala_upstream_healthy{upstream="http://192.0.2.2:80"} 0\n' }),
+      'GET /session': () => (path.endsWith('login') ? { status: 401, body: { error: 'no' } } : { body: { subject: 'token', method: 'token', expires_in: 100, csrf: 'c' } }),
+    });
     renderApp(path);
     await ready();
     document.documentElement.setAttribute('data-theme', theme);
