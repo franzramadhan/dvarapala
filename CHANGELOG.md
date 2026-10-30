@@ -5,6 +5,11 @@ release branch (see `CLAUDE.md`).
 
 ## [0.16.1] - 2026-10-30
 
+### RFCs
+
+- 0024 llm labels in the postgresql store (#212)
+- 0025 operator gateways with the console, a waf sidecar and mounts (#213)
+
 ### Docs
 
 - Cargo install in the README install section (#205)
