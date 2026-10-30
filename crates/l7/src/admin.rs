@@ -36,7 +36,20 @@ pub enum Call {
         layer: ModeLayer,
         enforce: bool,
     },
+    /// RFC 0022: the traffic history over `range` seconds.
+    History {
+        range_secs: u64,
+    },
 }
+
+/// The ranges `GET /history` takes (RFC 0022), as `range=` names them.
+pub const HISTORY_RANGES: [(&str, u64); 5] = [
+    ("15m", 15 * 60),
+    ("1h", 3_600),
+    ("6h", 6 * 3_600),
+    ("24h", 24 * 3_600),
+    ("7d", 7 * 24 * 3_600),
+];
 
 /// A layer with an `observe` mode the console can switch (RFC 0021).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,8 +89,10 @@ pub fn parse(method: &str, path: &str, query: Option<&str>) -> Result<Call, Refu
         ("/waf", "GET") => Call::Waf,
         ("/metrics", "GET") => Call::Metrics,
         ("/mode", "POST") => mode(q)?,
+        ("/history", "GET") => history(q)?,
         (
-            "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/metrics" | "/mode",
+            "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/metrics" | "/mode"
+            | "/history",
             _,
         ) => {
             return Err((StatusCode::METHOD_NOT_ALLOWED, "method not allowed".into()));
@@ -157,6 +172,19 @@ fn mode(q: &str) -> Result<Call, Refusal> {
         _ => return Err(bad("mode is \"observe\" or \"enforce\"")),
     };
     Ok(Call::Mode { layer, enforce })
+}
+
+/// `range=<15m|1h|6h|24h|7d>`, `15m` when absent.
+fn history(q: &str) -> Result<Call, Refusal> {
+    let range = param(q, "range")?;
+    let name = range.as_deref().unwrap_or("15m");
+    match HISTORY_RANGES.iter().find(|(n, _)| *n == name) {
+        Some(&(_, range_secs)) => Ok(Call::History { range_secs }),
+        None => Err((
+            StatusCode::BAD_REQUEST,
+            "range is one of 15m, 1h, 6h, 24h, 7d".into(),
+        )),
+    }
 }
 
 /// The first `name=` value, percent-decoded.
@@ -244,6 +272,28 @@ mod tests {
         assert_eq!(
             status("GET", "/blocks", Some(&long)),
             StatusCode::URI_TOO_LONG
+        );
+    }
+
+    // RFC 0022 case 9 (parsing)
+    #[test]
+    fn history_ranges() {
+        assert_eq!(
+            parse("GET", "/history", None),
+            Ok(Call::History { range_secs: 900 })
+        );
+        assert_eq!(
+            parse("GET", "/history", Some("range=7d")),
+            Ok(Call::History {
+                range_secs: 604_800
+            })
+        );
+        let (status, msg) = parse("GET", "/history", Some("range=2d")).unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(msg.contains("15m, 1h, 6h, 24h, 7d"), "{msg}");
+        assert_eq!(
+            parse("POST", "/history", None).unwrap_err().0,
+            StatusCode::METHOD_NOT_ALLOWED
         );
     }
 

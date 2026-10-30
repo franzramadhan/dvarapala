@@ -19,8 +19,8 @@ mod session;
 mod waf;
 
 pub use admin::{
-    Call, MAX_QUERY, ModeLayer, Refusal, authorized, cookie, csrf_ok, fuzz_admin_query,
-    parse as parse_admin, secure_url,
+    Call, HISTORY_RANGES, MAX_QUERY, ModeLayer, Refusal, authorized, cookie, csrf_ok,
+    fuzz_admin_query, parse as parse_admin, secure_url,
 };
 pub use challenge::{ChallengeConfig, PageBody, fuzz_verify, unix_now};
 pub use control::{Block, Reload, Status};
