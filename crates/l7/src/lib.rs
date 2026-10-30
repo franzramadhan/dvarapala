@@ -32,7 +32,10 @@ pub use grpc::{GrpcStatus, grpc_response, is_grpc};
 pub use llm::{
     Answer, MAX_REPLY, Protocol, features, fuzz_llm_reply, parse_reply, request_body, sample_json,
 };
-pub use llm::{Llm, LlmConfig, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut, redact};
+pub use llm::{
+    ExportQuery, Llm, LlmConfig, MAX_FILTER, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut,
+    redact,
+};
 #[cfg(feature = "ui")]
 pub use oidc::{
     Denied, Logins, OidcConfig, Pending, Provider, callback as oidc_callback,

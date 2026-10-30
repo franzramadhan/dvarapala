@@ -4,6 +4,8 @@
 
 #[cfg(feature = "postgres")]
 mod history;
+#[cfg(feature = "postgres")]
+mod labels;
 mod memory;
 mod migrate;
 #[cfg(feature = "postgres")]
@@ -13,6 +15,8 @@ mod redis;
 mod round;
 mod sync;
 
+#[cfg(feature = "postgres")]
+pub use labels::{LabelQuery, LabelRow};
 pub use memory::Memory;
 pub use migrate::{LATEST, MIGRATIONS, Migration, render};
 #[cfg(feature = "postgres")]
