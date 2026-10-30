@@ -1,11 +1,14 @@
 import { For, Show, createEffect, createSignal } from 'solid-js';
 import { Link, Outlet, useNavigate } from '@tanstack/solid-router';
-import { useQuery, useQueryClient } from '@tanstack/solid-query';
-import { logout, sessionQuery, statusQuery } from '../api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query';
+import { logout, reload, sessionQuery, statusQuery } from '../api';
+import { HEALTH, metricsQuery, present, storeDown } from '../metrics';
+import { LAYER_LABEL } from './ModeSwitch';
 import { Dialog } from './Dialog';
 import { SHORTCUTS, useShortcuts } from '../shortcuts';
 import { themePref, setThemePref, type ThemePref } from '../theme';
 import { resetAll } from '../history';
+import { resetScrape } from '../metrics';
 import { fmtDuration } from '../format';
 
 export const STATE_LABEL: Record<string, string> = {
@@ -18,8 +21,10 @@ export const STATE_LABEL: Record<string, string> = {
 
 const NAV = [
   { to: '/', label: 'Overview', exact: true },
-  { to: '/top', label: 'Top talkers' },
-  { to: '/blocks', label: 'Blocks' },
+  { to: '/top', label: 'Top talkers', reverse: true },
+  { to: '/blocks', label: 'Blocks', reverse: true },
+  { to: '/waf', label: 'WAF', waf: true },
+  { to: '/config', label: 'Config' },
   { to: '/reload', label: 'Reload' },
 ] as const;
 
@@ -46,7 +51,12 @@ export function Shell() {
   const qc = useQueryClient();
   const session = useQuery(() => sessionQuery());
   const status = useQuery(() => statusQuery());
+  const metrics = useQuery(() => metricsQuery());
+  const revert = useMutation(() => ({ mutationFn: reload, onSettled: () => void qc.invalidateQueries() }));
   const [help, setHelp] = createSignal(false);
+  const nav = () =>
+    NAV.filter((n) => !('reverse' in n && status.data?.mode === 'forward') && !('waf' in n && status.data?.waf == null));
+  const health = () => HEALTH.filter((p) => present(p, metrics.data));
   const state = () => stateKey(status.data?.detection);
 
   useShortcuts({
@@ -68,6 +78,7 @@ export function Shell() {
       // the session may be gone already; either way go to login
     }
     resetAll();
+    resetScrape();
     qc.removeQueries();
     void navigate({ to: '/login' });
   };
@@ -124,15 +135,41 @@ export function Shell() {
           </div>
         </div>
         <nav aria-label="Main" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2">
-          <For each={NAV}>
+          <For each={nav()}>
             {(n) => (
               <Link to={n.to} class="nav-link" activeOptions={{ exact: 'exact' in n }}>
                 {n.label}
               </Link>
             )}
           </For>
+          <For each={health()}>
+            {(p) => (
+              <Link to="/h/$page" params={{ page: p.id }} class="nav-link">
+                {p.label}
+              </Link>
+            )}
+          </For>
         </nav>
       </header>
+      <div class="mx-auto max-w-6xl space-y-2 px-4 pt-3 empty:hidden">
+        <Show when={storeDown(metrics.data)}>
+          <p role="alert" class="field-error" data-testid="store-banner">
+            The shared store is unreachable: each instance limits on its own (fail open) until it is back.
+          </p>
+        </Show>
+        <For each={status.data?.switches ?? []}>
+          {(w) => (
+            <div role="status" class="card flex flex-wrap items-center justify-between gap-2 p-3 text-sm" data-testid={`switch-${w.layer}`}>
+              <span>
+                {LAYER_LABEL[w.layer]} switched to {w.mode} by {w.actor} {fmtDuration(Date.now() / 1000 - w.at)} ago; the file says {w.file_mode}; a reload reverts it.
+              </span>
+              <button type="button" class="btn btn-sm" disabled={revert.isPending} onClick={() => revert.mutate()}>
+                Revert to file
+              </button>
+            </div>
+          )}
+        </For>
+      </div>
       <main id="main" tabindex="-1" class="mx-auto max-w-6xl px-4 py-5">
         <Show when={session.data} fallback={<p class="text-muted" role="status">Loading...</p>}>
           <Outlet />

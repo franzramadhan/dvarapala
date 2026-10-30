@@ -46,6 +46,8 @@ export function mockApi(overrides: Record<string, Handler> = {}) {
       return { body: { cidr } };
     },
     'POST /reload': () => ({ body: { at: 1767225600, result: 'ok', restart: ['listen'] } }),
+    'GET /metrics': () => ({ body: 'dvarapala_requests_total{verdict="allow"} 1\n' }),
+    'GET /config': () => ({ body: { keys: [] } }),
     ...overrides,
   };
   vi.stubGlobal(
@@ -58,7 +60,8 @@ export function mockApi(overrides: Record<string, Handler> = {}) {
       if (!h) return new Response(JSON.stringify({ error: 'no route' }), { status: 500 });
       const r = h(call);
       const status = r.status ?? 200;
-      return new Response(status === 204 ? null : JSON.stringify(r.body ?? {}), { status, statusText: '' });
+      const text = typeof r.body === 'string' ? r.body : JSON.stringify(r.body ?? {});
+      return new Response(status === 204 ? null : text, { status, statusText: '' });
     }),
   );
   return { calls, blocks };
