@@ -10,16 +10,16 @@ use k8s_openapi::api::autoscaling::v2::{
 };
 use k8s_openapi::api::core::v1::{
     Capabilities, ConfigMapVolumeSource, Container, ContainerPort, EnvFromSource, EnvVar, PodSpec,
-    PodTemplateSpec, Probe, ResourceRequirements, SeccompProfile, SecretEnvSource, SecurityContext,
-    Service, ServicePort, ServiceSpec, TCPSocketAction, TopologySpreadConstraint, Volume,
-    VolumeMount,
+    PodTemplateSpec, Probe, ResourceRequirements, SeccompProfile, SecretEnvSource,
+    SecretVolumeSource, SecurityContext, Service, ServicePort, ServiceSpec, TCPSocketAction,
+    TopologySpreadConstraint, Volume, VolumeMount,
 };
 use k8s_openapi::api::policy::v1::{PodDisruptionBudget, PodDisruptionBudgetSpec};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 
-use crate::crd::{Autoscaling, PolicySpec};
+use crate::crd::{Autoscaling, Mount, PolicySpec};
 use crate::policy::{self, FILE};
 
 pub mod admin;
@@ -38,6 +38,9 @@ pub const RESTART_HASH: &str = "dvarapala.franzramadhan.dev/restart-hash";
 const LISTEN: i32 = 8080;
 const METRICS: i32 = 9090;
 const MOUNT: &str = "/etc/dvarapala";
+/// RFC 0025: `gateway.mounts`, one directory each. Not under [`MOUNT`]:
+/// a mount point inside a read-only volume cannot be created.
+pub const MOUNTS: &str = "/etc/dvarapala-mounts";
 
 /// One backend Service port behind one policy.
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +199,76 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
         limits: quantities(&[("memory", "64Mi")]),
         ..ResourceRequirements::default()
     });
+    let gw = &p.gateway;
+    let admin = gw.admin.as_ref().is_some_and(|a| a.enabled);
+    let mut envs = vec![
+        env("DVARAPALA__LISTEN", format!("0.0.0.0:{LISTEN}")),
+        env("DVARAPALA__UPSTREAM", upstream),
+        env("DVARAPALA__UPSTREAM_PROTOCOL", protocol.into()),
+        env("DVARAPALA__METRICS__LISTEN", format!("0.0.0.0:{METRICS}")),
+        env("DVARAPALA__CONFIG_WATCH", "10s".into()),
+    ];
+    let mut ports = vec![
+        ContainerPort {
+            name: Some("http".into()),
+            container_port: LISTEN,
+            ..ContainerPort::default()
+        },
+        ContainerPort {
+            name: Some("metrics".into()),
+            container_port: METRICS,
+            ..ContainerPort::default()
+        },
+    ];
+    let mut mounts = vec![VolumeMount {
+        name: "config".into(),
+        mount_path: MOUNT.into(),
+        read_only: Some(true),
+        ..VolumeMount::default()
+    }];
+    let mut volumes = vec![Volume {
+        name: "config".into(),
+        config_map: Some(ConfigMapVolumeSource {
+            name: policy::config_map_name(&g.policy),
+            ..ConfigMapVolumeSource::default()
+        }),
+        ..Volume::default()
+    }];
+    if admin {
+        envs.push(env(
+            "DVARAPALA__ADMIN__LISTEN",
+            format!("0.0.0.0:{}", admin::PORT),
+        ));
+        ports.push(ContainerPort {
+            name: Some("admin".into()),
+            container_port: admin::PORT,
+            ..ContainerPort::default()
+        });
+    }
+    if let Some(w) = &gw.waf {
+        envs.push(env("DVARAPALA__WAF__ENDPOINT", waf::ENDPOINT.into()));
+        mounts.extend(waf::proxy_mounts());
+        volumes.extend(waf::volumes(w));
+    }
+    for m in &gw.mounts {
+        let (vm, v) = user_mount(m);
+        mounts.push(vm);
+        volumes.push(v);
+    }
+    let locked = SecurityContext {
+        run_as_non_root: Some(true),
+        allow_privilege_escalation: Some(false),
+        read_only_root_filesystem: Some(true),
+        capabilities: Some(Capabilities {
+            drop: Some(vec!["ALL".into()]),
+            add: None,
+        }),
+        seccomp_profile: Some(SeccompProfile {
+            type_: "RuntimeDefault".into(),
+            localhost_profile: None,
+        }),
+        ..SecurityContext::default()
+    };
     let container = Container {
         name: "dvarapala".into(),
         image: Some(image.into()),
@@ -204,13 +277,7 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
             "--config".into(),
             format!("{MOUNT}/{FILE}"),
         ]),
-        env: Some(vec![
-            env("DVARAPALA__LISTEN", format!("0.0.0.0:{LISTEN}")),
-            env("DVARAPALA__UPSTREAM", upstream),
-            env("DVARAPALA__UPSTREAM_PROTOCOL", protocol.into()),
-            env("DVARAPALA__METRICS__LISTEN", format!("0.0.0.0:{METRICS}")),
-            env("DVARAPALA__CONFIG_WATCH", "10s".into()),
-        ]),
+        env: Some(envs),
         env_from: p.secret_ref.as_ref().map(|s| {
             vec![EnvFromSource {
                 secret_ref: Some(SecretEnvSource {
@@ -220,18 +287,7 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
                 ..EnvFromSource::default()
             }]
         }),
-        ports: Some(vec![
-            ContainerPort {
-                name: Some("http".into()),
-                container_port: LISTEN,
-                ..ContainerPort::default()
-            },
-            ContainerPort {
-                name: Some("metrics".into()),
-                container_port: METRICS,
-                ..ContainerPort::default()
-            },
-        ]),
+        ports: Some(ports),
         readiness_probe: Some(Probe {
             tcp_socket: Some(TCPSocketAction {
                 port: IntOrString::Int(LISTEN),
@@ -241,32 +297,21 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
             ..Probe::default()
         }),
         resources: Some(resources),
-        security_context: Some(SecurityContext {
-            run_as_non_root: Some(true),
-            allow_privilege_escalation: Some(false),
-            read_only_root_filesystem: Some(true),
-            capabilities: Some(Capabilities {
-                drop: Some(vec!["ALL".into()]),
-                add: None,
-            }),
-            seccomp_profile: Some(SeccompProfile {
-                type_: "RuntimeDefault".into(),
-                localhost_profile: None,
-            }),
-            ..SecurityContext::default()
-        }),
-        volume_mounts: Some(vec![VolumeMount {
-            name: "config".into(),
-            mount_path: MOUNT.into(),
-            read_only: Some(true),
-            ..VolumeMount::default()
-        }]),
+        security_context: Some(locked.clone()),
+        volume_mounts: Some(mounts),
         ..Container::default()
     };
-    let pod_labels: BTreeMap<String, String> = [MANAGED_BY, APP, (GATEWAY, &g.name)]
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
+    let mut containers = vec![container];
+    containers.extend(gw.waf.as_ref().map(|w| waf::container(w, &locked)));
+    // the operator's keys last: policy::check refuses them anyway
+    let mut pod_labels = gw.pod_labels.clone();
+    pod_labels.extend(
+        [MANAGED_BY, APP, (GATEWAY, &g.name)]
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into())),
+    );
+    let mut annotations = gw.pod_annotations.clone();
+    annotations.insert(RESTART_HASH.into(), restart_hash.into());
     Deployment {
         metadata: meta(g),
         spec: Some(DeploymentSpec {
@@ -279,11 +324,11 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
                     labels: Some(pod_labels),
-                    annotations: Some(BTreeMap::from([(RESTART_HASH.into(), restart_hash.into())])),
+                    annotations: Some(annotations),
                     ..ObjectMeta::default()
                 }),
                 spec: Some(PodSpec {
-                    containers: vec![container],
+                    containers,
                     automount_service_account_token: Some(false),
                     topology_spread_constraints: Some(vec![TopologySpreadConstraint {
                         max_skew: 1,
@@ -295,14 +340,7 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
                         }),
                         ..TopologySpreadConstraint::default()
                     }]),
-                    volumes: Some(vec![Volume {
-                        name: "config".into(),
-                        config_map: Some(ConfigMapVolumeSource {
-                            name: policy::config_map_name(&g.policy),
-                            ..ConfigMapVolumeSource::default()
-                        }),
-                        ..Volume::default()
-                    }]),
+                    volumes: Some(volumes),
                     ..PodSpec::default()
                 }),
             },
@@ -310,6 +348,31 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
         }),
         status: None,
     }
+}
+
+/// A `gateway.mounts` entry: read-only at `MOUNTS/<name>`, volume
+/// `mount-<name>`. The operator names the object, never reads it.
+fn user_mount(m: &Mount) -> (VolumeMount, Volume) {
+    let name = format!("mount-{}", m.name);
+    let vm = VolumeMount {
+        name: name.clone(),
+        mount_path: format!("{MOUNTS}/{}", m.name),
+        read_only: Some(true),
+        ..VolumeMount::default()
+    };
+    let v = Volume {
+        name,
+        config_map: m.config_map.as_ref().map(|c| ConfigMapVolumeSource {
+            name: c.clone(),
+            ..ConfigMapVolumeSource::default()
+        }),
+        secret: m.secret.as_ref().map(|s| SecretVolumeSource {
+            secret_name: Some(s.clone()),
+            ..SecretVolumeSource::default()
+        }),
+        ..Volume::default()
+    };
+    (vm, v)
 }
 
 fn replicas(p: &PolicySpec) -> i32 {

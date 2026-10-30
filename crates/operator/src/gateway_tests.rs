@@ -190,7 +190,6 @@ fn mount_paths(c: &Container) -> Vec<(String, String, bool)> {
 
 // RFC 0025 case 2
 #[test]
-#[ignore = "rfc 0025"]
 fn admin_listener_port_and_service() {
     let g = plan(&web(None), "80", "default", false).unwrap();
     let mut p = PolicySpec::default();
@@ -215,7 +214,6 @@ fn admin_listener_port_and_service() {
 
 // RFC 0025 case 5
 #[test]
-#[ignore = "rfc 0025"]
 fn waf_sidecar_shares_the_socket() {
     let g = plan(&web(None), "80", "default", false).unwrap();
     let mut p = PolicySpec::default();
@@ -254,7 +252,6 @@ fn waf_sidecar_shares_the_socket() {
 
 // RFC 0025 case 8
 #[test]
-#[ignore = "rfc 0025"]
 fn mounts_are_read_only_in_the_proxy_only() {
     let g = plan(&web(None), "80", "default", false).unwrap();
     let mut p = PolicySpec::default();
