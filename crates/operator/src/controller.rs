@@ -25,6 +25,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::crd::{DvarapalaPolicy, GatewayStatus, PolicyStatus};
+use crate::gateway::admin::{self, ADMIN_OF};
 use crate::gateway::{self, Gateway, MANAGED_BY, PHASE, POLICY};
 use crate::policy::{self, Rendered};
 use crate::routes::{self, Kind, LABEL};
@@ -38,6 +39,8 @@ pub struct Ctx {
     pub client: Client,
     pub image: String,
     pub kinds: Vec<(Kind, ApiResource)>,
+    /// RFC 0025: `--waf-images`, the prefixes a WAF sidecar image needs.
+    pub waf_images: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -139,6 +142,7 @@ struct Plan {
     policies: BTreeMap<String, (DvarapalaPolicy, Result<Rendered, String>)>,
     gateways: BTreeMap<String, Gateway>,
     skipped: BTreeMap<String, Vec<String>>,
+    warnings: BTreeMap<String, Vec<String>>,
     routes: BTreeMap<String, i32>,
 }
 
@@ -178,14 +182,25 @@ async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Ctx>) -> Result<Action, Error> {
         }
     }
     let mut plan = Plan {
-        policies: policies
-            .into_iter()
-            .map(|p| (p.name_any(), (p.clone(), policy::render(&p.spec.config))))
-            .collect(),
+        policies: BTreeMap::new(),
         gateways: BTreeMap::new(),
         skipped: BTreeMap::new(),
+        warnings: BTreeMap::new(),
         routes: BTreeMap::new(),
     };
+    for p in policies {
+        let checked = policy::check(&p.spec, &ctx.waf_images).map(|(r, w)| {
+            plan.warnings.insert(p.name_any(), w);
+            r
+        });
+        if let Err(e) = &checked {
+            // once per new reason, not per reconcile
+            if p.status.as_ref().and_then(|s| s.message.as_ref()) != Some(e) {
+                tracing::warn!(msg = "policy refused", namespace = %name, policy = %p.name_any(), reason = %e);
+            }
+        }
+        plan.policies.insert(p.name_any(), (p, checked));
+    }
     for (kind, _, r) in &routes_found {
         let Some(p) = routes::policy(
             r.labels().get(LABEL).map(String::as_str),
@@ -198,6 +213,10 @@ async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Ctx>) -> Result<Action, Error> {
         }
         *plan.routes.entry(p.into()).or_default() += 1;
         let json = serde_json::to_value(r).map_err(|e| Error(e.to_string()))?;
+        for rule in routes::unknown_rules(*kind, &json) {
+            let w = format!("{} {}: no rule {rule}", kind.name(), r.name_any());
+            plan.warnings.entry(p.into()).or_default().push(w);
+        }
         for b in routes::backends(*kind, &json, &name) {
             let planned = match services.get(&b.service) {
                 None => Err(format!("{}:{}: no such Service", b.service, b.port)),
@@ -278,6 +297,8 @@ async fn gateways(
     let pdbs = Api::<PodDisruptionBudget>::namespaced(c.clone(), ns);
     let hpas = Api::<HorizontalPodAutoscaler>::namespaced(c.clone(), ns);
     let mut out = BTreeMap::new();
+    // gateways by (protecting, admin, waf)
+    let mut counts: BTreeMap<(bool, bool, bool), usize> = BTreeMap::new();
     for (name, g) in &plan.gateways {
         let (p, r) = &plan.policies[&g.policy];
         let Ok(r) = r else { continue };
@@ -304,13 +325,39 @@ async fn gateways(
             Some(a) => drop(apply(&hpas, name, &gateway::hpa(g, &p.spec, a)).await?),
             None => delete(&hpas, name).await?,
         }
+        let with_admin = admin_on(&p.spec);
+        if with_admin {
+            apply(&svcs, &admin::name(g), &admin::service(g)).await?;
+        } else {
+            delete(&svcs, &admin::name(g)).await?;
+        }
+        let with_waf = p.spec.gateway.waf.is_some();
+        *counts
+            .entry((protecting, with_admin, with_waf))
+            .or_default() += 1;
         out.insert(name.clone(), (protecting, ready));
     }
-    ::metrics::gauge!("dvarapala_operator_gateways", "namespace" => ns.to_owned(), "phase" => "passthrough")
-        .set(out.values().filter(|(p, _)| !p).count() as f64);
-    ::metrics::gauge!("dvarapala_operator_gateways", "namespace" => ns.to_owned(), "phase" => "protecting")
-        .set(out.values().filter(|(p, _)| *p).count() as f64);
+    for phase in [false, true] {
+        for with_admin in [false, true] {
+            for with_waf in [false, true] {
+                let n = counts
+                    .get(&(phase, with_admin, with_waf))
+                    .copied()
+                    .unwrap_or(0);
+                ::metrics::gauge!("dvarapala_operator_gateways",
+                    "namespace" => ns.to_owned(),
+                    "phase" => if phase { "protecting" } else { "passthrough" },
+                    "admin" => with_admin.to_string(),
+                    "waf" => with_waf.to_string())
+                .set(n as f64);
+            }
+        }
+    }
     Ok(out)
+}
+
+fn admin_on(p: &crate::crd::PolicySpec) -> bool {
+    p.gateway.admin.as_ref().is_some_and(|a| a.enabled)
 }
 
 /// Deletes gateways no route uses and ConfigMaps of removed policies.
@@ -332,6 +379,13 @@ async fn collect(c: &Client, ns: &str, plan: &Plan) -> Result<(), Error> {
     // stored: keep a young one until the route is there to plan it
     let mut young = BTreeSet::new();
     for s in svcs.list(&managed).await?.items {
+        // RFC 0025: an admin Service goes with its gateway
+        if let Some(g) = s.labels().get(ADMIN_OF) {
+            if !plan.gateways.contains_key(g) {
+                delete(&svcs, &s.name_any()).await?;
+            }
+            continue;
+        }
         let born = s
             .metadata
             .creation_timestamp
@@ -394,7 +448,7 @@ async fn status(
                     }
                     .into(),
                     ready_replicas: n,
-                    admin_service: None,
+                    admin_service: admin_on(&p.spec).then(|| admin::name(g)),
                 }
             })
             .collect();
@@ -407,7 +461,7 @@ async fn status(
             gateways,
             routes: plan.routes.get(name).copied().unwrap_or(0),
             skipped_backends: plan.skipped.get(name).cloned().unwrap_or_default(),
-            warnings: Vec::new(),
+            warnings: plan.warnings.get(name).cloned().unwrap_or_default(),
         };
         if p.status.as_ref() != Some(&s) {
             let body = serde_json::json!({ "status": s });

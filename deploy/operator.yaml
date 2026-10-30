@@ -483,7 +483,7 @@ spec:
       containers:
         - name: operator
           image: ghcr.io/franzramadhan/dvarapala-operator:__VERSION__
-          args: [run, --gateway-image, "ghcr.io/franzramadhan/dvarapala:__VERSION__"]
+          args: [run, --gateway-image, "ghcr.io/franzramadhan/dvarapala:__VERSION__", --waf-images, ghcr.io/corazawaf/coraza-spoa]
           env:
             - name: POD_NAMESPACE
               valueFrom:

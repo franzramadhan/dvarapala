@@ -14,10 +14,13 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio_rustls::TlsAcceptor;
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "usage: dvarapala-operator run --gateway-image <image> [--webhook-listen <addr>] [--metrics-listen <addr>]
+const USAGE: &str = "usage: dvarapala-operator run --gateway-image <image> [--webhook-listen <addr>] [--metrics-listen <addr>] [--waf-images <prefix,...>]
        dvarapala-operator crd
        dvarapala-operator --version
 The namespace comes from POD_NAMESPACE. Log level comes from RUST_LOG (default info).";
+
+/// RFC 0025: the WAF sidecar images a policy may name, by default.
+const WAF_IMAGES: &str = "ghcr.io/corazawaf/coraza-spoa";
 
 /// The Service and `MutatingWebhookConfiguration` of `deploy/operator.yaml`.
 const NAME: &str = "dvarapala-operator";
@@ -26,18 +29,30 @@ struct Args {
     image: String,
     webhook: SocketAddr,
     metrics: SocketAddr,
+    waf_images: Vec<String>,
+}
+
+/// Comma separated, blanks dropped: an empty flag allows no image.
+fn prefixes(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn args(mut a: impl Iterator<Item = String>) -> Option<Args> {
     let mut image = None;
     let mut webhook = SocketAddr::from(([0, 0, 0, 0], 9443));
     let mut metrics = SocketAddr::from(([0, 0, 0, 0], 9090));
+    let mut waf_images = prefixes(WAF_IMAGES);
     while let Some(k) = a.next() {
         let v = a.next()?;
         match k.as_str() {
             "--gateway-image" => image = Some(v),
             "--webhook-listen" => webhook = v.parse().ok()?,
             "--metrics-listen" => metrics = v.parse().ok()?,
+            "--waf-images" => waf_images = prefixes(&v),
             _ => return None,
         }
     }
@@ -45,6 +60,7 @@ fn args(mut a: impl Iterator<Item = String>) -> Option<Args> {
         image: image?,
         webhook,
         metrics,
+        waf_images,
     })
 }
 
@@ -126,6 +142,7 @@ async fn run(a: Args) -> Result<(), Box<dyn Error>> {
         client,
         image: a.image,
         kinds,
+        waf_images: a.waf_images,
     });
     tokio::select! {
         () = controller::run(ctx) => Err("controller stopped".into()),
@@ -154,5 +171,16 @@ mod tests {
         assert!(parse("--gateway-image").is_none());
         assert!(parse("--gateway-image x --nope y").is_none());
         assert!(parse("--gateway-image x --webhook-listen nope").is_none());
+        assert_eq!(a.waf_images, ["ghcr.io/corazawaf/coraza-spoa"]);
+        let a = parse("--gateway-image x --waf-images a/b,,c/d").unwrap();
+        assert_eq!(a.waf_images, ["a/b", "c/d"]);
+        // an empty value refuses every sidecar
+        let a = args(
+            ["--gateway-image", "x", "--waf-images", ""]
+                .map(String::from)
+                .into_iter(),
+        )
+        .unwrap();
+        assert!(a.waf_images.is_empty());
     }
 }

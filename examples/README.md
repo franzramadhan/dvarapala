@@ -21,6 +21,7 @@ the values differ from the defaults. Every key is described in
 | [waf.toml](waf.toml) | Web app behind the OWASP CRS: a `coraza-spoa` sidecar over a Unix socket, observe first; [waf/](waf/) has the agent config, a compose file and a Kubernetes manifest |
 | [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 | [kubernetes.yaml](kubernetes.yaml) | Kubernetes: a policy, an `HTTPRoute` and an `Ingress` labeled to go through gateways the operator runs, and network policies so nothing bypasses them ([RFC 0019](../rfc/0019-operator.md)) |
+| [kubernetes-console-waf.yaml](kubernetes-console-waf.yaml) | Kubernetes: an operator gateway with the console, the WAF agent as a sidecar, a CA mount for the store and a network policy for the admin port ([RFC 0025](../rfc/0025-operator-gateway-parity.md)) |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and
 addresses are placeholders (`app.example`, `<cert dir>`, `192.0.2.0/24`).

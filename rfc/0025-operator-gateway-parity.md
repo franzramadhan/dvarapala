@@ -225,3 +225,49 @@ operator as environment variables.
   back to the RFC 0019 shape. The `rules` annotation removed means the
   whole route opts in again; the route label removed restores every
   backend.
+
+## Implementation notes
+
+- **Mount paths.** The WAF agent's ConfigMap is at `/etc/dvarapala-waf/`
+  in the proxy and `gateway.mounts` at `/etc/dvarapala-mounts/<name>/`,
+  not under `/etc/dvarapala/`: that directory is the read-only config
+  volume, and the runtime cannot create a mount point inside it. The
+  config mount itself is unchanged, so case 1 holds.
+- **`[admin]` without `gateway.admin`.** Any `[admin]` key without
+  `gateway.admin.enabled` is `Ready=False` (`config: [admin] needs
+  gateway.admin`): the gateway would refuse to start without
+  `admin.listen`.
+- **Image prefixes.** A `--waf-images` prefix matches at a name boundary
+  (`:`, `@`, the end, or a prefix ending in `/`), so
+  `ghcr.io/corazawaf/coraza-spoa` does not allow
+  `ghcr.io/corazawaf/coraza-spoa-other`.
+- **Sidecar user and resources.** The `waf` container runs as user 10001,
+  the user of the dvarapala image too, so the agent's socket is the
+  proxy's to dial; it gets a `/tmp` `emptyDir` (64 Mi) for request bodies
+  over the in-memory limit. Its default resources (requests 100m CPU,
+  96 Mi; limit 256 Mi) come from `examples/waf/`; they are not measured
+  on the e2e cluster yet.
+- **Mount names.** At most 57 characters, so the volume `mount-<name>` is
+  a DNS label; exactly one of `configMap` and `secret`. Pod annotations
+  may not set the restart hash key either (`reserved pod annotation`).
+- **Status.** Warnings (an unpinned image, an idle sidecar, a `rules`
+  entry a route lacks, as `<Kind> <route>: no rule <entry>`) go in a new
+  `status.warnings` list; the policy stays ready.
+- **`rules` on an `Ingress`.** The `defaultBackend` has no path, so with
+  the annotation it keeps its original backend. Entries past 64, or over
+  253 bytes, are ignored.
+- **Admin Services.** They carry `dvarapala.franzramadhan.dev/admin-of:
+  <gateway>` and no `app.kubernetes.io/name`, so nothing takes them for a
+  gateway Service; they are deleted with their gateway or when
+  `gateway.admin` goes. Two policies on the same backend port would share
+  one admin Service name; the last applied wins.
+- **Metric.** `dvarapala_operator_gateways` gains the labels `admin` and
+  `waf` (`true` or `false`) next to `namespace` and `phase`.
+- **Examples.** One file, `examples/kubernetes-console-waf.yaml`, next to
+  `kubernetes.yaml`, in place of an `examples/kubernetes/` directory.
+- **Tests.** Cases 1, 2, 5 and 8 in `gateway_tests.rs` (case 1 against
+  `gateway_golden.json`, written from the RFC 0019 code; `GOLDEN=1`
+  rewrites it), 3, 4, 6, 7, 9 and 10 in `policy.rs`, 11 to 14 in
+  `routes_tests.rs`, 15 in the `route_rewrite` fuzz target (which now also
+  sets a `rules` annotation), 16 and 17 in `deploy/e2e/run.sh`
+  (`console_waf`, with `deploy/e2e/waf.yaml`).
