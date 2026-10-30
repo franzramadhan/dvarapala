@@ -2,8 +2,7 @@
 title: Protection layers
 ---
 
-Each layer is optional. This page says what each one stops, how it
-answers, and which keys to look at first. The full list of keys is in
+Each layer is optional. Every key is in
 [Configuration](configuration.html).
 
 ## XDP fast path
@@ -82,7 +81,7 @@ other layers allow; a score above `ml.threshold` gets `429` with
 and want a signal the fixed limits miss, such as a slow scraper that
 stays under the rate.
 
-**Requirements**
+### Requirements
 
 - A binary built with `--features ml`. No release tarball or container
   image has it, so the operator's gateways and the SDKs cannot use it;
@@ -96,8 +95,10 @@ stays under the rate.
   trained on another dataset's columns (for example CICDDoS2019) does not
   load: `unknown feature "Flow Duration"`.
 
-**Features** (per client, computed online; `detection.window`, default
-1 s, is the window):
+### Features
+
+Per client, computed online; the window is `detection.window`, default
+1 s:
 
 | Name | Meaning |
 |---|---|
@@ -138,7 +139,7 @@ X = df.drop(columns=["label", "confidence", "trigger", "at"])
 booster = xgb.train({"objective": "binary:logistic", "max_depth": 4}, xgb.DMatrix(X, label=y), num_boost_round=50)
 ```
 
-**Expected results**
+### What to expect
 
 - A bad model stops the start with the reason (for example `model:
   objective "reg:squarederror" not supported, train with

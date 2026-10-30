@@ -4,7 +4,7 @@ title: Getting started
 
 dvarapala is an anti-DDoS reverse proxy. It listens where your app used to,
 forwards to the app as the upstream, and decides for each request whether
-it may pass. This page takes you from a download to a running proxy.
+it may pass.
 
 ## Install
 

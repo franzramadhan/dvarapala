@@ -63,7 +63,7 @@ full example, with network policies, is
   (`<service>-dvp-<hash>`, same port) and records the originals in the
   annotation `dvarapala.franzramadhan.dev/backends`. Removing the label
   restores them.
-- A new gateway Service starts as a **passthrough** to the application's
+- A new gateway Service starts as a passthrough to the application's
   pods, so labeling a route never drops a request. Once a gateway pod is
   ready, the Service switches to the gateway pods and never goes back: no
   ready gateway pod means `503` at the route (fail closed).

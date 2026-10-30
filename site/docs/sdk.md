@@ -31,8 +31,7 @@ have that layer: `rate_limit.enabled` (leave the guard out instead),
 
 ## Rust
 
-The crates embed directly, as a git dependency (they are not on
-crates.io): `dvarapala-l7` has the `tower` layers (`RateLimitLayer` with
+The crates are on crates.io: `dvarapala-l7` has the `tower` layers (`RateLimitLayer` with
 `RateLimitConfig`, including detection and the optional `Scoring` hook),
 `dvarapala-l4` the listener wrapper, `dvarapala-engine` the verdict engine
 with no I/O. `crates/dvarapala/src/layer.rs` shows how the binary builds
@@ -40,7 +39,7 @@ them from the configuration.
 
 ```toml
 [dependencies]
-dvarapala-l7 = { git = "https://github.com/franzramadhan/dvarapala", tag = "v<version>" }
+dvarapala-l7 = "<version>"
 ```
 
 ## Go
