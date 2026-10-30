@@ -111,7 +111,6 @@ fn key(body: &str, key: &str) -> serde_json::Value {
 
 // cases 1 and 3
 #[test]
-#[ignore = "rfc 0021"]
 fn config_redacted_with_flags() {
     let challenge = "c".repeat(40);
     let g = start(
@@ -145,7 +144,6 @@ fn config_redacted_with_flags() {
 
 // case 8
 #[test]
-#[ignore = "rfc 0021"]
 fn mode_switch_off_by_default() {
     let g = start("view-off", "", "", &[]);
     let a = call(
@@ -161,7 +159,6 @@ fn mode_switch_off_by_default() {
 // case 11 (the switch applied and the table kept; the flood itself is
 // RFC 0014's reload path, tested there)
 #[test]
-#[ignore = "rfc 0021"]
 fn detection_switch_keeps_the_table() {
     let g = start("view-detect", "mode_switch = true", "", &[]);
     for _ in 0..3 {
@@ -197,7 +194,6 @@ fn detection_switch_keeps_the_table() {
 
 // case 13 (the gateway part): a layer that is off
 #[test]
-#[ignore = "rfc 0021"]
 fn switching_a_layer_that_is_off() {
     let g = start("view-conflict", "mode_switch = true", "", &[]);
     let a = call(g.admin, "POST", "/mode?layer=waf&mode=enforce", &[bearer()]);
@@ -217,7 +213,6 @@ fn switching_a_layer_that_is_off() {
 // case 12
 #[cfg(feature = "ui")]
 #[test]
-#[ignore = "rfc 0021"]
 fn cookie_switch_needs_the_csrf_header() {
     let g = start(
         "view-csrf",
@@ -241,7 +236,6 @@ fn cookie_switch_needs_the_csrf_header() {
 
 // case 15
 #[test]
-#[ignore = "rfc 0021"]
 fn metrics_on_the_admin_listener() {
     let g = start("view-metrics", "", "", &[]);
     call(g.listen, "GET", "/", &[]);
@@ -258,7 +252,6 @@ fn metrics_on_the_admin_listener() {
 
 // case 16
 #[test]
-#[ignore = "rfc 0021"]
 fn same_series_on_both_listeners() {
     let m = port();
     let listen = format!("127.0.0.1:{m}");
@@ -303,7 +296,6 @@ mod waf {
 
     // cases 9 and 10
     #[test]
-    #[ignore = "rfc 0021"]
     fn switch_to_observe_until_the_reload() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (deny, _) = rt.block_on(fake_agent::spawn(Behavior::reply(Reply::Deny(403, 942100))));
@@ -340,7 +332,6 @@ mod waf {
 
     // cases 5 and 7
     #[test]
-    #[ignore = "rfc 0021"]
     fn matched_rules_and_rule_files() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (a942, _) = rt.block_on(fake_agent::spawn(Behavior::reply(Reply::Deny(403, 942100))));

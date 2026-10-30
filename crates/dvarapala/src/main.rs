@@ -239,6 +239,9 @@ async fn bind(cfg: &config::Config, block: Option<BlockSink>) -> Result<Listener
     if !cfg.metrics.listen.is_empty() {
         let addr = cfg.metrics.listen.parse()?;
         metrics::serve(addr, metrics::install()?).await?;
+    } else if !cfg.admin.listen.is_empty() {
+        // RFC 0021: the console reads the metrics on the admin listener
+        metrics::install()?;
     }
     let listener = Listener::new(TcpListener::bind(cfg.listen).await?, l4)?;
     Ok(match block {
@@ -272,6 +275,8 @@ async fn control(
             max_block_ttl: cfg.admin.max_block_ttl,
             layer,
             reloader,
+            metrics: metrics::install()?,
+            mode_switch: cfg.admin.mode_switch,
             mode: match cfg.mode {
                 config::ProxyMode::Reverse => "reverse",
                 config::ProxyMode::Forward => "forward",

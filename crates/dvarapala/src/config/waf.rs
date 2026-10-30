@@ -2,14 +2,16 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Deserializer, de};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
 use super::{Mode, duration};
 
 /// Largest `max_body`: a frame carries it whole.
 const MAX_BODY: usize = 64 << 20;
+/// Files `rules_files` names at most (RFC 0021).
+pub const MAX_RULES_FILES: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Waf {
     pub enabled: bool,
@@ -17,17 +19,22 @@ pub struct Waf {
     /// `host:port` or `unix:/path`.
     pub endpoint: String,
     pub app: String,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub timeout: Duration,
     pub on_error: Fallback,
     #[serde(deserialize_with = "size")]
     pub max_body: usize,
     pub body_limit_action: Fallback,
     pub max_concurrent: usize,
+    /// RFC 0021: the agent's rule files, shown on the console's WAF page.
+    pub rules_files: Vec<String>,
 }
 
 /// `on_error` and `body_limit_action`: refuse the request or let it pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Fallback {
     /// `on_error` only.
@@ -49,6 +56,7 @@ impl Default for Waf {
             max_body: 16 * 1024,
             body_limit_action: Fallback::Reject,
             max_concurrent: 64,
+            rules_files: Vec::new(),
         }
     }
 }
@@ -56,6 +64,11 @@ impl Default for Waf {
 impl Waf {
     /// The checks that need no agent; errors name the key.
     pub fn check(&self, reverse: bool) -> Result<(), String> {
+        if self.rules_files.len() > MAX_RULES_FILES {
+            return Err(format!(
+                "waf.rules_files names at most {MAX_RULES_FILES} files"
+            ));
+        }
         if !self.enabled {
             return Ok(());
         }
@@ -104,7 +117,7 @@ pub fn parse_size(s: &str) -> Result<usize, String> {
 }
 
 fn size<'de, D: Deserializer<'de>>(d: D) -> Result<usize, D::Error> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     #[serde(untagged)]
     enum Raw {
         Int(usize),

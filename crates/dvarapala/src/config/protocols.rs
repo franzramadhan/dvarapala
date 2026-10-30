@@ -4,12 +4,12 @@
 use std::time::Duration;
 
 use dvarapala_proxy::{Http2Limits, UpgradeConfig};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
 /// RFC 0004 protocol to the upstream.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UpstreamProtocol {
     #[default]
@@ -19,7 +19,7 @@ pub enum UpstreamProtocol {
 }
 
 /// RFC 0004 HTTP/2 listener limits. Defaults come from [`Http2Limits`].
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Http2 {
     pub max_concurrent_streams: u32,
@@ -27,9 +27,15 @@ pub struct Http2 {
     pub max_local_error_resets: usize,
     pub max_header_list_size: u32,
     /// `"0s"` turns keepalive off.
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub keepalive_interval: Duration,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub keepalive_timeout: Duration,
 }
 
@@ -49,16 +55,22 @@ impl Default for Http2 {
 
 /// RFC 0005 WebSocket and other HTTP/1.1 upgrades. Defaults come from
 /// [`UpgradeConfig`].
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Upgrade {
     /// `[]` turns upgrades off.
     pub protocols: Vec<String>,
     pub max_tunnels: usize,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub idle_timeout: Duration,
     /// `"0s"` turns the limit off.
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub max_lifetime: Duration,
 }
 

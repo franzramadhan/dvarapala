@@ -160,6 +160,9 @@ prefix_v6 = 64
 # token = "<at least 32 bytes>"
 # max_blocks = 4096
 # max_block_ttl = "24h"
+# Allows POST /mode (RFC 0021): switch detection or the WAF to observe or
+# enforce until the next reload. Off keeps every change in the file.
+# mode_switch = false
 # Web console at /ui/ (RFC 0018), login by the token or OIDC. See admin-ui.toml.
 # ui_enabled = false
 # session_ttl = "8h"
@@ -204,6 +207,8 @@ prefix_v6 = 64
 # max_body = "16KiB"
 # body_limit_action = "reject"
 # max_concurrent = 64
+# The agent's rule files, shown in the console (RFC 0021), never applied.
+# rules_files = ["/etc/coraza-spoa/coraza.yaml"]
 
 # JA4 TLS fingerprints (RFC 0012), on the TLS listener.
 # [fingerprint]

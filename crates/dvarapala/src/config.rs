@@ -8,7 +8,7 @@ use std::time::Duration;
 use dvarapala_engine::DetectConfig;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use serde::{Deserialize, Deserializer, de};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
 mod admin;
 mod challenge;
@@ -20,6 +20,7 @@ mod quic;
 mod routes;
 mod store;
 mod tls;
+pub mod view;
 mod waf;
 mod xdp;
 pub use admin::Admin;
@@ -39,7 +40,7 @@ pub use waf::Fallback;
 pub use waf::Waf;
 pub use xdp::{Xdp, XdpPlan};
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -91,18 +92,22 @@ pub struct Config {
     #[serde(default)]
     pub waf: Waf,
     /// RFC 0019: poll the `--config` file and reload on a change; `None` is off.
-    #[serde(default, deserialize_with = "optional_duration")]
+    #[serde(
+        default,
+        deserialize_with = "optional_duration",
+        serialize_with = "crate::config::view::ser_opt_duration"
+    )]
     pub config_watch: Option<Duration>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Metrics {
     /// Empty turns the endpoint off.
     pub listen: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct RateLimit {
     pub enabled: bool,
@@ -112,12 +117,15 @@ pub struct RateLimit {
 }
 
 /// RFC 0002 keys. Defaults come from [`DetectConfig::default`].
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Detection {
     pub enabled: bool,
     pub mode: Mode,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub window: Duration,
     pub prefix_v4: u8,
     pub prefix_v6: u8,
@@ -134,14 +142,14 @@ pub struct Detection {
     pub attack_rate_factor: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Observe,
     Enforce,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Ml {
     /// XGBoost JSON model; unset turns scoring off.

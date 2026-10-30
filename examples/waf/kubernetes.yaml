@@ -51,6 +51,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
           volumeMounts:
+            # both files: config.yaml is shown by the console (waf.rules_files)
             - {name: config, mountPath: /etc/dvarapala, readOnly: true}
             - {name: socket, mountPath: /run/coraza-spoa}
         - name: coraza-spoa

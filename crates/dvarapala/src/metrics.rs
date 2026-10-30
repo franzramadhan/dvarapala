@@ -3,6 +3,7 @@
 use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::OnceLock;
 
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -11,9 +12,16 @@ use hyper_util::rt::TokioIo;
 use metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle};
 use tokio::net::TcpListener;
 
-/// Installs the global recorder. Call once, before any metric is touched.
+/// Installs the global recorder on the first call, before any metric is
+/// touched; later calls return the same handle (the metrics listener and,
+/// RFC 0021, the admin listener share it).
 pub fn install() -> Result<PrometheusHandle, BuildError> {
-    PrometheusBuilder::new().install_recorder()
+    static HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
+    if let Some(h) = HANDLE.get() {
+        return Ok(h.clone());
+    }
+    let h = PrometheusBuilder::new().install_recorder()?;
+    Ok(HANDLE.get_or_init(|| h).clone())
 }
 
 /// Binds `addr` and serves `GET /metrics` until the process exits.

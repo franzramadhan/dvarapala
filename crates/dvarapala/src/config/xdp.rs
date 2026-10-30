@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use dvarapala_engine::Cidr;
 use dvarapala_xdp::{Attach, XdpConfig};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Mode, duration};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AttachMode {
     Auto,
@@ -17,7 +17,7 @@ pub enum AttachMode {
     Generic,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Xdp {
     /// Unset turns XDP off.
@@ -26,7 +26,10 @@ pub struct Xdp {
     pub attach: AttachMode,
     pub allow: Vec<String>,
     pub block: Vec<String>,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub block_ttl: Duration,
     pub max_blocks: u32,
     pub pps: u32,

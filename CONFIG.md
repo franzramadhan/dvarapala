@@ -32,7 +32,7 @@ Top-level keys go above the first `[section]` in the file.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `listen` | address | `"127.0.0.1:9090"` | Prometheus endpoint; empty turns it off |
+| `listen` | address | `"127.0.0.1:9090"` | Prometheus endpoint; empty turns it off. The admin listener serves the same text at `GET /metrics` behind its login ([RFC 0021](rfc/0021-admin-ui-config-waf.md)), with or without this one |
 
 ## `[rate_limit]`
 
@@ -416,11 +416,16 @@ JSON over HTTP/1.1 on its own listener; every call needs
 | `ui_enabled` | bool | `false` | Serves the web console at `/ui/` ([RFC 0018](rfc/0018-admin-ui.md)); needs `listen` |
 | `session_ttl` | duration | `"8h"` | Console session lifetime, at most `"24h"` |
 | `max_sessions` | integer | `64` | Console sessions at most; the oldest is dropped for a new one |
+| `mode_switch` | bool | `false` | Allows `POST /mode` ([RFC 0021](rfc/0021-admin-ui-config-waf.md)); off, it answers `403` and every mode change goes through the file |
 | `public_url` | string | `""` | The console's origin as the browser sees it, for example `"https://<host>"`. Required with OIDC (the redirect URI is `<public_url>/session/oidc/callback`); `https` also sets `Secure` on the session cookie |
 
 | Call | Answer |
 |---|---|
-| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload` |
+| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload`, `waf` (the WAF's running mode, `null` when off) and `switches` (the mode switches in force: `layer`, `mode`, `file_mode`, `actor`, `at`) |
+| `GET /config` | the running config ([RFC 0021](rfc/0021-admin-ui-config-waf.md)): `keys`, each with `key` (dotted), `value`, `reload` (`true` when a reload applies it in place; a `false` key shows the value the process started with) and `default`. `admin.token`, `admin.oidc.client_secret`, `challenge.secret` and `store.url` show as `"<redacted>"` when set |
+| `GET /waf` | the `[waf]` `settings`, the running `mode` and its `switch`, the matched `rules` (`rule`, `count`, `last_seen`, the last match's `method`, `path` without the query and `anomaly_score`; 256 IDs, then the `other` count) and the `files` of `waf.rules_files` read now (`path`, `size`, `modified`, `content`, or `error`) |
+| `GET /metrics` | the Prometheus text of the metrics listener |
+| `POST /mode?layer=<detection\|waf>&mode=<observe\|enforce>` | switches the layer's running mode in place, on this instance, until the next reload or restart (a reload logs `mode switch cleared` per switch). `403` unless `mode_switch`, `409` when the layer is off. Answers `layer`, `mode`, `previous` |
 | `POST /reload` | the same as `SIGHUP`: `restart` lists the changed keys that need a restart; `422` with `error` when the file is refused |
 | `GET /top` | the heavy hitters of the last closed window, `cidr` and `count` |
 | `GET /blocks` | manual blocks in force, `cidr` and `ttl_secs` |
@@ -563,6 +568,7 @@ endpoint = "unix:/run/coraza-spoa/coraza.sock"
 | `max_body` | size | `"16KiB"` | Body bytes buffered and sent at most, as bytes or with `B`, `KiB` or `MiB`, up to 64 MiB; `0` sends headers only. The agent's frame is `max_body` plus 16 KiB |
 | `body_limit_action` | string | `"reject"` | A body over `max_body` in `enforce`: `"reject"` answers `413` without asking; `"pass"` sends the request to the agent without its body, then the whole body upstream. `observe` always does as `"pass"` |
 | `max_concurrent` | integer | `64` | Connections to the agent, one request each at a time; a request waits for a free one within `timeout` |
+| `rules_files` | list of paths | `[]` | The agent's rule files, at most 8, shown by `GET /waf` and the console ([RFC 0021](rfc/0021-admin-ui-config-waf.md)). Display only: the gateway never parses or applies them. A file over 256 KiB or unreadable is listed with its error and logged as `waf rules file unreadable` |
 
 A blocked request gets the agent's status when it is `400` to `599`,
 `403` otherwise, with `Connection: close` on a `403` (gRPC: status 7, or
@@ -677,6 +683,7 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`ui`, `session` and `oidc` for the console, `other` for unknown paths) and status, `401` included |
 | `dvarapala_admin_logins_total{method,result}` | Console logins ([RFC 0018](rfc/0018-admin-ui.md)): `method` `token` or `oidc`, `result` `ok`, `denied` (not in the allow lists) or `failed` |
 | `dvarapala_admin_sessions` | Console sessions alive |
+| `dvarapala_mode_switched{layer}` | 1 while `detection` or `waf` runs in a mode switched by `POST /mode`, 0 after the switch ends ([RFC 0021](rfc/0021-admin-ui-config-waf.md)) |
 | `dvarapala_blocks` | Manual blocks in force |
 | `dvarapala_tls_ja4_total{result}` | ClientHellos fingerprinted (`ok`) or not (`unparsed`: not a whole ClientHello within 16 KiB) |
 | `dvarapala_tls_handshakes_total{result}` | Handshakes by `ok`, `failed`, `timeout`, `rejected` |

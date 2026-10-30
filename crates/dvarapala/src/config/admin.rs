@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use dvarapala_l7::secure_url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
@@ -13,31 +13,41 @@ const MIN_TOKEN: usize = 32;
 /// Longest console session.
 const MAX_SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Admin {
     /// Empty turns the admin API off.
     pub listen: String,
+    #[serde(serialize_with = "crate::config::view::redact")]
     pub token: String,
     pub max_blocks: usize,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub max_block_ttl: Duration,
     /// Serves the console at `/ui/`.
     pub ui_enabled: bool,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub session_ttl: Duration,
     pub max_sessions: usize,
     /// The console's origin as the browser sees it.
     pub public_url: String,
+    /// RFC 0021: allows `POST /mode`.
+    pub mode_switch: bool,
     pub oidc: Oidc,
 }
 
 /// `[admin.oidc]`: SSO for the console; an empty `issuer` turns it off.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Oidc {
     pub issuer: String,
     pub client_id: String,
+    #[serde(serialize_with = "crate::config::view::redact")]
     pub client_secret: String,
     pub scopes: Vec<String>,
     pub allow_emails: Vec<String>,
@@ -75,6 +85,7 @@ impl Default for Admin {
             session_ttl: Duration::from_secs(8 * 3600),
             max_sessions: 64,
             public_url: String::new(),
+            mode_switch: false,
             oidc: Oidc::default(),
         }
     }

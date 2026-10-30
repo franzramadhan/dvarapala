@@ -262,3 +262,30 @@ failing) linking to its page, and the WAF state next to detection.
   switch; `waf.rules_files = []` shows no files; the pages go with
   `admin.ui_enabled = false`, and the JSON calls with
   `admin.listen = ""`.
+
+## Implementation notes
+
+- `store.url` unset serializes as `null`, not `""`: the key is an
+  optional string. Set, it is `"<redacted>"` as planned.
+- Case 2 checks key names instead of marking every field: a key whose
+  last segment holds `token`, `secret`, `password`, `url`, `key` or
+  `credential` must be in the test's secret list (and redacted) or in its
+  not-secret list (`admin.public_url`, `store.max_keys`, `tls.key`).
+- Besides the `admin action` audit line, a switch logs `msg="mode
+  switched"` with `layer`, `mode`, `previous` and `actor`.
+- Case 9 runs without a live upstream: the switched request is forwarded
+  and answered `502`, which proves it was not blocked.
+- Case 11 is reduced to the switch itself: detection switches to
+  `enforce`, `/status` shows the switch and the client table is kept. The
+  throttling of a flood in `enforce` is the RFC 0014 reload path, tested
+  there.
+- Case 15 runs without a pool: `GET /metrics` on the admin listener with
+  `metrics.listen` empty, `401` without the token. The upstream health
+  series are covered by the console test of case 19.
+- Case 14 needs no new seeds: the fuzz corpus is not tracked in the
+  repository, and the existing `admin_query` target already reaches the
+  `/mode` parser.
+- The health pages show each series with its value and its rate over the
+  last poll, without the 15 minute history and charts. A page exists when
+  its series do: Upstreams needs `dvarapala_upstream_healthy` (a pool),
+  so a single upstream shows no Upstreams page.

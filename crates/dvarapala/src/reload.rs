@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use dvarapala_engine::{Cidr, Limit, TrustedProxies};
-use dvarapala_l7::{RateLimitLayer, Reload, RouteKey, unix_now};
+use dvarapala_l7::{ModeLayer, RateLimitLayer, Reload, RouteKey, unix_now};
+use hyper::StatusCode;
+
+use crate::admin::switch::Switches;
 
 use crate::config::{self, Config};
 
@@ -31,6 +34,9 @@ pub struct Reloader {
     /// the routes in force, so an unchanged list keeps its buckets
     routes: Mutex<Vec<config::Route>>,
     last: Mutex<Option<Outcome>>,
+    /// RFC 0021: the file as last applied, and the switches over it
+    current: Mutex<Config>,
+    pub switches: Switches,
 }
 
 impl Reloader {
@@ -47,8 +53,10 @@ impl Reloader {
             waf,
             ja4,
             routes: Mutex::new(start.routes.clone()),
+            current: Mutex::new(start.clone()),
             start,
             last: Mutex::new(None),
+            switches: Switches::default(),
         }
     }
 
@@ -59,6 +67,8 @@ impl Reloader {
         match &result {
             Ok(restart) => {
                 tracing::info!(msg = "config reloaded", restart = restart.join(","));
+                let cur = lock(&self.current);
+                self.switches.clear(|l| file_enforce(&cur, l));
                 ::metrics::counter!("dvarapala_config_reloads_total", "result" => "ok")
                     .increment(1);
             }
@@ -102,9 +112,72 @@ impl Reloader {
             l.reload(reload).map_err(|e| e.to_string())?;
         }
         self.waf.reload(waf);
-        *routes = new.routes;
+        routes.clone_from(&new.routes);
+        *lock(&self.current) = new;
         Ok(restart)
     }
+
+    /// The config the process started with and the one last applied.
+    pub fn configs(&self) -> (Config, Config) {
+        (self.start.clone(), lock(&self.current).clone())
+    }
+
+    /// RFC 0021: runs `layer` in `enforce` (or observe) until the next
+    /// reload, as a reload of its mode key would. Returns the mode it
+    /// replaces.
+    pub fn switch(
+        &self,
+        layer: ModeLayer,
+        enforce: bool,
+        actor: &str,
+    ) -> Result<bool, (StatusCode, String)> {
+        let conflict = |m: &str| Err((StatusCode::CONFLICT, m.to_owned()));
+        let failed = |e: String| (StatusCode::INTERNAL_SERVER_ERROR, e);
+        // held like a reload holds it, so the two never interleave
+        let _routes = lock(&self.routes);
+        let cfg = lock(&self.current).clone();
+        match layer {
+            ModeLayer::Detection => {
+                let Some(l) = self.layer.as_ref().filter(|_| cfg.detection.enabled) else {
+                    return conflict("detection is off");
+                };
+                let mut r = policy(&cfg).map_err(failed)?;
+                r.enforce = enforce;
+                r.routes = None;
+                l.reload(r).map_err(|e| failed(e.to_string()))?;
+            }
+            ModeLayer::Waf => {
+                #[cfg(feature = "waf")]
+                {
+                    let Some(mut w) = crate::waf::config(&cfg).map_err(failed)? else {
+                        return conflict("the waf is off");
+                    };
+                    w.enforce = enforce;
+                    self.waf.reload(Some(w));
+                }
+                #[cfg(not(feature = "waf"))]
+                return conflict("the waf is off");
+            }
+        }
+        Ok(self
+            .switches
+            .set(layer, enforce, file_enforce(&cfg, layer), actor))
+    }
+
+    /// The running mode of `layer`: the switch, else the file.
+    pub fn enforce(&self, layer: ModeLayer) -> bool {
+        self.switches
+            .get(layer)
+            .map_or_else(|| file_enforce(&lock(&self.current), layer), |w| w.enforce)
+    }
+}
+
+fn file_enforce(cfg: &Config, layer: ModeLayer) -> bool {
+    let mode = match layer {
+        ModeLayer::Detection => cfg.detection.mode,
+        ModeLayer::Waf => cfg.waf.mode,
+    };
+    mode == config::Mode::Enforce
 }
 
 /// Reloads on every `SIGHUP`.
@@ -148,6 +221,21 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
         fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
         routes: Some(config::routes(&cfg.routes)?),
     })
+}
+
+/// Whether a reload applies the dotted `key` in place (RFC 0021), the
+/// complement of [`restart`].
+pub fn in_place(key: &str, cfg: &Config) -> bool {
+    let (top, rest) = key.split_once('.').unwrap_or((key, ""));
+    match top {
+        "trusted_proxies" | "challenge" | "fingerprint" | "routes" | "waf" => true,
+        // the cluster budget (RFC 0010) is set at start
+        "rate_limit" => {
+            matches!(rest, "rate" | "burst") && cfg.store.backend == config::Backend::Memory
+        }
+        "detection" => matches!(rest, "mode" | "attack_rate_factor"),
+        _ => false,
+    }
 }
 
 /// The keys that differ from `start` but need a restart.

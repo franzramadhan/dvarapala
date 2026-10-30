@@ -36,6 +36,10 @@ pub struct Admin {
     pub reloader: Arc<Reloader>,
     /// `reverse` or `forward`
     pub mode: &'static str,
+    /// RFC 0021: `GET /metrics` renders it.
+    pub metrics: metrics_exporter_prometheus::PrometheusHandle,
+    /// RFC 0021: allows `POST /mode`.
+    pub mode_switch: bool,
     /// The console, with `ui_enabled`.
     #[cfg(feature = "ui")]
     pub console: Option<super::Console>,
@@ -119,9 +123,9 @@ impl Admin {
         };
         let audit = matches!(
             call,
-            Call::Reload | Call::Block { .. } | Call::Unblock { .. }
+            Call::Reload | Call::Block { .. } | Call::Unblock { .. } | Call::Mode { .. }
         );
-        let res = self.call(call);
+        let res = self.call(call, &actor);
         if audit {
             tracing::info!(
                 msg = "admin action",
@@ -153,7 +157,9 @@ impl Admin {
 /// The `endpoint` label: the API paths, the console's groups, `other`.
 fn endpoint(path: &str) -> String {
     match path {
-        "/status" | "/top" | "/reload" | "/blocks" => path.to_owned(),
+        "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/mode" | "/metrics" => {
+            path.to_owned()
+        }
         p if p == "/ui" || p.starts_with("/ui/") => "ui".into(),
         p if p.starts_with("/session/oidc") => "oidc".into(),
         p if p == "/session" || p.starts_with("/session/") => "session".into(),

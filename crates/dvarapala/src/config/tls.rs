@@ -3,23 +3,26 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
 /// RFC 0003 listener TLS. No `cert` means a cleartext listener.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Tls {
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub handshake_timeout: Duration,
     pub max_handshakes: usize,
 }
 
 /// RFC 0003 verification of `https://` upstreams.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct UpstreamTls {
     pub ca_file: Option<PathBuf>,

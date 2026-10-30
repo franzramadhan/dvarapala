@@ -6,9 +6,9 @@ use std::num::NonZeroUsize;
 use dvarapala_engine::{Cidr, Limit};
 use dvarapala_l7::{Host, Matcher, PathMatch, RouteConfig, RouteKey};
 use http::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Route {
     pub name: String,
