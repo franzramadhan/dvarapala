@@ -160,6 +160,11 @@ every replica. The client's bucket still comes first, and heavy hitters
 in `enforce` mode are dropped with or without a pass. Clients that do not
 accept `text/html`, and gRPC, get `429` instead of the page.
 
+The page sends its answer to `/.well-known/dvarapala/verify`. When an
+ingress or gateway sends only some paths to dvarapala, add that prefix
+to them, or the upstream answers it and the browser loops on the
+challenge.
+
 Keys: [`[challenge]`](configuration.html#challenge).
 
 ## JA4 fingerprints

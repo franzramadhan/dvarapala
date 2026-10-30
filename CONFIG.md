@@ -377,6 +377,10 @@ pass gets a `403` page whose script finds a nonce such that
   challenge with a route (`routes[].challenge = false`).
 - A `POST` answered with the page is not replayed: the browser comes
   back with a `GET` to the same URL.
+- When only some paths reach dvarapala (an ingress or gateway route per
+  path), route `/.well-known/dvarapala/` to it as well. Otherwise the
+  upstream answers the verify request, no pass is set and the page
+  challenges again in a loop.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
