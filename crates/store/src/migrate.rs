@@ -17,6 +17,10 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: include_str!("../migrations/0002.sql"),
     },
+    Migration {
+        version: 3,
+        sql: include_str!("../migrations/0003.sql"),
+    },
 ];
 
 /// The schema version this binary needs.
