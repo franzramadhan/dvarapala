@@ -45,6 +45,7 @@ jobs:
             xdp
             ffi
             operator
+            ui
             sdk
             cli
             config
