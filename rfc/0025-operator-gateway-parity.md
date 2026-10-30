@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-30 | #N | |
+| draft | 2026-10-30 | #213 | |
 
 > Operator-made gateways (RFC 0019) gain what hand-written dvarapala
 > Deployments use today: the admin listener and console, the WAF agent
