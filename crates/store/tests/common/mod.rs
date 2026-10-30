@@ -163,3 +163,28 @@ pub fn unix_ms() -> u64 {
         .unwrap()
         .as_millis() as u64
 }
+
+#[cfg(feature = "postgres")]
+pub async fn client(url: &str) -> tokio_postgres::Client {
+    let (c, conn) = tokio_postgres::connect(url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    c
+}
+
+/// A new empty database next to the one in `DVARAPALA_TEST_POSTGRES`.
+#[cfg(feature = "postgres")]
+pub async fn fresh() -> Option<String> {
+    let url = url("DVARAPALA_TEST_POSTGRES")?;
+    let name = unique("t");
+    client(&url)
+        .await
+        .batch_execute(&format!("CREATE DATABASE {name}"))
+        .await
+        .unwrap();
+    let rest = url.split("://").nth(1).unwrap();
+    let path = rest.find('/').unwrap();
+    let query = rest.find('?').map_or("", |q| &rest[q..]);
+    Some(format!("postgres://{}/{name}{query}", &rest[..path]))
+}

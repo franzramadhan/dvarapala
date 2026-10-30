@@ -110,7 +110,7 @@ impl Postgres {
     }
 
     /// A failed call drops the connection; the next one reconnects.
-    fn drop_on_error<T>(&mut self, r: Result<T, Error>) -> Result<T, Error> {
+    pub(crate) fn drop_on_error<T>(&mut self, r: Result<T, Error>) -> Result<T, Error> {
         if r.is_err() {
             self.client = None;
         }

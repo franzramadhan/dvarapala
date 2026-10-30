@@ -62,7 +62,7 @@ impl History {
 }
 
 /// A duration as for every other key, or `"<n>d"` days.
-fn retention<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+pub(super) fn retention<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
     let s = String::deserialize(d)?;
     match s.strip_suffix('d').map(str::parse::<u32>) {
         Some(Ok(n)) => Ok(Duration::from_secs(u64::from(n) * 24 * 3600)),
@@ -70,7 +70,7 @@ fn retention<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Duration, D::Erro
     }
 }
 
-fn ser_retention<S: serde::Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+pub(super) fn ser_retention<S: serde::Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
     let secs = d.as_secs();
     if secs.is_multiple_of(86_400) && secs > 0 {
         s.serialize_str(&format!("{}d", secs / 86_400))

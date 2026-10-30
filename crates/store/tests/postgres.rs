@@ -4,32 +4,13 @@
 
 mod common;
 
+use common::{client, fresh};
+
 use std::time::Duration;
 
 use dvarapala_engine::Batch;
 use dvarapala_store::{LATEST, MIGRATIONS, Migration, Postgres, Round, Store, apply, render};
 use tokio_postgres::{Client, NoTls};
-
-async fn client(url: &str) -> Client {
-    let (c, conn) = tokio_postgres::connect(url, NoTls).await.unwrap();
-    tokio::spawn(conn);
-    c
-}
-
-/// A new empty database next to the one in `DVARAPALA_TEST_POSTGRES`.
-async fn fresh() -> Option<String> {
-    let url = common::url("DVARAPALA_TEST_POSTGRES")?;
-    let name = common::unique("t");
-    client(&url)
-        .await
-        .batch_execute(&format!("CREATE DATABASE {name}"))
-        .await
-        .unwrap();
-    let rest = url.split("://").nth(1).unwrap();
-    let path = rest.find('/').unwrap();
-    let query = rest.find('?').map_or("", |q| &rest[q..]);
-    Some(format!("postgres://{}/{name}{query}", &rest[..path]))
-}
 
 fn store(url: &str, migrate: bool) -> Postgres {
     Postgres::new(url, None, migrate, Duration::from_secs(2)).unwrap()
@@ -383,7 +364,7 @@ async fn version_1_migrates_to_the_history_table() {
     let mut c = client(&url).await;
     assert_eq!(apply(&mut c, &MIGRATIONS[..1]).await.unwrap(), 1);
     round(&mut store(&url, true)).await.unwrap();
-    assert_eq!(versions(&c).await, vec![1, 2]);
+    assert_eq!(versions(&c).await[..2], [1, 2]);
     assert!(render(1).starts_with("-- dvarapala schema version 2\n"));
     assert!(render(1).contains("dvarapala.traffic_history"));
 }

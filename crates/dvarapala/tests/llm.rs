@@ -333,3 +333,94 @@ fn export_writes_one_line_per_label() {
     drop(p);
     let _ = std::fs::remove_file(&out);
 }
+
+// RFC 0024 cases 13 and 14
+#[test]
+#[ignore = "rfc 0024"]
+fn export_needs_auth_and_persist() {
+    let f = fake(Reply::Json(system_one(false)));
+    let p = start("export-off", &f, "", "", &[]);
+    let (status, _) = http(
+        p.admin,
+        "GET /llm/export HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(status, 401);
+    let (status, body) = admin(&p, "GET", "/llm/export");
+    assert_eq!(status, 409, "{body}");
+    assert!(body.contains("ml.llm.persist"), "{body}");
+    assert_eq!(admin(&p, "GET", "/llm/export?since=abc").0, 400);
+    assert!(admin(&p, "GET", "/llm").1.contains(r#""source":"memory""#));
+}
+
+// RFC 0024 case 10: a lost store keeps labels in memory
+#[cfg(feature = "postgres")]
+#[test]
+#[ignore = "rfc 0024"]
+fn a_lost_store_answers_from_memory() {
+    let f = fake(Reply::Json(system_one(false)));
+    let store = "[store]\nbackend = \"postgres\"\nurl = \"postgres://dvarapala@127.0.0.1:1/dvarapala?sslmode=disable\"\n";
+    let p = start("lost", &f, "enabled = true\npersist = true\n", store, &[]);
+    login(&p, "192.0.2.20", "");
+    wait("a label in memory", || {
+        admin(&p, "GET", "/llm").1.contains(r#""label":"scanner""#)
+    });
+    let (status, body) = admin(&p, "GET", "/llm");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains(r#""source":"memory""#), "{body}");
+    // the batch fails after at most 5 s and is counted
+    wait("a failed batch", || {
+        metric(&p, "dvarapala_llm_store_rows_total{result=\"error\"}") == 1
+    });
+}
+
+// RFC 0024 cases 8 and 12 through the binary: `GET /llm` and the export
+// read the store
+#[cfg(feature = "postgres")]
+#[test]
+#[ignore = "rfc 0024"]
+fn labels_are_stored_and_exported() {
+    let Ok(url) = std::env::var("DVARAPALA_TEST_POSTGRES") else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "DVARAPALA_TEST_POSTGRES is not set in CI"
+        );
+        return;
+    };
+    let f = fake(Reply::Json(system_one(false)));
+    let store = format!(
+        "[store]\nbackend = \"postgres\"\nurl = \"{url}\"\nmigrate = true\ncluster = \"llm{}\"\n",
+        std::process::id()
+    );
+    let p = start(
+        "stored",
+        &f,
+        "enabled = true\npersist = true\n",
+        &store,
+        &[],
+    );
+    for c in ["192.0.2.30", "192.0.2.31"] {
+        login(&p, c, "");
+    }
+    // the writer flushes at most 5 s after the first row
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let v: serde_json::Value = serde_json::from_str(&admin(&p, "GET", "/llm").1).unwrap();
+        if v["source"] == "store" && v["recent"].as_array().unwrap().len() == 2 {
+            assert_eq!(v["counts"][0]["count"], 2, "{v}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "two stored labels: {v}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let (status, body) = admin(&p, "GET", "/llm/export?label=scanner&trigger=route");
+    assert_eq!(status, 200, "{body}");
+    let lines: Vec<serde_json::Value> = body
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{body}");
+    assert_eq!(lines[0]["label"], "scanner");
+    let (_, none) = admin(&p, "GET", "/llm/export?label=benign");
+    assert!(!none.contains('{'), "{none}");
+}

@@ -1,9 +1,11 @@
 //! RFC 0023: LLM labels for sampled traffic.
 
+mod export;
 mod sample;
 #[cfg(feature = "llm")]
 mod wire;
 
+pub use export::{ExportQuery, MAX_FILTER};
 pub(crate) use sample::Seen;
 pub use sample::{Llm, LlmConfig, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut, redact};
 #[cfg(feature = "llm")]

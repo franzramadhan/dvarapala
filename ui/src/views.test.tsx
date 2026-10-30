@@ -215,6 +215,32 @@ describe('LLM labels', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.startsWith('/llm'))?.url).toBe('/llm?on=30m'));
   });
 
+  // RFC 0024 case 17
+  it.skip('names the source and links the export with the store', async () => {
+    mockApi({
+      'GET /config': () => ({ body: config }),
+      'GET /status': () => ({ body: { ...attackStatus, llm: { sampling: false } } }),
+      'GET /llm': () => ({ body: { ...llm, source: 'store' } }),
+    });
+    renderApp('/ui/llm');
+    expect(await screen.findByText('Labels, all replicas, last 24 h')).toBeTruthy();
+    const link = screen.getByRole('link', { name: 'Export' });
+    expect(link.getAttribute('href')).toBe('/llm/export');
+    fireEvent.input(screen.getByLabelText('From'), { target: { value: '2026-10-29' } });
+    await waitFor(() => expect(link.getAttribute('href')).toBe('/llm/export?since=2026-10-29T00%3A00%3A00Z'));
+  });
+
+  it.skip('shows the memory source without an export', async () => {
+    mockApi({
+      'GET /config': () => ({ body: config }),
+      'GET /status': () => ({ body: { ...attackStatus, llm: { sampling: false } } }),
+      'GET /llm': () => ({ body: { ...llm, source: 'memory' } }),
+    });
+    renderApp('/ui/llm');
+    expect(await screen.findByText('Labels, this replica since start')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Export' })).toBeNull();
+  });
+
   it('hides the nav entry when the labels are not configured', async () => {
     mockApi({ 'GET /status': () => ({ body: { ...attackStatus, llm: null } }) });
     renderApp('/ui/');

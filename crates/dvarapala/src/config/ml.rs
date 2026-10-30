@@ -9,6 +9,7 @@ use dvarapala_l7::{LlmConfig, On, Trigger};
 use http::HeaderName;
 use serde::{Deserialize, Serialize};
 
+use super::history::{retention, ser_retention};
 use super::waf::size;
 use super::{Config, ProxyMode, duration};
 
@@ -70,6 +71,11 @@ pub struct Llm {
     )]
     pub max_duration: Duration,
     pub triggers: Vec<TriggerConfig>,
+    /// RFC 0024: write labels to the PostgreSQL store.
+    pub persist: bool,
+    pub persist_queue: usize,
+    #[serde(deserialize_with = "retention", serialize_with = "ser_retention")]
+    pub retention: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -138,6 +144,9 @@ impl Default for Llm {
             export_max: 64 << 20,
             max_duration: Duration::from_secs(24 * 3600),
             triggers: Vec::new(),
+            persist: false,
+            persist_queue: 1024,
+            retention: Duration::from_secs(30 * 24 * 3600),
         }
     }
 }
@@ -316,6 +325,21 @@ mod tests {
             "[[routes]]\nname = \"login\"\npath = \"/login\"\n",
         );
         assert!(c.ml.llm.sampler(&c).unwrap().is_some());
+    }
+
+    // RFC 0024 cases 1 and 2
+    #[test]
+    #[ignore = "rfc 0024"]
+    fn persist_needs_postgres_and_retention_an_hour() {
+        let e = err("persist = true\n", "");
+        assert!(e.contains("ml.llm.persist"), "{e}");
+        let c = cfg("persist = true\n", "[store]\nbackend = \"postgres\"\n");
+        assert!(c.ml.llm.sampler(&c).unwrap().is_some());
+        let e = err("retention = \"10m\"\n", "");
+        assert!(e.contains("ml.llm.retention") && e.contains("1h"), "{e}");
+        assert!(err("persist_queue = 0\n", "").contains("ml.llm.persist_queue"));
+        let c = cfg("retention = \"7d\"\n", "");
+        assert_eq!(c.ml.llm.retention, Duration::from_secs(7 * 86_400));
     }
 
     // RFC 0023 case 17
