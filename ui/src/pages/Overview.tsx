@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js';
 import { Link } from '@tanstack/solid-router';
 import { useQuery } from '@tanstack/solid-query';
 import { VERDICTS } from '../api';
@@ -7,7 +7,7 @@ import { Sparkline, StackedArea } from '../components/Charts';
 import { STATE_LABEL, stateKey } from '../components/Shell';
 import { Num, PageHeader } from '../components/Ui';
 import { fmtDuration, fmtRate } from '../format';
-import { history, seedHistory, stateSince } from '../history';
+import { history, historyGap, seedHistory, stateSince } from '../history';
 import { HEALTH, metricsQuery, present } from '../metrics';
 
 const STATE_NOTE: Record<string, string> = {
@@ -46,6 +46,7 @@ export function OverviewPage() {
   const seed = useQuery(() => historyQuery('15m'));
   const long = useQuery(() => ({ ...historyQuery(range()), enabled: range() !== '15m' }));
   createEffect(() => seed.data && seedHistory(seed.data.samples));
+  createEffect(on(historyGap, () => void seed.refetch(), { defer: true }));
   const persisted = () => seed.data?.source === 'store';
   const span = () => RANGES.find((x) => x.r === range())!;
   const chart = () => (range() === '15m' ? history() : (long.data?.samples ?? []));
