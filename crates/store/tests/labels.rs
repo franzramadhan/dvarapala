@@ -37,7 +37,6 @@ const ALL: LabelQuery<'static> = LabelQuery {
 
 // RFC 0024 case 7: what is written reads back unchanged, features included
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0024"]
 async fn a_row_reads_back_unchanged() {
     let Some(url) = fresh().await else { return };
     let mut s = store(&url);
@@ -63,7 +62,6 @@ async fn a_row_reads_back_unchanged() {
 
 // RFC 0024 cases 8 and 9
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0024"]
 async fn reads_merge_the_replicas_of_one_cluster() {
     let Some(url) = fresh().await else { return };
     let (mut a, mut b) = (store(&url), store(&url));
@@ -103,7 +101,6 @@ async fn reads_merge_the_replicas_of_one_cluster() {
 
 // RFC 0024 case 11
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0024"]
 async fn retention_deletes_old_rows() {
     let Some(url) = fresh().await else { return };
     let mut s = store(&url);
@@ -123,7 +120,6 @@ async fn retention_deletes_old_rows() {
 
 // RFC 0024 cases 5 and 12: filters, and 10 000 rows in pages that end
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0024"]
 async fn pages_cover_the_range_once() {
     let Some(url) = fresh().await else { return };
     let mut s = store(&url);
@@ -163,7 +159,6 @@ async fn pages_cover_the_range_once() {
 
 // RFC 0024 case 15
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0024"]
 async fn version_2_migrates_to_the_label_table() {
     let Some(url) = fresh().await else { return };
     let mut c = client(&url).await;
