@@ -1,0 +1,79 @@
+# Kubernetes (RFC 0025): an operator gateway with the console, the WAF
+# agent as a sidecar and a CA for the PostgreSQL store, in place of a
+# hand-written dvarapala Deployment. Builds on kubernetes.yaml (the
+# operator installed, a route labeled with the policy). Names are
+# placeholders (shop, lab-root-ca, <host>).
+#
+# The admin token and the store URL stay in a Secret, never in the policy:
+#   kubectl -n shop create secret generic shop-dvarapala \
+#     --from-literal=DVARAPALA__ADMIN__TOKEN=<token of 32 bytes or more> \
+#     --from-literal=DVARAPALA__STORE__URL='postgres://<user>:<password>@<host>/dvarapala?sslmode=verify-full'
+# The agent's config: waf/coraza.yaml with its bind changed to the socket
+# the operator shares with the gateway:
+#   sed 's#unix:///run/coraza-spoa/coraza.sock#unix:///run/waf/waf.sock#' waf/coraza.yaml > config.yaml
+#   kubectl -n shop create configmap shop-coraza --from-file=config.yaml
+apiVersion: dvarapala.franzramadhan.dev/v1alpha1
+kind: DvarapalaPolicy
+metadata:
+  name: default
+  namespace: shop
+spec:
+  secretRef: {name: shop-dvarapala}
+  config: |
+    trusted_proxies = ["10.0.0.0/8"]
+    [rate_limit]
+    rate = 20
+    burst = 40
+    # every [admin] key but listen, which the operator sets
+    [admin]
+    ui_enabled = true
+    mode_switch = true
+    # the operator sets waf.endpoint to the sidecar's socket
+    [waf]
+    enabled = true
+    mode = "observe"
+    timeout = "500ms"
+    # the agent's ConfigMap, shown by the console's WAF page
+    rules_files = ["/etc/dvarapala-waf/config.yaml"]
+    [store]
+    backend = "postgres"
+    cluster = "shop"
+    ca_file = "/etc/dvarapala-mounts/pg-ca/ca.crt"
+  gateway:
+    replicas: 2
+    # GET /status, the console and manual blocks through the Service
+    # <backend>-dvp-admin-<port> (see status.gateways[].adminService)
+    admin: {enabled: true}
+    waf:
+      # must start with a prefix in the operator's --waf-images; pin it
+      image: ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e
+      configMap: shop-coraza
+      resources:
+        requests: {cpu: 100m, memory: 96Mi}
+        limits: {memory: 256Mi}
+    # read-only at /etc/dvarapala-mounts/<name>/
+    mounts:
+      - {name: pg-ca, configMap: lab-root-ca}
+    podLabels:
+      team: shop
+---
+# The admin port answers only the namespace that exposes the console (an
+# ingress controller or a tailnet proxy, here namespace "console"). The
+# admin API keeps its own auth; this keeps it off the rest of the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dvarapala-admin
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dvarapala-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{port: 8080}, {port: 9090}]
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: console
+      ports: [{port: 9091}]

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# RFC 0019 cases 15 to 21 on a kind cluster. Needs kind, kubectl, helm and
+# RFC 0019 cases 15 to 21 and RFC 0025 cases 16 and 17 on a kind cluster. Needs kind, kubectl, helm and
 # the images dvarapala:e2e and dvarapala-operator:e2e in the local Docker
 # (ci.yml job operator-e2e builds them).
-#   deploy/e2e/run.sh default   # Envoy Gateway and ingress-nginx: 15 to 20
+#   deploy/e2e/run.sh default   # Envoy Gateway and ingress-nginx: 15 to 20,
+#                               # then RFC 0025 16 and 17
 #   deploy/e2e/run.sh cilium    # Cilium, kubeProxyReplacement: 21
 set -euo pipefail
 
@@ -176,6 +177,55 @@ operator_down() {
   k -n dvarapala rollout status deploy/dvarapala-operator --timeout=120s
 }
 
+# RFC 0025 cases 16 and 17: the console and the WAF sidecar, then a
+# reloadable `[waf] mode` change. `$1` is the proxy in front.
+waf_image=ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:9441c0c4b1ae42060707d24526522ab0532771337544d72d0fea87cd4a899c2e
+waf_config() {
+  printf 'trusted_proxies = [\\"10.0.0.0/8\\"]\\n[rate_limit]\\nrate = 100\\nburst = 100\\n[waf]\\nenabled = true\\nmode = \\"%s\\"\\ntimeout = \\"500ms\\"\\nrules_files = [\\"/etc/dvarapala-waf/config.yaml\\"]\\n' "$1"
+}
+console_waf() {
+  local url=$1 admin gw before after status token
+  k apply --server-side -f "$here/waf.yaml"
+  k -n shop patch dvarapalapolicy default --type merge -p "{\"spec\":{
+    \"secretRef\":{\"name\":\"dvarapala-admin\"},
+    \"config\":\"$(waf_config observe)\",
+    \"gateway\":{\"admin\":{\"enabled\":true},\"waf\":{\"image\":\"$waf_image\",\"configMap\":\"coraza\"}}}}"
+  gw=$(k -n shop get deploy -l app.kubernetes.io/name=dvarapala-gateway -o name | head -1)
+  k -n shop rollout status "$gw" --timeout=240s
+  admin=$(k -n shop get dvarapalapolicy default -o jsonpath='{.status.gateways[0].adminService}')
+  [ -n "$admin" ] || fail "no adminService in the status: $(k -n shop get dvarapalapolicy default -o yaml)"
+  token=$(k -n shop get secret dvarapala-admin -o jsonpath='{.data.DVARAPALA__ADMIN__TOKEN}' | base64 -d)
+  for _ in $(seq 30); do
+    status=$(k -n shop exec curl -- curl -s -o /dev/null -w '%{http_code}' -m 5 \
+      -H "Authorization: Bearer $token" "http://$admin.shop.svc:9091/status" || true)
+    [ "$status" = 200 ] && break
+    sleep 2
+  done
+  [ "$status" = 200 ] || fail "GET /status through $admin: $status"
+  echo "ok: console through the admin Service"
+  local attack="$url?q=%3Cscript%3Ealert(1)%3C/script%3E"
+  [ "$(code "$attack")" = 200 ] || fail "observe mode blocked"
+  for _ in $(seq 15); do
+    k -n shop logs "$gw" -c dvarapala | grep -q '"waf match"' && break
+    code "$attack" >/dev/null; sleep 2
+  done
+  k -n shop logs "$gw" -c dvarapala | grep -q '"waf match"' || fail "no waf match logged: $(k -n shop logs "$gw" --all-containers | tail -20)"
+  echo "ok: waf sidecar matches"
+  before=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
+  k -n shop patch dvarapalapolicy default --type merge -p "{\"spec\":{\"config\":\"$(waf_config enforce)\"}}"
+  local ok=
+  for _ in $(seq 60); do
+    if [ "$(code "$attack")" = 403 ]; then ok=1; break; fi
+    sleep 3
+  done
+  [ -n "$ok" ] || fail "waf mode enforce not applied"
+  after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
+  [ "$before" = "$after" ] || fail "gateway pods restarted: $before / $after"
+  [ -n "$(k -n shop get endpointslices -l kubernetes.io/service-name="$admin" -o jsonpath='{.items[*].endpoints[*].addresses[0]}')" ] \
+    || fail "admin Service lost its endpoints"
+  echo "ok: waf mode reloaded without restart"
+}
+
 # REUSE=1 skips the cluster setup, to rerun the cases
 [ -n "${REUSE:-}" ] || up
 envoy=$(k -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=eg -o jsonpath='{.items[0].metadata.name}')
@@ -186,5 +236,6 @@ if [ "$flavor" = default ]; then
   dry_run
   reload "$gateway_url"
   operator_down "$gateway_url"
+  console_waf "$gateway_url"
 fi
 echo "PASS: $flavor"
