@@ -5,6 +5,7 @@ use dvarapala_engine::Cidr;
 use http::header::COOKIE;
 use http::{HeaderMap, HeaderValue, StatusCode};
 
+use crate::llm::{ExportQuery, export_query};
 use crate::session::same;
 
 /// Longest query string read.
@@ -46,6 +47,8 @@ pub enum Call {
     LlmSwitch {
         on: Option<String>,
     },
+    /// RFC 0024: the stored labels as JSON lines.
+    LlmExport(ExportQuery),
 }
 
 /// The ranges `GET /history` takes (RFC 0022), as `range=` names them.
@@ -98,9 +101,10 @@ pub fn parse(method: &str, path: &str, query: Option<&str>) -> Result<Call, Refu
         ("/history", "GET") => history(q)?,
         ("/llm", "GET") => Call::Llm,
         ("/llm", "POST") => llm(q)?,
+        ("/llm/export", "GET") => Call::LlmExport(export_query(q)?),
         (
             "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/metrics" | "/mode"
-            | "/history" | "/llm",
+            | "/history" | "/llm" | "/llm/export",
             _,
         ) => {
             return Err((StatusCode::METHOD_NOT_ALLOWED, "method not allowed".into()));
@@ -224,7 +228,7 @@ pub(crate) fn param(q: &str, name: &str) -> Result<Option<String>, Refusal> {
     })
 }
 
-fn decode(v: &str) -> Option<String> {
+pub(crate) fn decode(v: &str) -> Option<String> {
     let b = v.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -248,6 +252,7 @@ pub fn fuzz_admin_query(data: &[u8]) {
     let mut lines = s.splitn(4, '\n');
     let (m, p, q) = (lines.next(), lines.next(), lines.next());
     let _ = parse(m.unwrap_or(""), p.unwrap_or(""), q);
+    let _ = export_query(q.unwrap_or(""));
     if let Some(h) = lines.next().and_then(|h| HeaderValue::from_str(h).ok()) {
         let _ = authorized(Some(&h), b"0123456789abcdef0123456789abcdef");
     }
@@ -375,6 +380,15 @@ mod tests {
             })
         );
         assert_eq!(on("off"), Ok(Call::LlmSwitch { on: None }));
+        // RFC 0024
+        assert!(matches!(
+            parse("GET", "/llm/export", Some("label=scanner")),
+            Ok(Call::LlmExport(e)) if e.labels == ["scanner"]
+        ));
+        assert_eq!(
+            parse("POST", "/llm/export", None).unwrap_err().0,
+            StatusCode::METHOD_NOT_ALLOWED
+        );
         for q in ["", "on=5m&off", "x=1"] {
             assert_eq!(on(q).unwrap_err().0, StatusCode::BAD_REQUEST, "{q}");
         }
