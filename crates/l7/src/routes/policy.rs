@@ -95,6 +95,10 @@ impl Route {
     }
 
     /// `allow`, `throttle` (the route's bucket) or `deny`.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
     pub(crate) fn count(&self, verdict: &'static str) {
         metrics::counter!(
             "dvarapala_route_requests_total",

@@ -100,6 +100,8 @@ impl Admin {
                 unreachable!("answered above")
             }
             Call::History { .. } => unreachable!("answered by the admin router"),
+            // RFC 0023: wired in the binary layer
+            Call::Llm | Call::LlmSwitch { .. } => json(StatusCode::NOT_FOUND, error("not found")),
         }
     }
 

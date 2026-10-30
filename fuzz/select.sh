@@ -11,7 +11,7 @@ declare -A crate=(
   [admin_query]=dvarapala-l7 [challenge]=dvarapala-l7
   [grpc_content_type]=dvarapala-l7 [oidc_callback]=dvarapala-l7
   [replay_line]=dvarapala-l7 [route_match]=dvarapala-l7
-  [waf_frame]=dvarapala-l7
+  [waf_frame]=dvarapala-l7 [llm_reply]=dvarapala-l7
   [client_key]=dvarapala-engine [tree_model]=dvarapala-engine
   [ffi_check]=dvarapala-ffi
   [forward_route]=dvarapala-proxy [ja4]=dvarapala-proxy

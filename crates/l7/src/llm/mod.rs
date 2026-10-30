@@ -4,6 +4,7 @@ mod sample;
 #[cfg(feature = "llm")]
 mod wire;
 
+pub(crate) use sample::Seen;
 pub use sample::{Llm, LlmConfig, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut, redact};
 #[cfg(feature = "llm")]
 pub use wire::{
