@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-30 | #168 | |
+| implemented | 2026-10-30 | #168 | v0.14.0 |
 
 > The console (RFC 0018) shows rates, top talkers and blocks, but not how
 > the gateway is configured, what the WAF is doing, or the state of the
@@ -253,7 +253,7 @@ failing) linking to its page, and the WAF state next to detection.
 
 ## Rollout
 
-- **Rollout:** a minor release. New calls and pages appear for consoles
+- **Rollout:** v0.14.0, a minor release. New calls and pages appear for consoles
   that are on; `GET /config`, `GET /waf` and `GET /metrics` need no new
   key. The switch needs `admin.mode_switch = true`. `examples/waf`
   mounts the agent's `coraza.yaml` into the gateway and sets
