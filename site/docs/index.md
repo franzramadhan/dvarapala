@@ -28,7 +28,11 @@ first if you prefer.
 
 Or by hand: each [release](https://github.com/franzramadhan/dvarapala/releases)
 has a static binary per platform (`x86_64` and `aarch64`, Linux musl and
-macOS) and a `SHA256SUMS` file. Check the tarball before you unpack it:
+macOS) and a `SHA256SUMS` file. The binaries (also through Homebrew and
+`install.sh`) have the default features only; the container image adds
+the Redis and PostgreSQL stores. The table under
+[Configuration](configuration.html#build-features-and-published-artifacts)
+lists which sections need which build. Check the tarball before you unpack it:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing
@@ -66,7 +70,7 @@ Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 git clone https://github.com/franzramadhan/dvarapala
 cd dvarapala
 cargo build --release
-# optional: --features http3,ml,redis,postgres,xdp
+# optional: --features http3,ml,redis,postgres,xdp (only way to get ml, http3, xdp)
 ```
 
 ## First run

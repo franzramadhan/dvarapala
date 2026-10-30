@@ -6,11 +6,43 @@ the key path with `__` between parts, for example
 `DVARAPALA__RATE_LIMIT__RATE=5` for `rate_limit.rate`. Unknown keys are an
 error. The log level comes from `RUST_LOG` (default `info`).
 
+Lists and arrays of tables take an inline TOML value, which replaces the
+whole list from the file:
+
+```sh
+DVARAPALA__TRUSTED_PROXIES='["192.0.2.0/24", "198.51.100.1/32"]'
+DVARAPALA__ROUTES='[{name = "api", path = "/api", rate = 5, burst = 10}]'
+```
+
+### Build features and published artifacts
+
+Some sections need a cargo feature. A key of a section whose feature is
+not in the binary is an error at start that names the feature (for
+example `ml.model <path> needs a build with the ml feature`), not a key
+that is silently ignored.
+
+| Feature | Sections | Release tarballs, Homebrew, `install.sh` | Container image | Build from source |
+|---|---|---|---|---|
+| `tls`, `ui`, `waf`, `replay` (default) | `[tls]`, `[upstream_tls]`, the console (`admin.ui_enabled`), `[waf]`, `dvarapala replay` | yes | yes | default |
+| `redis` | `store.backend = "redis"` | no | yes | `--features redis` |
+| `postgres` | `store.backend = "postgres"` | no | yes | `--features postgres` |
+| `http3` | `[quic]` | no | no | `--features http3` |
+| `ml` | `[ml]` | no | no | `--features ml` |
+| `xdp` | `[xdp]` (Linux) | no | no | `--features xdp` |
+
+The operator's gateways (RFC 0019) run the container image.
+
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
 The SDKs ([RFC 0008](rfc/0008-sdk.md), [sdk/](sdk/README.md)) take the same
-names and defaults for the keys that apply in process: `rate_limit.*`,
-`detection.*`, `trusted_proxies` and the connection keys of `[l4]`.
+names and defaults for the keys that apply in process: `rate_limit.rate`,
+`rate_limit.burst`, `rate_limit.max_clients`, `detection.*`,
+`trusted_proxies` and the connection keys of `[l4]` (not its timeouts).
+The exact list is on the [SDK page](site/docs/sdk.md#keys).
+
+A reload (`SIGHUP`, `POST /reload`) applies only some keys in place; the
+rest need a restart. The list is under [Reload](#reload), and the console's
+configuration page (`GET /config`) marks each key.
 
 Durations are strings: `"<n>ms"`, `"<n>s"`, `"<n>m"` or `"<n>h"`, for
 example `"500ms"`, `"10s"` or `"24h"`.
@@ -40,9 +72,9 @@ Token bucket per client ([RFC 0001](rfc/0001-foundation.md)).
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | bool | `true` | Turn the limiter off |
-| `rate` | integer | `20` | Tokens refilled per second per client |
-| `burst` | integer | `40` | Bucket size |
+| `enabled` | bool | `true` | Turn the limiter off. In reverse mode this also turns off everything that runs inside it: `[detection]`, `[ml]`, the `[store]` sync, `[challenge]`, `[fingerprint]` and `[[routes]]` (a warning at start names them) |
+| `rate` | integer | `20` | Tokens refilled per second per client. At least 1: a rate below one request per second is not possible here (forward destinations take fractions) |
+| `burst` | integer | `40` | Bucket size. At least 1 |
 | `max_clients` | integer | `100000` | Table capacity before the least recently seen client is evicted; at least 1 |
 
 ## `[detection]`
@@ -54,30 +86,38 @@ Adaptive detection ([RFC 0002](rfc/0002-adaptive-detection.md)). Starts in
 |---|---|---|---|
 | `enabled` | bool | `true` | Turn detection off entirely |
 | `mode` | `"observe"` or `"enforce"` | `"observe"` | `observe` logs only, `enforce` changes verdicts |
-| `window` | duration | `"1s"` | Window length |
-| `prefix_v4` | integer | `32` | IPv4 prefix length for aggregation; shorten (for example `24`) to group subnets |
-| `prefix_v6` | integer | `64` | IPv6 prefix length for aggregation; shorten (for example `48`) to group sites |
-| `sketch_width` | integer | `2048` | Count-min columns |
-| `sketch_depth` | integer | `4` | Count-min rows (hash functions) |
-| `top_k` | integer | `64` | Heavy hitters tracked |
-| `ewma_alpha` | float | `0.05` | Baseline learning rate per window |
+| `window` | duration | `"1s"` | Window length. Above 0 |
+| `prefix_v4` | integer | `32` | IPv4 prefix length for aggregation; shorten (for example `24`) to group subnets. At most 32 |
+| `prefix_v6` | integer | `64` | IPv6 prefix length for aggregation; shorten (for example `48`) to group sites. At most 64: client keys keep only the /64 |
+| `sketch_width` | integer | `2048` | Count-min columns. At least 1 |
+| `sketch_depth` | integer | `4` | Count-min rows (hash functions). At least 1 |
+| `top_k` | integer | `64` | Heavy hitters tracked. At least 1 |
+| `ewma_alpha` | float | `0.05` | Baseline learning rate per window, in (0, 1] |
 | `warmup_windows` | integer | `300` | Windows before the baseline can alarm |
-| `z_threshold` | float | `4.0` | Rate z-score that marks a window anomalous |
-| `entropy_buckets` | integer | `1024` | Hashed buckets for source entropy |
-| `entropy_drop` | float | `0.5` | Relative entropy drop that marks a window anomalous |
-| `trigger_windows` | integer | `3` | Anomalous windows in a row to enter `Attack` |
-| `cooldown_windows` | integer | `30` | Normal windows to leave `Cooldown` |
+| `z_threshold` | float | `4.0` | Rate z-score that marks a window anomalous. Above 0 |
+| `entropy_buckets` | integer | `1024` | Hashed buckets for source entropy. At least 2 |
+| `entropy_drop` | float | `0.5` | Relative entropy drop that marks a window anomalous, in (0, 1] |
+| `trigger_windows` | integer | `3` | Anomalous windows in a row to enter `Attack`. At least 1 |
+| `cooldown_windows` | integer | `30` | Normal windows to leave `Cooldown`. At least 1 |
 | `attack_rate_factor` | float | `0.25` | Bucket rate multiplier while in `Attack` |
 
 ## `[ml]`
 
-Optional tree model scoring, in builds with the `ml` feature (off by
-default).
+Optional per-client scoring with your own XGBoost model
+([RFC 0002](rfc/0002-adaptive-detection.md)), in builds with the `ml`
+feature. No published binary or image has it: build from source with
+`--features ml`. Reverse mode only, inside the rate limiter. Not in the
+SDKs. How to train a model: [Protection layers](site/docs/protection.md#scoring-model).
+
+Every request the other layers allow is scored; a score above `threshold`
+answers `429` with `Retry-After` of one detection window. There is no
+observe mode: to watch scores first, set `threshold = 1.0` (a score is
+never above 1) and read `dvarapala_ml_score`.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `model` | path | unset | XGBoost JSON model; unset turns scoring off |
-| `threshold` | float | `0.9` | Score above which `Allow` becomes `Throttle` |
+| `model` | path | unset | XGBoost JSON model (`binary:logistic`, `gbtree`, named features); unset turns scoring off. Read once at start: a bad model is an error naming the problem. Restart |
+| `threshold` | float | `0.9` | Score above which `Allow` becomes `Throttle`. Restart |
 
 ## `[tls]`
 
@@ -96,7 +136,8 @@ file keeps the old one. ALPN offers `h2` and `http/1.1`.
 ## `[quic]`
 
 HTTP/3 over QUIC ([RFC 0006](rfc/0006-http3.md)), experimental, in builds
-with the `http3` feature (off by default). Set `listen` to open a UDP
+with the `http3` feature (no published binary or image has it: build
+from source). Set `listen` to open a UDP
 socket next to the TCP listener, reverse mode only. It needs `[tls]`: the
 same certificate (reloaded by `SIGHUP` too), TLS 1.3 only, ALPN `h3`, no
 0-RTT. The handshake timeout is `tls.handshake_timeout`. HTTP/3 requests go
@@ -169,7 +210,9 @@ sends above the rate. When a destination answers `429` or `503` with
 `Retry-After` (seconds), it pauses for that long, capped by `max_pause`.
 
 `[rate_limit]`, `[detection]` and `[ml]` do not apply in forward mode: the
-callers are your own services. `[upstream_tls]` verifies `https://`
+callers are your own services. `[challenge]`, `[fingerprint]` and
+`[[routes]]` do not apply either (a warning at start names them), and
+`[pool]` is ignored: destinations come from `[[forward.destinations]]`. `[upstream_tls]` verifies `https://`
 destinations, `[upgrade]` limits `CONNECT` tunnels (`max_tunnels`,
 `idle_timeout`, `max_lifetime`), `[tls]` and `[http2]` apply to the
 listener as in reverse mode.
@@ -236,7 +279,9 @@ client, so the default `max_clients` holds about 11 MB.
 
 Shared state across replicas ([RFC 0010](rfc/0010-shared-state.md)), so N
 replicas behind a load balancer act as one gateway. Each backend is in
-builds with its cargo feature (`redis`, `postgres`, both off by default).
+builds with its cargo feature (`redis`, `postgres`): the container image
+has both, the release tarballs (and so Homebrew and `install.sh`) have
+neither (see [Build features](#build-features-and-published-artifacts)).
 Nothing on the request path waits for the store: each replica keeps its
 local limits and syncs in the background every `sync_interval`.
 
@@ -278,7 +323,9 @@ schema version than the binary's counts as a store failure.
 ## `[xdp]`
 
 XDP fast path ([RFC 0011](rfc/0011-xdp.md)), Linux only, in builds with
-the `xdp` feature (off by default). An eBPF program on `interface` drops
+the `xdp` feature (no published binary or image has it: build from
+source). Not for the operator's gateway pods, which run without
+privileges. An eBPF program on `interface` drops
 blocked sources and per-source packet floods in the driver, before the
 kernel builds a socket buffer. It needs `CAP_BPF` and `CAP_NET_ADMIN` (or
 root) and only looks at packets to the TCP `listen` port and the UDP
