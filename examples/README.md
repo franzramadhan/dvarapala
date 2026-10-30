@@ -17,6 +17,7 @@ the values differ from the defaults. Every key is described in
 | [challenge.toml](challenge.toml) | Public website: browsers solve a proof of work during an attack instead of sharing the attack limit; JA4 rules and forwarding |
 | [routes.toml](routes.toml) | One site, three policies: scanner paths denied, a low login rate, an API limited per key and exempt from the challenge |
 | [pool.toml](pool.toml) | Three app servers without a load balancer: least requests, health checks, ejection and budgeted retries |
+| [admin-ui.toml](admin-ui.toml) | Admin web console with OIDC login, on loopback behind a TLS terminator that serves it at `public_url` |
 | [waf.toml](waf.toml) | Web app behind the OWASP CRS: a `coraza-spoa` sidecar over a Unix socket, observe first; [waf/](waf/) has the agent config, a compose file and a Kubernetes manifest |
 | [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 | [kubernetes.yaml](kubernetes.yaml) | Kubernetes: a policy, an `HTTPRoute` and an `Ingress` labeled to go through gateways the operator runs, and network policies so nothing bypasses them ([RFC 0019](../rfc/0019-operator.md)) |
