@@ -57,44 +57,145 @@ http.Serve(g.Listener(l), g.Middleware(mux))
 
 `Middleware` answers `429` with `Retry-After`, or `403` with the connection closed, as the gateway does;
 `Listener` applies the connection limits on accept. The package links the
-static library: build it with `cargo build --release -p dvarapala-ffi`.
+static library from the repository's `target/release`, so `go get` alone
+cannot build it. Clone the repository at a release tag, build the library,
+and point your module at the clone:
+
+```sh
+git clone --depth 1 -b v<version> https://github.com/franzramadhan/dvarapala
+(cd dvarapala && cargo build --release -p dvarapala-ffi)
+go mod edit -require github.com/franzramadhan/dvarapala/sdk/go@v0.0.0 \
+  -replace github.com/franzramadhan/dvarapala/sdk/go=./dvarapala/sdk/go
+```
+
+## The native library
+
+The Python and JavaScript packages are not on PyPI or npm yet. Each
+installs from the repository at a release tag, and loads a native library
+from that release's SDK archive:
+
+| Target | Archive |
+|---|---|
+| Linux x86_64 (glibc) | `dvarapala-sdk-<tag>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux aarch64 (glibc) | `dvarapala-sdk-<tag>-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Intel | `dvarapala-sdk-<tag>-x86_64-apple-darwin.tar.gz` |
+| macOS Apple silicon | `dvarapala-sdk-<tag>-aarch64-apple-darwin.tar.gz` |
+
+Alpine (musl) and Windows have no archive: build the library from source
+with `cargo build --release -p dvarapala-ffi` (Python, Go) or
+`-p dvarapala-node` (JavaScript).
+
+```sh
+tag=v<version>; target=x86_64-unknown-linux-gnu
+gh release download "$tag" -R franzramadhan/dvarapala \
+  -p "dvarapala-sdk-$tag-$target.tar.gz"
+mkdir -p dvarapala-sdk && tar xzf dvarapala-sdk-*.tar.gz -C dvarapala-sdk
+```
+
+`dvarapala-sdk/` then holds `libdvarapala.so` (`.dylib` on macOS) for
+Python, `dvarapala.node` for JavaScript, `libdvarapala.a` and
+`dvarapala.h` for Go and C. Use the archive of the same tag as the
+package.
 
 ## Python
 
-```python
-from dvarapala import Guard, ASGIMiddleware
+Python 3.10 or later, no dependencies. Add it to a
+[uv](https://docs.astral.sh/uv/) project from the release tag:
 
-guard = Guard({"rate_limit.rate": 20, "detection.mode": "enforce"})
-app = ASGIMiddleware(app, guard)
+```sh
+uv add "dvarapala @ git+https://github.com/franzramadhan/dvarapala@v<version>#subdirectory=sdk/python"
 ```
 
-`WSGIMiddleware` does the same for WSGI apps. ASGI and WSGI expose no
-accepted connections, so for the `[l4]` limits call
-`guard.conn_open(ip)` on accept and `guard.conn_close(handle)` on close
-from your server's hook. The library is found at `DVARAPALA_LIB`, else
-next to the package.
+and point it at the library with `DVARAPALA_LIB` (the package looks next
+to itself otherwise):
+
+```sh
+export DVARAPALA_LIB=$PWD/dvarapala-sdk/libdvarapala.so
+uv run uvicorn app:app
+```
+
+For an ASGI app (FastAPI, Starlette, Django ASGI), wrap it:
+
+```python
+from fastapi import FastAPI
+from dvarapala import ASGIMiddleware, Guard
+
+guard = Guard({
+    "rate_limit.rate": 20,
+    "rate_limit.burst": 40,
+    "trusted_proxies": ["10.0.0.0/8"],  # your load balancer
+    "detection.mode": "enforce",
+})
+app = ASGIMiddleware(FastAPI(), guard)
+```
+
+`WSGIMiddleware(app, guard)` does the same for Flask or Django WSGI. Both
+answer `429` with `Retry-After`, or `403` with `Connection: close`, and
+pass every other request to the app. A request without a peer address (a
+Unix socket) gets `403`: the guard fails closed.
+
+Elsewhere, ask the guard directly:
+
+```python
+from dvarapala import ALLOW, THROTTLE, Guard
+
+v = guard.check(peer_ip, request.headers.get("x-forwarded-for"))
+if v.kind == THROTTLE:
+    ...  # refuse; retry after v.retry_after seconds
+elif v.kind != ALLOW:
+    ...  # DROP: refuse and close
+```
+
+`Guard` is safe to share between threads; create one per process.
+`guard.stats()` returns the counters and the detection state for your
+metrics. ASGI and WSGI expose no accepted connections, so the `[l4]`
+limits need your server's own accept hook: `h = guard.conn_open(ip)`
+raises `Refused` over a limit, and `guard.conn_close(h)` frees the place.
 
 ## JavaScript and TypeScript
 
-```js
-const { Guard } = require('dvarapala');
+Node 20 or later. npm cannot install a subdirectory of a git repository,
+so take the package from the release's source and add the addon:
 
-const guard = new Guard({ 'rate_limit.rate': 20 });
-const limit = guard.middleware();
-guard.attach(http.createServer((req, res) => limit(req, res, () => res.end('ok'))));
+```sh
+tag=v<version>
+mkdir -p vendor/dvarapala
+curl -fsSL "https://github.com/franzramadhan/dvarapala/archive/refs/tags/$tag.tar.gz" \
+  | tar xz -C vendor/dvarapala --strip-components=3 "dvarapala-${tag#v}/sdk/js"
+cp dvarapala-sdk/dvarapala.node vendor/dvarapala/
+npm install ./vendor/dvarapala
 ```
 
-`middleware()` fits Node's `http` and Express; `attach` applies the
-connection limits to a server's sockets before any request is read. Types
-ship in `index.d.ts`. The N-API addon is found at `DVARAPALA_NODE`, else
-next to the package.
+Commit `vendor/dvarapala` with the app (one addon per platform you
+deploy), or run `npm pack ./vendor/dvarapala` for a tarball to install
+elsewhere. `DVARAPALA_NODE` overrides the addon's path. Types ship in
+`index.d.ts`.
 
-## Libraries
+With Express:
 
-Each [release](https://github.com/franzramadhan/dvarapala/releases)
-attaches `dvarapala-sdk-<tag>-<target>.tar.gz` for glibc Linux and macOS:
-the static and shared library, the Node addon and the header. Packages
-are not on a registry yet.
+```js
+const express = require('express');
+const { Guard } = require('dvarapala');
+
+const guard = new Guard({
+  'rate_limit.rate': 20,
+  'rate_limit.burst': 40,
+  trusted_proxies: ['10.0.0.0/8'], // your load balancer
+});
+const app = express();
+app.use(guard.middleware());
+app.get('/', (req, res) => res.send('ok'));
+
+// the [l4] connection limits, before any request is read
+guard.attach(app.listen(8080));
+```
+
+`middleware()` answers `429` with `Retry-After`, or `403` with
+`Connection: close`, and calls `next()` otherwise; it works with
+`node:http` the same way. `attach(server)` destroys a socket over an
+`l4.*` limit before the server reads it. Elsewhere, call
+`guard.check(ip, xff)`: it returns `{ kind: 'allow' | 'throttle' | 'drop',
+retryAfterMs }`. One guard per process.
 
 The design is in [RFC 0008](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0008-sdk.md),
 and build and test commands per package in
