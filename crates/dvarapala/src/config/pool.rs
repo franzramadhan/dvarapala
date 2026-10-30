@@ -3,14 +3,14 @@
 use std::time::{Duration, Instant};
 
 use dvarapala_proxy::{Balance as ProxyBalance, HealthConfig, PoolConfig};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
 /// Endpoints in one pool at most, as in the proxy.
 const MAX_UPSTREAMS: usize = 64;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Balance {
     #[default]
@@ -18,21 +18,30 @@ pub enum Balance {
     LeastRequests,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Pool {
     pub upstreams: Vec<String>,
     pub balance: Balance,
     /// Empty turns active checks off.
     pub health_path: String,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub health_interval: Duration,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub health_timeout: Duration,
     pub unhealthy_after: u32,
     pub healthy_after: u32,
     pub eject_after: u32,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub eject_time: Duration,
     pub retries: u32,
     pub retry_budget: f64,

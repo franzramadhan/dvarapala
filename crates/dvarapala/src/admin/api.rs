@@ -2,18 +2,36 @@
 
 use std::fmt::Write;
 
-use dvarapala_l7::{Call, RateLimitLayer, request_totals};
+use dvarapala_l7::{Call, ModeLayer, RateLimitLayer, request_totals};
 use http::header::{CONTENT_TYPE, HeaderValue};
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::{Response, StatusCode};
 
 use super::Admin;
-use crate::config::parse_duration;
+use super::switch::{self, Switch};
+use crate::config::{self, parse_duration};
 use crate::reload::Outcome;
 
 impl Admin {
-    pub(super) fn call(&self, call: Call) -> Response<Full<Bytes>> {
+    pub(super) fn call(&self, call: Call, actor: &str) -> Response<Full<Bytes>> {
+        match call {
+            Call::Config => {
+                let (start, cur) = self.reloader.configs();
+                return json(StatusCode::OK, config::view::view(&start, &cur).to_string());
+            }
+            Call::Waf => return json(StatusCode::OK, self.waf().to_string()),
+            Call::Metrics => {
+                let mut r = Response::new(Full::new(Bytes::from(self.metrics.render())));
+                r.headers_mut().insert(
+                    CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; version=0.0.4"),
+                );
+                return r;
+            }
+            Call::Mode { layer, enforce } => return self.switch(layer, enforce, actor),
+            _ => {}
+        }
         if call == Call::Reload {
             let out = self.reloader.reload();
             let status = match out.result {
@@ -33,10 +51,6 @@ impl Admin {
         };
         match call {
             Call::Status => json(StatusCode::OK, self.status(Some(l))),
-            // RFC 0021: served by the next layer
-            Call::Config | Call::Waf | Call::Metrics | Call::Mode { .. } => {
-                json(StatusCode::NOT_FOUND, error("not found"))
-            }
             Call::Top => {
                 let mut s = String::from("{\"top\":[");
                 for (i, (net, n)) in l.top().iter().enumerate() {
@@ -82,7 +96,9 @@ impl Admin {
                     json(StatusCode::NOT_FOUND, error("not blocked"))
                 }
             }
-            Call::Reload => unreachable!("answered above"),
+            Call::Reload | Call::Config | Call::Waf | Call::Metrics | Call::Mode { .. } => {
+                unreachable!("answered above")
+            }
         }
     }
 
@@ -101,13 +117,61 @@ impl Admin {
             let sep = if i == 0 { "" } else { "," };
             let _ = write!(requests, "{sep}\"{verdict}\":{n}");
         }
+        let (_, cur) = self.reloader.configs();
+        let waf = if cur.waf.enabled {
+            format!(
+                "\"{}\"",
+                switch::mode(self.reloader.enforce(ModeLayer::Waf))
+            )
+        } else {
+            "null".into()
+        };
+        let switches: Vec<_> = self
+            .reloader
+            .switches
+            .all()
+            .iter()
+            .map(Switch::json)
+            .collect();
         format!(
-            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}}}}",
+            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}},\"waf\":{waf},\"switches\":{}}}",
             env!("CARGO_PKG_VERSION"),
             self.mode,
             s.as_ref().map_or(0, |s| s.clients),
             s.as_ref().map_or(0, |s| s.blocks),
+            serde_json::Value::Array(switches),
         )
+    }
+}
+
+impl Admin {
+    /// `POST /mode` (RFC 0021).
+    fn switch(&self, layer: ModeLayer, enforce: bool, actor: &str) -> Response<Full<Bytes>> {
+        if !self.mode_switch {
+            return json(
+                StatusCode::FORBIDDEN,
+                error("mode switches are off: admin.mode_switch"),
+            );
+        }
+        match self.reloader.switch(layer, enforce, actor) {
+            Ok(previous) => {
+                tracing::info!(
+                    msg = "mode switched",
+                    layer = layer.name(),
+                    mode = switch::mode(enforce),
+                    previous = switch::mode(previous),
+                    actor,
+                );
+                let body = serde_json::json!({
+                    "layer": layer.name(),
+                    "mode": switch::mode(enforce),
+                    "previous": switch::mode(previous),
+                    "switch": self.reloader.switches.get(layer).as_ref().map(Switch::json),
+                });
+                json(StatusCode::OK, body.to_string())
+            }
+            Err((status, e)) => json(status, error(&e)),
+        }
     }
 }
 

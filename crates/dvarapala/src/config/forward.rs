@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use dvarapala_engine::{Cidr, ScheduleConfig};
 use dvarapala_proxy::Destination;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProxyMode {
     #[default]
@@ -16,7 +16,7 @@ pub enum ProxyMode {
     Forward,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Forward {
     pub clients: Vec<String>,
@@ -34,7 +34,7 @@ impl Default for Forward {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ForwardDestination {
     pub origin: String,
@@ -47,9 +47,17 @@ pub struct ForwardDestination {
     pub max_concurrent: usize,
     #[serde(default = "hundred")]
     pub max_queue: usize,
-    #[serde(default = "two_seconds", deserialize_with = "duration")]
+    #[serde(
+        default = "two_seconds",
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub max_wait: Duration,
-    #[serde(default = "a_minute", deserialize_with = "duration")]
+    #[serde(
+        default = "a_minute",
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub max_pause: Duration,
 }
 

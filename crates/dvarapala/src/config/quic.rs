@@ -3,11 +3,11 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Tls, duration};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuicRetry {
     UnderLoad,
@@ -15,7 +15,7 @@ pub enum QuicRetry {
     Never,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Quic {
     /// Unset: no UDP socket, no HTTP/3.
@@ -25,7 +25,10 @@ pub struct Quic {
     pub retry_threshold: usize,
     pub max_connections: usize,
     pub max_streams: u32,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub idle_timeout: Duration,
 }
 

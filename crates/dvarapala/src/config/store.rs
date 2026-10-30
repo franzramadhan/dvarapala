@@ -4,11 +4,11 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     /// Nothing shared: no task, no socket.
@@ -18,17 +18,24 @@ pub enum Backend {
     Postgres,
 }
 
-#[derive(Clone, PartialEq, Deserialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Store {
     pub backend: Backend,
     /// Holds the password; never logged (see `Debug`).
+    #[serde(serialize_with = "crate::config::view::redact_opt")]
     pub url: Option<String>,
     pub cluster: String,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub sync_interval: Duration,
     pub max_keys: usize,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub timeout: Duration,
     /// PostgreSQL only: apply missing schema versions at start.
     pub migrate: bool,

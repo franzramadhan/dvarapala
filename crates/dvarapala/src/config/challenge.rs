@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use dvarapala_engine::ChallengeMode;
 use dvarapala_l7::{ChallengeConfig, Fingerprints, unix_now};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     #[default]
@@ -17,16 +17,23 @@ pub enum Mode {
     Always,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Challenge {
     pub mode: Mode,
     pub difficulty: u8,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub timeout: Duration,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub pass_ttl: Duration,
     /// Empty: a random key per process.
+    #[serde(serialize_with = "crate::config::view::redact")]
     pub secret: String,
     pub cookie_secure: bool,
 }
@@ -44,7 +51,7 @@ impl Default for Challenge {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Fingerprint {
     pub deny: Vec<String>,

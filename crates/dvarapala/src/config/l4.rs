@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use dvarapala_engine::{Cidr, ConnsConfig, Limit};
 use dvarapala_l4::L4Config;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::duration;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct L4 {
     pub enabled: bool,
@@ -21,9 +21,15 @@ pub struct L4 {
     pub prefix_v6: u8,
     pub max_clients: usize,
     pub exempt: Vec<String>,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub header_timeout: Duration,
-    #[serde(deserialize_with = "duration")]
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
     pub idle_timeout: Duration,
     pub min_body_rate: u64,
 }

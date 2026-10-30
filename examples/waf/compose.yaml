@@ -20,6 +20,8 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ../waf.toml:/etc/dvarapala/dvarapala.toml:ro
+      # shown by the console (waf.rules_files), never applied by dvarapala
+      - ./coraza.yaml:/etc/dvarapala/config.yaml:ro
       - socket:/run/coraza-spoa
     depends_on: [coraza-spoa]
     restart: unless-stopped

@@ -7,8 +7,10 @@ mod login;
 #[cfg(feature = "ui")]
 mod oidc;
 mod serve;
+pub mod switch;
 #[cfg(feature = "ui")]
 mod ui;
+mod waf;
 
 #[cfg(feature = "ui")]
 pub use login::Console;

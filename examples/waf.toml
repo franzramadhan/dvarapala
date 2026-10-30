@@ -36,6 +36,9 @@ endpoint = "unix:/run/coraza-spoa/coraza.sock"
 timeout = "500ms"
 on_error = "block"
 max_body = "16KiB"
+# The agent's config, mounted read-only here too, shown on the console's
+# WAF page (RFC 0021). Display only: the agent applies it.
+rules_files = ["/etc/dvarapala/config.yaml"]
 
 [[routes]]
 name = "uploads"
