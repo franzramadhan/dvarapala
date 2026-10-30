@@ -48,6 +48,8 @@ hyper-util = { workspace = true, features = ["client-legacy", "http1", "tokio"] 
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 serde.workspace = true
+# RFC 0021: the config view; already in the tree through l7
+serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower-layer.workspace = true
 tower-service.workspace = true
@@ -55,6 +57,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# RFC 0021: the config round trip test
+toml.workspace = true
 figment = { workspace = true, features = ["test"] }
 # the TLS listener tests' certificates; already in the tree through proxy
 rcgen.workspace = true
