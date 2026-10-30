@@ -319,7 +319,6 @@ fn minute(minute_ms: u64, allow: u64) -> dvarapala_engine::Minute {
 
 // RFC 0022 case 10
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0022"]
 async fn history_sums_the_replicas_per_minute() {
     let Some(url) = fresh().await else { return };
     let (mut a, mut b) = (store(&url, true), store(&url, true));
@@ -356,7 +355,6 @@ async fn history_sums_the_replicas_per_minute() {
 
 // RFC 0022 case 12
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0022"]
 async fn history_retention_deletes_old_rows() {
     let Some(url) = fresh().await else { return };
     let mut s = store(&url, true);
@@ -380,7 +378,6 @@ async fn history_retention_deletes_old_rows() {
 
 // RFC 0022 case 13
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0022"]
 async fn version_1_migrates_to_the_history_table() {
     let Some(url) = fresh().await else { return };
     let mut c = client(&url).await;
