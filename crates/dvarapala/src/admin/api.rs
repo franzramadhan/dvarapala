@@ -99,6 +99,8 @@ impl Admin {
             Call::Reload | Call::Config | Call::Waf | Call::Metrics | Call::Mode { .. } => {
                 unreachable!("answered above")
             }
+            // RFC 0022: answered by the binary's history task in the next layer
+            Call::History { .. } => json(StatusCode::NOT_FOUND, error("not found")),
         }
     }
 
