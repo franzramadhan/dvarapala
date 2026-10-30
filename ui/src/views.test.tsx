@@ -69,6 +69,31 @@ describe('Config and WAF', () => {
     expect(post?.url).toBe('/mode?layer=waf&mode=enforce');
     expect(post?.headers['X-Dvarapala-Csrf']).toBe('abc123');
   });
+
+  // regression: the 5 s refetch rebuilt every <details> and closed the one the user opened
+  it('keeps a details element as the user left it across a refetch', async () => {
+    const { calls } = mockApi({
+      'GET /config': () => ({ body: config }),
+      'GET /waf': () => ({ body: waf }),
+    });
+    const { client } = renderApp('/ui/waf');
+    const file = (await screen.findByText('/etc/coraza/coraza.yaml')).closest('details')!;
+    file.open = true;
+    const before = calls.filter((c) => c.url === '/waf').length;
+    await client.refetchQueries({ queryKey: ['waf'] });
+    await waitFor(() => expect(calls.filter((c) => c.url === '/waf').length).toBeGreaterThan(before));
+    expect((await screen.findByText('/etc/coraza/coraza.yaml')).closest('details')!.open).toBe(true);
+  });
+
+  it('keeps a config section closed across a refetch', async () => {
+    mockApi({ 'GET /config': () => ({ body: config }) });
+    const { client } = renderApp('/ui/config');
+    const admin = (await screen.findByText('admin', { exact: false, selector: 'summary' })).closest('details')!;
+    expect(admin.open).toBe(true);
+    admin.open = false;
+    await client.refetchQueries({ queryKey: ['config'] });
+    expect((await screen.findByText('admin', { exact: false, selector: 'summary' })).closest('details')!.open).toBe(false);
+  });
 });
 
 const expiry = Math.floor(Date.now() / 1000) + 5 * 86400;
