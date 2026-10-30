@@ -181,7 +181,6 @@ fn system_one(wrapped: bool) -> String {
 
 // RFC 0023 cases 2, 6 and 7b
 #[test]
-#[ignore = "rfc 0023"]
 fn samples_while_on_redacted_and_labeled() {
     let f = fake(Reply::Json(system_one(true)));
     let p = start("on", &f, "", "mode_switch = true", &[]);
@@ -220,7 +219,6 @@ fn samples_while_on_redacted_and_labeled() {
 
 // RFC 0023 case 5
 #[test]
-#[ignore = "rfc 0023"]
 fn a_full_queue_drops_and_requests_stay_fast() {
     let f = fake(Reply::Hang);
     let p = start(
@@ -242,7 +240,6 @@ fn a_full_queue_drops_and_requests_stay_fast() {
 
 // RFC 0023 cases 7 and 15
 #[test]
-#[ignore = "rfc 0023"]
 fn chat_label_logged_counted_and_key_redacted() {
     let content = r#"{\"label\":\"scanner\",\"confidence\":0.8,\"pattern\":\"probes logins\"}"#;
     let f = fake(Reply::Json(format!(
@@ -279,7 +276,6 @@ fn chat_label_logged_counted_and_key_redacted() {
 
 // RFC 0023 case 10
 #[test]
-#[ignore = "rfc 0023"]
 fn limited_is_counted_without_retry() {
     let f = fake(Reply::Status(429));
     let p = start("limited", &f, "enabled = true\n", "", &[]);
@@ -293,7 +289,6 @@ fn limited_is_counted_without_retry() {
 
 // RFC 0023 cases 12 and 13
 #[test]
-#[ignore = "rfc 0023"]
 fn switch_needs_mode_switch_and_ends_at_reload() {
     let f = fake(Reply::Json(system_one(false)));
     let p = start("off", &f, "", "", &[]);
@@ -308,7 +303,6 @@ fn switch_needs_mode_switch_and_ends_at_reload() {
 
 // RFC 0023 case 14
 #[test]
-#[ignore = "rfc 0023"]
 fn export_writes_one_line_per_label() {
     let f = fake(Reply::Json(system_one(false)));
     let out =

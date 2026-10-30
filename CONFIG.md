@@ -23,7 +23,7 @@ that is silently ignored.
 
 | Feature | Sections | Release tarballs, Homebrew, `install.sh` | Container image | Build from source |
 |---|---|---|---|---|
-| `tls`, `ui`, `waf`, `replay` (default) | `[tls]`, `[upstream_tls]`, the console (`admin.ui_enabled`), `[waf]`, `dvarapala replay` | yes | yes | default |
+| `tls`, `ui`, `waf`, `replay`, `llm` (default) | `[tls]`, `[upstream_tls]`, the console (`admin.ui_enabled`), `[waf]`, `dvarapala replay`, `[ml.llm]` | yes | yes | default |
 | `redis` | `store.backend = "redis"` | no | yes | `--features redis` |
 | `postgres` | `store.backend = "postgres"` | no | yes | `--features postgres` |
 | `http3` | `[quic]` | no | no | `--features http3` |
@@ -118,6 +118,53 @@ never above 1) and read `dvarapala_ml_score`.
 |---|---|---|---|
 | `model` | path | unset | XGBoost JSON model (`binary:logistic`, `gbtree`, named features); unset turns scoring off. Read once at start: a bad model is an error naming the problem. Restart |
 | `threshold` | float | `0.9` | Score above which `Allow` becomes `Throttle`. Restart |
+
+### `[ml.llm]`
+
+LLM labels for sampled traffic ([RFC 0023](rfc/0023-llm-labels.md)), in
+the default build (the `llm` feature), off by default. Requests a trigger
+picks are sent, redacted, to an LLM endpoint off the request path; the
+answer is one label from `labels`, a confidence and a short pattern. A
+label never changes a verdict: it goes to the logs, the metrics,
+`GET /llm`, the console and the `export` file. Reverse mode with the rate
+limiter on only (otherwise a warning at start and nothing is sampled).
+`[ml]` does not need the `ml` feature for this: without `ml.model` the
+features are still computed for the samples, and nothing is scored.
+
+Sampling runs while `enabled` or while the console switch is on
+(`POST /llm`, which needs `admin.mode_switch`). A reload or a restart
+ends the switch. Never sent: `Cookie`, `Authorization`,
+`Proxy-Authorization`, query values (keys only, as `key=_`), and the body
+unless `body_bytes` is set (WAF trigger only). Header values and the path
+are cut to 512 bytes. All `[ml.llm]` keys need a restart.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `endpoint` | string | unset | `systemone`: the full URL, for example `"http://<host>:4000/v1/systemone"`. `chat`: the base URL, for example `"http://<host>:4000/v1"` (`/chat/completions` is appended). Unset turns the feature off and `POST /llm` answers `409` |
+| `protocol` | string | `"systemone"` | `"systemone"` (System One models such as Clef) or `"chat"` (OpenAI-compatible chat completions with a JSON schema answer) |
+| `model` | string | `""` | Model name as the endpoint knows it; required with `endpoint` |
+| `api_key` | string | `""` | Bearer token; set it with `DVARAPALA__ML__LLM__API_KEY`. Redacted in `GET /config` |
+| `enabled` | bool | `false` | Samples from start, without the console switch; a reload keeps it |
+| `labels` | table | seven labels | Label to description, 2 to 32 entries; the only answers taken. Defaults: `benign`, `scanner`, `scraper`, `credential_stuffing`, `flood`, `spam`, `other` |
+| `instructions` | string | `""` | Extra text for the question (`systemone`) or the system prompt (`chat`): what the site is, what is normal |
+| `per_client` | duration | `"10m"` | One sample per client and trigger in this time |
+| `queue` | integer | `256` | Samples waiting for a call; a full queue drops new ones (`dropped`) |
+| `concurrency` | integer | `4` | Calls in flight |
+| `timeout` | duration | `"20s"` | Per call, no retry |
+| `headers` | list | `user-agent`, `accept`, `accept-language`, `content-type`, `referer` | Request headers sent, by name |
+| `body_bytes` | integer | `0` | Body bytes sent with a WAF sample, at most 4096; `0` sends none |
+| `export` | path | unset | JSON lines file for training: the 10 feature columns of [`[ml]`](#ml) plus `label`, `confidence`, `trigger`, `at` (Unix ms) |
+| `export_max` | size | `"64MiB"` | The export stops, with a warning, at this size |
+| `max_duration` | duration | `"24h"` | Longest `POST /llm?on=` duration |
+
+`[[ml.llm.triggers]]`, none by default (then nothing is sampled):
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `on` | string | required | `"waf"` (a WAF match), `"challenge_failed"`, `"attack"` (detection in `Attack`), `"ml_band"` or `"route"` |
+| `rate` | float | `1.0` | Share of candidates sampled, in (0, 1] |
+| `route` | string | | With `on = "route"`: a `[[routes]]` name |
+| `band` | `[float, float]` | | With `on = "ml_band"`: `[low, high]` scores; needs `ml.model` |
 
 ## `[tls]`
 
@@ -472,12 +519,14 @@ JSON over HTTP/1.1 on its own listener; every call needs
 
 | Call | Answer |
 |---|---|
-| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload`, `waf` (the WAF's running mode, `null` when off) and `switches` (the mode switches in force: `layer`, `mode`, `file_mode`, `actor`, `at`) |
+| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload`, `waf` (the WAF's running mode, `null` when off), `llm` (`{"sampling": bool}`, `null` when `[ml.llm]` is off) and `switches` (the mode switches in force: `layer`, `mode`, `file_mode`, `actor`, `at`) |
 | `GET /config` | the running config ([RFC 0021](rfc/0021-admin-ui-config-waf.md)): `keys`, each with `key` (dotted), `value`, `reload` (`true` when a reload applies it in place; a `false` key shows the value the process started with) and `default`. `admin.token`, `admin.oidc.client_secret`, `challenge.secret` and `store.url` show as `"<redacted>"` when set |
 | `GET /waf` | the `[waf]` `settings`, the running `mode` and its `switch`, the matched `rules` (`rule`, `count`, `last_seen`, the last match's `method`, `path` without the query and `anomaly_score`; 256 IDs, then the `other` count) and the `files` of `waf.rules_files` read now (`path`, `size`, `modified`, `content`, or `error`) |
 | `GET /metrics` | the Prometheus text of the metrics listener |
 | `GET /history?range=<15m\|1h\|6h\|24h\|7d>` | the traffic history ([RFC 0022](rfc/0022-traffic-history.md)), default `15m`: `interval_ms`, `source` (`memory` or `store`) and `samples` (`t` in Unix ms, the rate per second of `allow`, `throttle`, `challenge`, `drop`, `error`, and `detection`, `null` for a store point). See [`[history]`](#history); `400` for another range |
 | `POST /mode?layer=<detection\|waf>&mode=<observe\|enforce>` | switches the layer's running mode in place, on this instance, until the next reload or restart (a reload logs `mode switch cleared` per switch). `403` unless `mode_switch`, `409` when the layer is off. Answers `layer`, `mode`, `previous` |
+| `GET /llm` | the LLM labels ([RFC 0023](rfc/0023-llm-labels.md)): `configured` (`false` and nothing else without `ml.llm.endpoint`), `sampling`, `until` (Unix ms, `null` without a console switch), `enabled`, `max_duration_secs`, `counts` (`label`, `trigger`, `count` since start) and `recent` (the last 200, newest first: `at` in Unix ms, `trigger`, `route`, `method`, `path`, `label`, `confidence`, `pattern`) |
+| `POST /llm?on=<duration>` | samples until now plus the duration (default `30m`, at most `ml.llm.max_duration`); `POST /llm?off` stops. `403` unless `mode_switch`, `409` without `ml.llm.endpoint`, `400` for a bad duration |
 | `POST /reload` | the same as `SIGHUP`: `restart` lists the changed keys that need a restart; `422` with `error` when the file is refused |
 | `GET /top` | the heavy hitters of the last closed window, `cidr` and `count` |
 | `GET /blocks` | manual blocks in force, `cidr` and `ttl_secs` |
@@ -752,6 +801,12 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_waf_errors_total{reason}` | Agent failures: `connect`, `timeout`, `protocol` (a bad or oversized frame), `disconnect` |
 | `dvarapala_waf_rule_matches_total{rule}` | Blocks and would-blocks by the agent's rule ID; the first 256 IDs get a label, later ones count as `other` |
 | `dvarapala_waf_inspect_seconds` | Histogram of the round trip to the agent |
+| `dvarapala_llm_sampling` | 1 while LLM labels sample ([RFC 0023](rfc/0023-llm-labels.md)) |
+| `dvarapala_llm_samples_total{trigger,result}` | Sampling decisions: `sent`, `skipped_rate`, `deduped` (`per_client`), `dropped` (queue full) |
+| `dvarapala_llm_calls_total{result}` | Calls: `ok`, `invalid` (an answer outside `labels`, bad JSON or over 64 KiB), `timeout`, `error`, `limited` (`429` from the provider) |
+| `dvarapala_llm_labels_total{label,trigger}` | Answers by label |
+| `dvarapala_llm_call_seconds` | Histogram of call time |
+| `dvarapala_llm_tokens_total{kind}` | `prompt` and `completion`, from the reply's `usage` when present |
 | `dvarapala_config_reloads_total{result}` | Reloads ([RFC 0014](rfc/0014-admin.md)): `ok`, `failed` |
 | `dvarapala_admin_requests_total{endpoint,status}` | Admin calls by endpoint (`ui`, `session` and `oidc` for the console, `other` for unknown paths) and status, `401` included |
 | `dvarapala_admin_logins_total{method,result}` | Console logins ([RFC 0018](rfc/0018-admin-ui.md)): `method` `token` or `oidc`, `result` `ok`, `denied` (not in the allow lists) or `failed` |

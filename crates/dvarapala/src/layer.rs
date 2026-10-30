@@ -3,11 +3,10 @@
 
 use std::error::Error;
 use std::num::NonZeroUsize;
-#[cfg(feature = "ml")]
 use std::sync::Arc;
 use std::time::Instant;
 
-use dvarapala_engine::{Cidr, DetectConfig, Limit, TrustedProxies};
+use dvarapala_engine::{Cidr, DetectConfig, Features, Limit, Scorer, TrustedProxies};
 use dvarapala_l7::{Detection, RateLimitConfig, Scoring};
 
 use crate::config;
@@ -28,7 +27,7 @@ pub fn config(
             .ok_or("rate_limit.max_clients must be at least 1")?,
         trusted: TrustedProxies::new(trusted),
         detection: detection(&cfg.detection),
-        scoring: scoring(&cfg.ml)?,
+        scoring: scoring(&cfg.ml)?.or_else(|| features_only(cfg)),
         now,
         cluster: None,
         block: None,
@@ -60,6 +59,22 @@ fn detection(d: &config::Detection) -> Option<Detection> {
         },
         enforce: d.mode == config::Mode::Enforce,
         attack_rate_factor: d.attack_rate_factor,
+    })
+}
+
+/// RFC 0023: without a model the client features still go into LLM
+/// samples. A NaN score never throttles and is not recorded.
+fn features_only(cfg: &config::Config) -> Option<Scoring> {
+    struct Unscored;
+    impl Scorer for Unscored {
+        fn score(&self, _: &Features) -> f64 {
+            f64::NAN
+        }
+    }
+    cfg.ml.llm.endpoint.as_ref()?;
+    Some(Scoring {
+        scorer: Arc::new(Unscored),
+        threshold: f64::INFINITY,
     })
 }
 
@@ -96,6 +111,7 @@ mod tests {
         config::Ml {
             model: model.map(PathBuf::from),
             threshold: 0.9,
+            ..config::Ml::default()
         }
     }
 

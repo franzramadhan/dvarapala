@@ -105,14 +105,20 @@ mod tests {
     use super::*;
 
     /// Fields that hold a secret and serialize through `redact`.
-    const SECRETS: [&str; 4] = [
+    const SECRETS: [&str; 5] = [
         "admin.token",
         "admin.oidc.client_secret",
         "challenge.secret",
+        "ml.llm.api_key",
         "store.url",
     ];
     /// Names that look secret but are not (`tls.key` is a path).
-    const NOT_SECRET: [&str; 3] = ["admin.public_url", "store.max_keys", "tls.key"];
+    const NOT_SECRET: [&str; 4] = [
+        "admin.public_url",
+        "ml.llm.labels.credential_stuffing",
+        "store.max_keys",
+        "tls.key",
+    ];
 
     fn load(toml: &str) -> Config {
         let mut out = None;
@@ -147,6 +153,7 @@ mod tests {
         c.admin.token = "marker-token".into();
         c.admin.oidc.client_secret = "marker-client".into();
         c.challenge.secret = "marker-challenge".into();
+        c.ml.llm.api_key = "marker-llm".into();
         // built so the secret scanner does not flag a fixture
         c.store.url = Some(format!("redis://:{}@192.0.2.1:6379/0", "marker-store"));
         let body = serde_json::to_string(&view(&c, &c)).unwrap();

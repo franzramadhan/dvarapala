@@ -125,6 +125,19 @@ booster = xgb.train({"objective": "binary:logistic", "max_depth": 4}, d, num_boo
 booster.save_model("model.json")
 ```
 
+LLM labels ([`[ml.llm]`](configuration.html#mlllm), RFC 0023) can label
+the rows for you: `ml.llm.export` writes one JSON line per answer with
+these columns plus `label`, `confidence`, `trigger` and `at`. Review the
+labels before training on them:
+
+```python
+df = pd.read_json("labels.jsonl", lines=True)
+df = df[df.confidence >= 0.8]
+y = (df.label != "benign").astype(int)
+X = df.drop(columns=["label", "confidence", "trigger", "at"])
+booster = xgb.train({"objective": "binary:logistic", "max_depth": 4}, xgb.DMatrix(X, label=y), num_boost_round=50)
+```
+
 **Expected results**
 
 - A bad model stops the start with the reason (for example `model:

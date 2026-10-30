@@ -2,7 +2,7 @@
 //! variables (`DVARAPALA__RATE_LIMIT__RATE=5` sets `rate_limit.rate`).
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use dvarapala_engine::DetectConfig;
@@ -15,6 +15,7 @@ mod challenge;
 mod forward;
 mod history;
 mod l4;
+mod ml;
 mod pool;
 mod protocols;
 mod quic;
@@ -29,6 +30,9 @@ pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
 pub use history::History;
 pub use l4::L4;
+pub use ml::Ml;
+#[cfg(feature = "llm")]
+pub use ml::{Llm, Protocol};
 pub use pool::Pool;
 pub use protocols::{Http2, Upgrade, UpstreamProtocol};
 pub use quic::Quic;
@@ -153,14 +157,6 @@ pub enum Mode {
     Enforce,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Ml {
-    /// XGBoost JSON model; unset turns scoring off.
-    pub model: Option<PathBuf>,
-    pub threshold: f64,
-}
-
 impl Default for Detection {
     fn default() -> Self {
         let d = DetectConfig::default();
@@ -181,15 +177,6 @@ impl Default for Detection {
             trigger_windows: d.trigger_windows,
             cooldown_windows: d.cooldown_windows,
             attack_rate_factor: 0.25,
-        }
-    }
-}
-
-impl Default for Ml {
-    fn default() -> Self {
-        Self {
-            model: None,
-            threshold: 0.9,
         }
     }
 }
@@ -386,7 +373,8 @@ mod tests {
                 c.ml,
                 Ml {
                     model: None,
-                    threshold: 0.9
+                    threshold: 0.9,
+                    ..Ml::default()
                 }
             );
             Ok(())
