@@ -39,6 +39,10 @@ curl -sH "$H" -X POST http://127.0.0.1:9091/reload
 | `POST /blocks` | blocks a CIDR or an address for `ttl` (default and maximum `max_block_ttl`) |
 | `DELETE /blocks` | removes a block, `404` when it is not listed |
 | `POST /reload` | the same as `SIGHUP` |
+| `GET /config` | the running config, secrets redacted ([RFC 0021](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0021-admin-ui-config-waf.md)) |
+| `GET /waf` | WAF settings, running mode, matched rules, the agent's rule files |
+| `GET /metrics` | the Prometheus text, behind the admin login |
+| `POST /mode` | `layer=detection\|waf&mode=observe\|enforce`, until the next reload; `403` unless `admin.mode_switch` |
 
 ## Console
 
@@ -46,6 +50,17 @@ With `admin.ui_enabled = true` the admin listener also serves a web
 console at `/ui/` ([RFC 0018](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0018-admin-ui.md)): the detection
 state and live request rates, top talkers, manual blocks and reload. It is
 embedded in the binary (the `ui` feature, in the default build).
+
+The console also shows ([RFC 0021](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0021-admin-ui-config-waf.md)):
+the running config (`GET /config`, secrets redacted, each key marked as
+applied by a reload or needing a restart), the WAF (`GET /waf`: matched
+rules grouped by CRS family and the agent's files from `waf.rules_files`),
+and a page per layer drawn from `GET /metrics` on the admin listener
+(upstreams, store, routes, detection, challenges, XDP, TLS, tunnels,
+egress, limiter), shown only for the features that export series. With
+`admin.mode_switch = true`, `POST /mode` switches detection or the WAF to
+`observe` or `enforce` on this instance until the next reload; a banner
+on every page names who switched it and offers to revert to the file.
 
 Log in with the admin token, or through an OIDC issuer with
 `[admin.oidc]`. For an issuer that verifies emails but never sends the
