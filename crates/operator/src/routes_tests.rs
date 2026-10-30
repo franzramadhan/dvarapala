@@ -195,7 +195,6 @@ fn rule_backend(route: &Value, i: usize) -> &str {
 
 // RFC 0025 cases 11 and 12
 #[test]
-#[ignore = "rfc 0025"]
 fn rules_annotation_picks_rules() {
     let api = gateway::name("api", "80", "default");
     let assets = gateway::name("assets", "80", "default");
@@ -237,7 +236,6 @@ fn rules_annotation_picks_rules() {
 
 // RFC 0025 case 13
 #[test]
-#[ignore = "rfc 0025"]
 fn rules_annotation_picks_ingress_paths() {
     let ing = json!({
         "metadata": {"name": "i", "annotations": {RULES: "/api/"}},
@@ -264,7 +262,6 @@ fn rules_annotation_picks_ingress_paths() {
 
 // RFC 0025 case 14
 #[test]
-#[ignore = "rfc 0025"]
 fn unknown_rules_change_nothing_and_are_named() {
     let r = split_route(Some("missing, api"));
     assert_eq!(unknown_rules(Kind::HttpRoute, &r), ["missing"]);

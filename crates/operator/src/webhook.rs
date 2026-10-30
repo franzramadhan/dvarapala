@@ -34,12 +34,17 @@ pub async fn review(client: &Client, body: &[u8]) -> Vec<u8> {
                 Err(e) => Err(e),
             };
             let kind = req.kind.kind.clone();
+            // RFC 0025: a route that opts in some rules only
+            let some_rules = req
+                .object
+                .as_ref()
+                .is_some_and(|o| o.annotations().contains_key(routes::RULES));
             match result {
                 Ok(r) => {
-                    let outcome = if r.patch.is_some() {
-                        "rewritten"
-                    } else {
-                        "unchanged"
+                    let outcome = match (r.patch.is_some(), some_rules) {
+                        (false, _) => "unchanged",
+                        (true, false) => "rewritten",
+                        (true, true) => "partial",
                     };
                     ::metrics::counter!("dvarapala_operator_admissions_total", "kind" => kind, "result" => outcome).increment(1);
                     r
