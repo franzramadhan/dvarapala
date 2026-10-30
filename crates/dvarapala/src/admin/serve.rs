@@ -12,7 +12,8 @@ use http::header::{
     AUTHORIZATION, CACHE_CONTROL, CONTENT_SECURITY_POLICY, HeaderValue, REFERRER_POLICY,
     WWW_AUTHENTICATE, X_CONTENT_TYPE_OPTIONS,
 };
-use http_body_util::Full;
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
@@ -27,6 +28,14 @@ const MAX_CONNS: usize = 16;
 
 /// The console's policy, on every admin answer (RFC 0018).
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+/// An answer's body: whole, or streamed (`GET /llm/export`).
+pub type Body = BoxBody<Bytes, io::Error>;
+
+/// A whole answer as a [`Body`].
+pub fn whole(r: Response<Full<Bytes>>) -> Response<Body> {
+    r.map(|b| b.map_err(|never| match never {}).boxed())
+}
 
 pub struct Admin {
     pub token: String,
@@ -86,7 +95,7 @@ pub async fn serve(addr: SocketAddr, admin: Admin) -> io::Result<()> {
 }
 
 impl Admin {
-    async fn answer(&self, req: &Request<()>) -> Response<Full<Bytes>> {
+    async fn answer(&self, req: &Request<()>) -> Response<Body> {
         let mut res = self.route(req).await;
         let h = res.headers_mut();
         h.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP));
@@ -103,12 +112,12 @@ impl Admin {
         res
     }
 
-    async fn route(&self, req: &Request<()>) -> Response<Full<Bytes>> {
+    async fn route(&self, req: &Request<()>) -> Response<Body> {
         #[cfg(feature = "ui")]
         if let Some(c) = &self.console
             && let Some(res) = c.answer(self.token.as_bytes(), req).await
         {
-            return res;
+            return whole(res);
         }
         let actor = match self.actor(req) {
             Ok(a) => a,
@@ -118,15 +127,20 @@ impl Admin {
                     r.headers_mut()
                         .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
                 }
-                return r;
+                return whole(r);
             }
         };
         let call = match parse_admin(req.method().as_str(), req.uri().path(), req.uri().query()) {
             Ok(call) => call,
-            Err((status, msg)) => return json(status, error(&msg)),
+            Err((status, msg)) => return whole(json(status, error(&msg))),
         };
-        if let Call::History { range_secs } = call {
-            return json(StatusCode::OK, self.history.answer(range_secs).await);
+        match call {
+            Call::History { range_secs } => {
+                return whole(json(StatusCode::OK, self.history.answer(range_secs).await));
+            }
+            Call::Llm => return whole(self.llm_get().await),
+            Call::LlmExport(q) => return self.llm_export(q),
+            _ => {}
         }
         let audit = matches!(
             call,
@@ -146,7 +160,7 @@ impl Admin {
                 status = res.status().as_u16(),
             );
         }
-        res
+        whole(res)
     }
 
     /// Who is calling: `token` for the bearer header, or the subject of a
@@ -169,7 +183,7 @@ impl Admin {
 fn endpoint(path: &str) -> String {
     match path {
         "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/mode" | "/metrics"
-        | "/history" | "/llm" => path.to_owned(),
+        | "/history" | "/llm" | "/llm/export" => path.to_owned(),
         p if p == "/ui" || p.starts_with("/ui/") => "ui".into(),
         p if p.starts_with("/session/oidc") => "oidc".into(),
         p if p == "/session" || p.starts_with("/session/") => "session".into(),

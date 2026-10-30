@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::history::{retention, ser_retention};
 use super::waf::size;
-use super::{Config, ProxyMode, duration};
+use super::{Backend, Config, ProxyMode, Store, duration};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
@@ -184,6 +184,7 @@ impl Llm {
         if self.max_duration.is_zero() {
             return Err("ml.llm.max_duration must be above 0".into());
         }
+        self.check_store(&cfg.store)?;
         let headers = self
             .headers
             .iter()
@@ -208,6 +209,22 @@ impl Llm {
             max_clients: cfg.rate_limit.max_clients,
             enabled: self.enabled,
         }))
+    }
+}
+
+impl Llm {
+    /// The RFC 0024 keys, also checked on reload.
+    pub fn check_store(&self, store: &Store) -> Result<(), String> {
+        if self.persist && store.backend != Backend::Postgres {
+            return Err("ml.llm.persist needs store.backend = \"postgres\"".into());
+        }
+        if !(1..=65_536).contains(&self.persist_queue) {
+            return Err("ml.llm.persist_queue must be 1 to 65536".into());
+        }
+        if self.retention < Duration::from_secs(3600) {
+            return Err("ml.llm.retention must be at least 1h".into());
+        }
+        Ok(())
     }
 }
 
@@ -329,7 +346,6 @@ mod tests {
 
     // RFC 0024 cases 1 and 2
     #[test]
-    #[ignore = "rfc 0024"]
     fn persist_needs_postgres_and_retention_an_hour() {
         let e = err("persist = true\n", "");
         assert!(e.contains("ml.llm.persist"), "{e}");
