@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-30 | #168 | |
+| accepted | 2026-10-30 | #168 | |
 
 > The console (RFC 0018) shows rates, top talkers and blocks, but not how
 > the gateway is configured, what the WAF is doing, or the state of the
