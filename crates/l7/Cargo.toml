@@ -33,6 +33,7 @@ tokio = { workspace = true, optional = true, features = ["io-util", "net", "sync
 replay = ["dep:serde", "dep:serde_json"]
 # RFC 0018: OIDC login for the admin console
 ui = ["dep:serde_json"]
+llm = ["dep:serde_json"]
 waf = ["dep:http-body", "dep:tokio"]
 
 [dev-dependencies]
