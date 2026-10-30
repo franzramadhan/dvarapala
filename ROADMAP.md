@@ -30,3 +30,15 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0023](rfc/0023-llm-labels.md) | LLM labels for sampled traffic: on-demand from the console, worthwhile triggers (WAF, failed challenges, attack, uncertain `[ml]` scores, routes) sampled off the request path to a System One decision model (Clef, Jev) or an OpenAI-compatible chat model; labels for logs, metrics, the console and `[ml]` training, never verdicts | implemented | v0.16.0 |
 | [0024](rfc/0024-llm-label-store.md) | LLM labels in the PostgreSQL store (`ml.llm.persist`): every replica writes its labels as rows, so training data, the console's recent labels and counts cover all replicas and survive restarts; `GET /llm/export` streams them as JSON lines | accepted | |
 | [0025](rfc/0025-operator-gateway-parity.md) | Operator gateways with the admin listener and console, the WAF agent as a sidecar over a Unix socket, read-only ConfigMap and Secret mounts, pod labels, and opt-in per route rule, so a policy can replace a hand-written gateway | accepted | |
+
+## Shipped without an RFC
+
+Packaging, install channels and docs need no RFC (see `CLAUDE.md`).
+
+| Change | Release |
+|---|---|
+| `install.sh` (served at `/install.sh`) and the Homebrew tap `franzramadhan/homebrew-tap` | v0.6.1 |
+| Container image `ghcr.io/franzramadhan/dvarapala` for linux/amd64 and linux/arm64 | v0.6.1 |
+| The Redis and PostgreSQL stores in the container image | v0.6.2 |
+| The crates on crates.io (`cargo install dvarapala`), published by `release.yml` with trusted publishing from v0.16.1 | v0.16.0 |
+| A README per published crate, install steps for the Python, JavaScript and Go SDKs | v0.16.1 |
