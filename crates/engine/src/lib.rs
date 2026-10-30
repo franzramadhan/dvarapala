@@ -10,6 +10,7 @@ mod detect;
 mod guard;
 mod history;
 mod key;
+mod sample;
 mod schedule;
 mod score;
 mod table;
@@ -24,6 +25,7 @@ pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use guard::{ChallengeMode, Decision, Guard, GuardConfig, GuardDetection, Pass};
 pub use history::{Minute, Ring, Sample, Sampler, VERDICTS};
 pub use key::{ClientKey, client_ip, client_key};
+pub use sample::{Admit, Gate};
 pub use schedule::{Schedule, ScheduleConfig, ScheduleError, Slot};
 pub use score::{ClientStats, FEATURE_NAMES, FEATURES, Features, Scorer};
 #[cfg(feature = "ml")]

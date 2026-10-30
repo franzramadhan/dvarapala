@@ -6,6 +6,7 @@ mod control;
 mod detection;
 mod fingerprint;
 mod grpc;
+mod llm;
 #[cfg(feature = "ui")]
 mod oidc;
 mod peer;
@@ -27,6 +28,11 @@ pub use control::{Block, Reload, Status};
 pub use detection::{Detection, Scoring};
 pub use fingerprint::{Fingerprints, Ja4};
 pub use grpc::{GrpcStatus, grpc_response, is_grpc};
+#[cfg(feature = "llm")]
+pub use llm::{
+    Answer, MAX_REPLY, Protocol, features, fuzz_llm_reply, parse_reply, request_body, sample_json,
+};
+pub use llm::{Llm, LlmConfig, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut, redact};
 #[cfg(feature = "ui")]
 pub use oidc::{
     Denied, Logins, OidcConfig, Pending, Provider, callback as oidc_callback,
