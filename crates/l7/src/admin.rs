@@ -40,6 +40,12 @@ pub enum Call {
     History {
         range_secs: u64,
     },
+    /// RFC 0023: the sampling switch and the recent labels.
+    Llm,
+    /// RFC 0023: `on` for this long (`""` for the default), `None` stops.
+    LlmSwitch {
+        on: Option<String>,
+    },
 }
 
 /// The ranges `GET /history` takes (RFC 0022), as `range=` names them.
@@ -90,9 +96,11 @@ pub fn parse(method: &str, path: &str, query: Option<&str>) -> Result<Call, Refu
         ("/metrics", "GET") => Call::Metrics,
         ("/mode", "POST") => mode(q)?,
         ("/history", "GET") => history(q)?,
+        ("/llm", "GET") => Call::Llm,
+        ("/llm", "POST") => llm(q)?,
         (
             "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/metrics" | "/mode"
-            | "/history",
+            | "/history" | "/llm",
             _,
         ) => {
             return Err((StatusCode::METHOD_NOT_ALLOWED, "method not allowed".into()));
@@ -184,6 +192,18 @@ fn history(q: &str) -> Result<Call, Refusal> {
             StatusCode::BAD_REQUEST,
             "range is one of 15m, 1h, 6h, 24h, 7d".into(),
         )),
+    }
+}
+
+/// `on=<duration>`, `on` alone for the default, or `off`.
+fn llm(q: &str) -> Result<Call, Refusal> {
+    let has = |k: &str| q.split('&').any(|kv| kv.split('=').next() == Some(k));
+    match (has("on"), has("off")) {
+        (true, false) => Ok(Call::LlmSwitch {
+            on: Some(param(q, "on")?.unwrap_or_default()),
+        }),
+        (false, true) => Ok(Call::LlmSwitch { on: None }),
+        _ => Err((StatusCode::BAD_REQUEST, "use on=<duration> or off".into())),
     }
 }
 
@@ -333,6 +353,33 @@ mod tests {
         );
         assert_eq!(
             parse("POST", "/config", None).unwrap_err().0,
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+
+    // RFC 0023 (parsing)
+    #[test]
+    fn llm_switch_queries() {
+        assert_eq!(parse("GET", "/llm", None), Ok(Call::Llm));
+        let on = |q| parse("POST", "/llm", Some(q));
+        assert_eq!(
+            on("on=5m"),
+            Ok(Call::LlmSwitch {
+                on: Some("5m".into())
+            })
+        );
+        assert_eq!(
+            on("on"),
+            Ok(Call::LlmSwitch {
+                on: Some("".into())
+            })
+        );
+        assert_eq!(on("off"), Ok(Call::LlmSwitch { on: None }));
+        for q in ["", "on=5m&off", "x=1"] {
+            assert_eq!(on(q).unwrap_err().0, StatusCode::BAD_REQUEST, "{q}");
+        }
+        assert_eq!(
+            parse("DELETE", "/llm", None).unwrap_err().0,
             StatusCode::METHOD_NOT_ALLOWED
         );
     }

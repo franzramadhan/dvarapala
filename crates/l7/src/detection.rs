@@ -5,7 +5,9 @@ use std::hash::{BuildHasher, RandomState};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dvarapala_engine::{ClientStats, DetectConfig, Detector, Scorer, State, Verdict, WindowReport};
+use dvarapala_engine::{
+    ClientStats, DetectConfig, Detector, Features, Scorer, State, Verdict, WindowReport,
+};
 use http::Request;
 use http::header::{CONTENT_LENGTH, USER_AGENT};
 
@@ -51,6 +53,7 @@ impl ReqInfo {
 impl Scoring {
     /// Records the request in the client's stats and scores it. A score
     /// above the threshold turns the request into a throttle for `window`.
+    /// The score and features go along for RFC 0023 samples.
     pub(crate) fn judge(
         &self,
         stats: &mut ClientStats,
@@ -58,17 +61,22 @@ impl Scoring {
         now: Instant,
         window: Duration,
         instance: (f64, f64),
-    ) -> Verdict {
+    ) -> (Verdict, f64, Features) {
         stats.record(now, window, info.size, info.has_user_agent, info.path_hash);
-        let score = self.scorer.score(&stats.features(instance.0, instance.1));
-        metrics::histogram!("dvarapala_ml_score").record(score);
-        if score > self.threshold {
+        let features = stats.features(instance.0, instance.1);
+        let score = self.scorer.score(&features);
+        // NaN: features only, no model (RFC 0023 samples)
+        if !score.is_nan() {
+            metrics::histogram!("dvarapala_ml_score").record(score);
+        }
+        let v = if score > self.threshold {
             Verdict::Throttle {
                 retry_after: window,
             }
         } else {
             Verdict::Allow
-        }
+        };
+        (v, score, features)
     }
 }
 

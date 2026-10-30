@@ -11,7 +11,7 @@ cargo-fuzz = true
 [dependencies]
 dvarapala-engine = { path = "../crates/engine", features = ["ml"] }
 dvarapala-ffi = { path = "../crates/ffi" }
-dvarapala-l7 = { path = "../crates/l7", features = ["replay", "ui", "waf"] }
+dvarapala-l7 = { path = "../crates/l7", features = ["llm", "replay", "ui", "waf"] }
 dvarapala-proxy = { path = "../crates/proxy", features = ["tls"] }
 http = "1.5.0"
 libfuzzer-sys = "0.4.13"
@@ -142,6 +142,13 @@ bench = false
 [[bin]]
 name = "oidc_callback"
 path = "fuzz_targets/oidc_callback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "llm_reply"
+path = "fuzz_targets/llm_reply.rs"
 test = false
 doc = false
 bench = false

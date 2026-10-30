@@ -4,7 +4,7 @@ use std::hash::RandomState;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -12,7 +12,7 @@ use dvarapala_engine::{
     BlockSink, Blocks, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard,
     GuardConfig, GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
 };
-use http::header::{ACCEPT, HeaderMap};
+use http::header::{ACCEPT, HeaderMap, SET_COOKIE};
 use http::{Request, Response, StatusCode, Version};
 use tower_layer::Layer;
 use tower_service::Service;
@@ -21,6 +21,7 @@ use crate::challenge::{Challenge, VERIFY_PATH};
 use crate::control::Policy;
 use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
+use crate::llm::{Llm, Probe, Seen};
 use crate::reply::{Scope, count, reject};
 use crate::{
     ChallengeConfig, Detection, Fingerprints, Ja4, PageBody, PeerAddr, RouteConfig, Routes,
@@ -77,6 +78,8 @@ pub(crate) struct Shared {
     /// `None` without detection
     cooldown: Option<Duration>,
     pub(crate) block: Option<BlockSink>,
+    /// RFC 0023, set once at start
+    llm: OnceLock<Arc<Llm>>,
 }
 
 pub(crate) struct Inner {
@@ -127,8 +130,14 @@ impl RateLimitLayer {
                 cluster: config.cluster,
                 cooldown,
                 block: config.block,
+                llm: OnceLock::new(),
             }),
         })
+    }
+
+    /// RFC 0023: samples requests that hit a trigger while `llm` samples.
+    pub fn set_llm(&self, llm: Arc<Llm>) {
+        let _ = self.shared.llm.set(llm);
     }
 
     /// Clients currently in the table.
@@ -220,7 +229,7 @@ where
             .as_ref()
             .map(|_| ReqInfo::of(&req, &self.shared.paths));
         let heavy_ttl = self.shared.cooldown.filter(|_| policy.enforce);
-        let (mut verdict, scope) = self.shared.take(key, info, pass, heavy_ttl);
+        let (mut verdict, scope, seen) = self.shared.take(key, info, pass, heavy_ttl);
         // the route's bucket on top of the global one: both must allow
         if let (Some(r), Verdict::Allow) = (route, verdict) {
             verdict = r.take(&req, key, fp, (self.shared.now)());
@@ -228,12 +237,26 @@ where
                 r.count("throttle");
             }
         }
+        // RFC 0023: off the path, never waits
+        let probe = Probe::new(
+            self.shared.llm.get(),
+            key,
+            route.map(|r| r.name()),
+            seen,
+            fp,
+        );
+        if let Some(p) = &probe {
+            p.limiter(&req);
+        }
         // the verify endpoint answers within the client's bucket
         if let (Some(c), Verdict::Allow | Verdict::Challenge) = (challenge, verdict)
             && req.uri().path() == VERIFY_PATH
         {
             count("allow", protocol);
-            let res = c.verify(req.uri().query(), key);
+            let res: Response<R> = c.verify(req.uri().query(), key);
+            if let Some(p) = probe.filter(|_| !res.headers().contains_key(SET_COOKIE)) {
+                p.challenge_failed(&req);
+            }
             return ResponseFuture::Rejected { res: Some(res) };
         }
         match verdict {
@@ -251,6 +274,9 @@ where
                     }
                 }
                 policy.fingerprints.forward(req.headers_mut(), fp);
+                if let Some(p) = probe {
+                    req.extensions_mut().insert(p);
+                }
                 count("allow", protocol);
                 ResponseFuture::Inner {
                     fut: self.inner.call(req),
@@ -299,14 +325,15 @@ impl Shared {
         info: Option<ReqInfo>,
         pass: Pass,
         heavy_ttl: Option<Duration>,
-    ) -> (Verdict, Scope) {
+    ) -> (Verdict, Scope, Seen) {
         let now = (self.now)();
         // the cluster's verdict first: a listed heavy hitter or a client
         // over its cluster count (RFC 0010); never waits on the store
         if let Some(v) = self.cluster().and_then(|c| c.check(key, now)) {
-            return (v, Scope::Cluster);
+            return (v, Scope::Cluster, (false, None));
         }
         let mut heavy = Vec::new();
+        let mut seen: Seen = (false, None);
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
             let Inner { guard, watch } = &mut *g;
@@ -320,6 +347,7 @@ impl Shared {
                     heavy.extend(det.heavy().iter().map(|(c, _)| *c));
                 }
             }
+            seen.0 = guard.detector().is_some_and(|d| d.state() == State::Attack);
             if d.would_drop {
                 log_would_drop(key);
             }
@@ -331,7 +359,8 @@ impl Shared {
                     .map_or((0.0, 0.0), |det| (det.zscore(), det.entropy()));
                 if let Some(slot) = guard.get_mut(&key) {
                     let stats = slot.get_or_insert_with(Box::default);
-                    v = s.judge(stats, info, now, window, instance);
+                    let (j, score, features) = s.judge(stats, info, now, window, instance);
+                    (v, seen.1) = (j, Some((score, features)));
                 }
             }
             (v, guard.clients(), d.evicted)
@@ -353,7 +382,7 @@ impl Shared {
                 c.publish_heavy(heavy, ttl);
             }
         }
-        (verdict, Scope::Local)
+        (verdict, Scope::Local, seen)
     }
 }
 

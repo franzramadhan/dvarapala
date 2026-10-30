@@ -204,6 +204,9 @@ where
     let block = match ask(&live, &parts, client, &data).await {
         Ok(a) if a.action.is_some() => {
             log_match(&parts, client.0, &a, cfg.enforce);
+            if let Some(p) = parts.extensions.get::<crate::Probe>() {
+                p.waf(&parts, a.rule_ids.as_deref().unwrap_or(""), &data);
+            }
             if let Some(r) = a.rule {
                 count_rule(r, &parts, a.anomaly_score);
             }

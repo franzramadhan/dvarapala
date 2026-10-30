@@ -1,6 +1,5 @@
 //! Redacted samples of requests that hit a trigger, handed to
 //! the binary's queue without waiting. Nothing here changes a verdict.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::hash::{BuildHasher, RandomState};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -35,7 +34,13 @@ pub enum On {
 
 impl On {
     pub fn name(&self) -> &'static str {
-        todo!("rfc 0023")
+        match self {
+            Self::Waf => "waf",
+            Self::ChallengeFailed => "challenge_failed",
+            Self::Attack => "attack",
+            Self::MlBand(..) => "ml_band",
+            Self::Route(_) => "route",
+        }
     }
 }
 
@@ -95,24 +100,55 @@ pub struct Llm {
 
 impl Llm {
     pub fn new(cfg: LlmConfig, sink: Sink, now: fn() -> Instant) -> Self {
-        todo!("rfc 0023")
+        let rates = cfg.triggers.iter().map(|t| t.rate).collect();
+        Self {
+            gate: Mutex::new(Gate::new(rates, cfg.per_client, cfg.max_clients)),
+            on: AtomicBool::new(cfg.enabled),
+            cfg,
+            sink,
+            dice: (RandomState::new(), AtomicU64::new(0)),
+            now,
+        }
     }
 
     pub fn sampling(&self) -> bool {
-        todo!("rfc 0023")
+        self.on.load(Ordering::Relaxed)
     }
 
     pub fn set(&self, on: bool) {
-        todo!("rfc 0023")
+        self.on.store(on, Ordering::Relaxed);
+        metrics::gauge!("dvarapala_llm_sampling").set(if on { 1.0 } else { 0.0 });
     }
 
     pub fn enabled(&self) -> bool {
-        todo!("rfc 0023")
+        self.cfg.enabled
     }
 
     /// Offers the request to every trigger `hit` accepts.
     fn offer(&self, key: ClientKey, hit: impl Fn(&On) -> bool, build: impl Fn(&On) -> Sample) {
-        todo!("rfc 0023")
+        for (i, t) in self.cfg.triggers.iter().enumerate() {
+            if !hit(&t.on) {
+                continue;
+            }
+            let (seed, n) = &self.dice;
+            let roll = (seed.hash_one(n.fetch_add(1, Ordering::Relaxed)) >> 11) as f64
+                / (1u64 << 53) as f64;
+            let admit = self
+                .gate
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .admit(i, key, (self.now)(), roll);
+            let result = match admit {
+                Admit::Sent if !(self.sink)(build(&t.on)) => "dropped",
+                a => a.name(),
+            };
+            metrics::counter!(
+                "dvarapala_llm_samples_total",
+                "trigger" => t.on.name(),
+                "result" => result
+            )
+            .increment(1);
+        }
     }
 }
 
@@ -140,25 +176,84 @@ impl Probe {
         (attack, scored): Seen,
         ja4: Option<Ja4>,
     ) -> Option<Self> {
-        todo!("rfc 0023")
+        let llm = llm.filter(|l| l.sampling())?.clone();
+        Some(Self {
+            llm,
+            key,
+            route: route.unwrap_or("").to_owned(),
+            attack,
+            scored,
+            ja4: ja4.map_or_else(String::new, |f| f.to_string()),
+        })
     }
 
     /// The triggers the rate limiter sees: attack, ml_band, route.
     pub(crate) fn limiter<B>(&self, r: &Request<B>) {
-        todo!("rfc 0023")
+        let h = Head(r.method(), r.uri(), r.headers());
+        let score = self.scored.map(|s| s.0);
+        let hit = |on: &On| match on {
+            On::Attack => self.attack,
+            On::MlBand(lo, hi) => score.is_some_and(|s| (*lo..=*hi).contains(&s)),
+            On::Route(r) => *r == self.route,
+            On::Waf | On::ChallengeFailed => false,
+        };
+        self.llm
+            .offer(self.key, hit, |on| self.sample(on, &h, "", b""));
     }
 
     pub(crate) fn challenge_failed<B>(&self, r: &Request<B>) {
-        todo!("rfc 0023")
+        let h = Head(r.method(), r.uri(), r.headers());
+        self.llm.offer(
+            self.key,
+            |on| *on == On::ChallengeFailed,
+            |on| self.sample(on, &h, "", b""),
+        );
     }
 
     /// A WAF match with its rule IDs and the buffered body.
     pub fn waf(&self, p: &Parts, rules: &str, body: &[u8]) {
-        todo!("rfc 0023")
+        let h = Head(&p.method, &p.uri, &p.headers);
+        self.llm.offer(
+            self.key,
+            |on| *on == On::Waf,
+            |on| self.sample(on, &h, rules, body),
+        );
     }
 
     fn sample(&self, on: &On, h: &Head<'_>, rules: &str, body: &[u8]) -> Sample {
-        todo!("rfc 0023")
+        let cfg = &self.llm.cfg;
+        let Head(method, uri, map) = *h;
+        let headers = cfg
+            .headers
+            .iter()
+            // credentials never leave, allowlisted or not
+            .filter(|n| ![COOKIE, AUTHORIZATION, PROXY_AUTHORIZATION].contains(n))
+            .filter_map(|n| {
+                let v = map.get(n)?;
+                Some((
+                    n.as_str().to_owned(),
+                    cut(&String::from_utf8_lossy(v.as_bytes()), MAX_HEADER).to_owned(),
+                ))
+            })
+            .collect();
+        let host = uri
+            .host()
+            .or_else(|| map.get(HOST)?.to_str().ok())
+            .unwrap_or("");
+        let body = &body[..body.len().min(cfg.body_bytes)];
+        Sample {
+            trigger: on.name(),
+            route: self.route.clone(),
+            method: method.as_str().to_owned(),
+            host: cut(host, MAX_HEADER).to_owned(),
+            path: redact(uri.path(), uri.query()),
+            headers,
+            features: self.scored.map(|s| s.1),
+            score: self.scored.map(|s| s.0),
+            rules: rules.to_owned(),
+            ja4: self.ja4.clone(),
+            body: String::from_utf8_lossy(body).into_owned(),
+        }
     }
 }
 
@@ -168,12 +263,24 @@ struct Head<'a>(&'a Method, &'a Uri, &'a HeaderMap);
 
 /// The path with the query's keys only (`?a=_&b=_`), cut to `MAX_PATH`.
 pub fn redact(path: &str, query: Option<&str>) -> String {
-    todo!("rfc 0023")
+    let mut s = path.to_owned();
+    if let Some(q) = query.filter(|q| !q.is_empty()) {
+        for (i, kv) in q.split('&').enumerate() {
+            s.push(if i == 0 { '?' } else { '&' });
+            s.push_str(kv.split('=').next().unwrap_or(""));
+            s.push_str("=_");
+        }
+    }
+    cut(&s, MAX_PATH).to_owned()
 }
 
 /// `s` cut to at most `max` bytes on a character boundary.
 pub fn cut(s: &str, max: usize) -> &str {
-    todo!("rfc 0023")
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 #[cfg(test)]
@@ -235,7 +342,6 @@ mod tests {
 
     // RFC 0023 case 1: off, nothing reaches the queue
     #[test]
-    #[ignore = "rfc 0023"]
     fn off_sends_nothing() {
         let out = Arc::new(Mutex::new(Vec::new()));
         let p = probe(llm(false, out.clone()), "login");
@@ -248,7 +354,6 @@ mod tests {
 
     // RFC 0023 case 6, the sample itself
     #[test]
-    #[ignore = "rfc 0023"]
     fn samples_are_redacted() {
         let out = Arc::new(Mutex::new(Vec::new()));
         let p = probe(llm(true, out.clone()), "login");
@@ -273,7 +378,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0023"]
     fn cut_and_redact_bound_the_path() {
         assert_eq!(cut("aé", 2), "a");
         assert_eq!(redact("/", Some("")), "/");
