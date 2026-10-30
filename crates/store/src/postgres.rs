@@ -24,11 +24,11 @@ pub struct Postgres {
     tls: MakeRustlsConnect,
     migrate: bool,
     timeout: Duration,
-    client: Option<Client>,
+    pub(crate) client: Option<Client>,
     rounds: u64,
 }
 
-fn pg(e: tokio_postgres::Error) -> Error {
+pub(crate) fn pg(e: tokio_postgres::Error) -> Error {
     // the driver's errors carry no URL or password
     match e.as_db_error() {
         // the message only, never the detail: it can hold row values
@@ -64,7 +64,7 @@ impl Postgres {
         })
     }
 
-    async fn client(&mut self) -> Result<&mut Client, Error> {
+    pub(crate) async fn client(&mut self) -> Result<&mut Client, Error> {
         if self.client.as_ref().is_some_and(Client::is_closed) {
             self.client = None;
         }

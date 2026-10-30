@@ -48,6 +48,7 @@ export function mockApi(overrides: Record<string, Handler> = {}) {
     'POST /reload': () => ({ body: { at: 1767225600, result: 'ok', restart: ['listen'] } }),
     'GET /metrics': () => ({ body: 'dvarapala_requests_total{verdict="allow"} 1\n' }),
     'GET /config': () => ({ body: { keys: [] } }),
+    'GET /history': () => ({ body: { interval_ms: 5000, source: 'memory', samples: [] } }),
     ...overrides,
   };
   vi.stubGlobal(
