@@ -1,7 +1,6 @@
 //! RFC 0023: which trigger hits become LLM samples. Each trigger has a
 //! rate, and a client is sampled at most once per trigger per
 //! `per_client`. Pure: the caller passes the time and the dice roll.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -19,7 +18,11 @@ pub enum Admit {
 impl Admit {
     /// The `result` label of `dvarapala_llm_samples_total`.
     pub fn name(self) -> &'static str {
-        todo!("rfc 0023")
+        match self {
+            Self::Sent => "sent",
+            Self::SkippedRate => "skipped_rate",
+            Self::Deduped => "deduped",
+        }
     }
 }
 
@@ -38,17 +41,45 @@ pub struct Gate {
 impl Gate {
     /// `rates[i]` is trigger `i`'s share of candidates, in (0, 1].
     pub fn new(rates: Vec<f64>, per_client: Duration, capacity: usize) -> Self {
-        todo!("rfc 0023")
+        Self {
+            rates,
+            per_client,
+            capacity: capacity.max(1),
+            seen: HashMap::new(),
+            order: VecDeque::new(),
+        }
     }
 
     /// Decides for a candidate of trigger `trigger` from `client`. `roll`
     /// is uniform in [0, 1).
     pub fn admit(&mut self, trigger: usize, client: ClientKey, now: Instant, roll: f64) -> Admit {
-        todo!("rfc 0023")
+        while let Some(&(_, at)) = self.order.front() {
+            if now.saturating_duration_since(at) < self.per_client {
+                break;
+            }
+            self.pop();
+        }
+        let key = (trigger, client);
+        if self.seen.contains_key(&key) {
+            return Admit::Deduped;
+        }
+        if roll >= self.rates.get(trigger).copied().unwrap_or(0.0) {
+            return Admit::SkippedRate;
+        }
+        if self.seen.len() >= self.capacity {
+            self.pop();
+        }
+        self.seen.insert(key, now);
+        self.order.push_back((key, now));
+        Admit::Sent
     }
 
     fn pop(&mut self) {
-        todo!("rfc 0023")
+        if let Some((k, at)) = self.order.pop_front()
+            && self.seen.get(&k) == Some(&at)
+        {
+            self.seen.remove(&k);
+        }
     }
 }
 
@@ -75,7 +106,6 @@ mod tests {
 
     // RFC 0023 case 3
     #[test]
-    #[ignore = "rfc 0023"]
     fn rate_samples_a_share() {
         let mut g = Gate::new(vec![0.25], Duration::from_secs(600), 10_000);
         let (now, mut roll) = (Instant::now(), rolls());
@@ -87,7 +117,6 @@ mod tests {
 
     // RFC 0023 case 4
     #[test]
-    #[ignore = "rfc 0023"]
     fn one_sample_per_client_and_trigger() {
         let mut g = Gate::new(vec![1.0, 1.0], Duration::from_secs(600), 100);
         let t0 = Instant::now();
@@ -103,7 +132,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0023"]
     fn bounded_oldest_first() {
         let mut g = Gate::new(vec![1.0], Duration::from_secs(600), 2);
         let t0 = Instant::now();
