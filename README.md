@@ -156,36 +156,38 @@ variables override the file (`DVARAPALA__RATE_LIMIT__RATE=5`).
 ## How it works
 
 ```mermaid
-flowchart LR
-  P[packets] --> X{XDP}
-  X -->|drop| D1((x))
-  X --> L4{L4}
-  L4 -->|close| D2((x))
+flowchart TD
+  P[packets] --> X[XDP]
+  X --> L4[L4 limits]
   L4 --> T[TLS / QUIC, JA4]
-  T --> B{blocks, JA4 rules, routes}
-  B -->|403 / 429| D3((x))
-  B --> R{rate limit}
-  R -->|429| D4((x))
-  R --> DT{detection}
-  DT -->|403| D5((x))
-  DT --> C{challenge}
-  C -->|proof of work| D6((x))
-  C --> W{WAF}
-  W -->|403| D7((x))
+  T --> B[blocks, JA4 rules, routes]
+  B --> R[rate limit]
+  R --> DT[detection]
+  DT --> C[challenge]
+  C --> W[WAF]
   W --> PL[pool]
   PL --> U[upstream]
   L4 -.->|block source| X
   DT -.->|block source| X
-  A[admin API, console] -.->|blocks, reload| B
 ```
+
+| Stage | Checks | Refuses with | |
+|---|---|---|---|
+| XDP | Blocked sources, packet and SYN rates per source, in the driver | drop | RFC 0011 |
+| L4 limits | Connections per client and in total, accept rate, header and idle timeouts | close | RFC 0009 |
+| TLS / QUIC | Bounded handshakes, the JA4 fingerprint of each ClientHello | close | RFC 0003, 0006, 0012 |
+| Blocks, JA4 rules, routes | Manual blocks, `fingerprint.deny`, per-route deny and limits | `403` / `429` | RFC 0013, 0014 |
+| Rate limit | A token bucket per client | `429` | RFC 0001 |
+| Detection | Heavy hitters against a learned baseline | `403` | RFC 0002 |
+| Challenge | During an attack, a proof of work earns a pass | proof-of-work page | RFC 0012 |
+| WAF | OWASP Coraza with the CRS over SPOP | `403` | RFC 0017 |
+| Pool | A healthy upstream endpoint, health checks and ejection | | RFC 0015 |
 
 Each stage is cheaper than the next, so expensive work only happens for
 traffic that survived the cheap checks. In `enforce` mode, sources refused
-by L4 or dropped by detection are blocked in the XDP program for a while.
-Both completed a TCP handshake, so a spoofed address cannot get a victim
-blocked. During an attack, browsers can earn a pass with a proof of work
-instead of sharing the attack limit, and the WAF only sees requests that
-passed every limit. The pool sends what is left to a healthy upstream.
+by L4 or dropped by detection are blocked in the XDP program for a while
+(the dotted arrows). Both completed a TCP handshake, so a spoofed address
+cannot get a victim blocked.
 
 The admin API and its web console run on their own listener: manual
 blocks, top talkers and reload apply to the running gateway in place. On
