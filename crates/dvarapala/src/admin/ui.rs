@@ -10,7 +10,7 @@ use hyper::body::Bytes;
 
 macro_rules! dist {
     ($f:literal) => {
-        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../ui/dist/", $f))
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/ui/", $f))
     };
 }
 

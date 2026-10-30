@@ -15,6 +15,9 @@ git switch main && git pull --ff-only && git switch -c release/v<version>
 ```
 
 - `version` under `[workspace.package]` in `Cargo.toml`
+- the `version` of each `dvarapala-*` path dependency under
+  `[workspace.dependencies]` in `Cargo.toml` (crates.io needs it; cargo
+  rejects a stale one after a minor bump)
 - `sdk/js/package.json` and `sdk/python/pyproject.toml`
 - `cargo update -w` and `(cd fuzz && cargo update -w)`; in
   `crates/xdp-ebpf/Cargo.lock` (its own workspace, nightly) bump the

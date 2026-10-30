@@ -145,7 +145,10 @@ comma, colon, parentheses or a new sentence.
   the tarballs stay without them) and `ghcr.io/franzramadhan/dvarapala-operator`
   (same tags, `Dockerfile` target `operator`), and publishes a GitHub release
   with `SHA256SUMS`, `operator.yaml` (`deploy/operator.yaml` at
-  the version) and the notes from `CHANGELOG.md`. Merges to `main`
+  the version) and the notes from `CHANGELOG.md`, then publishes every
+  crate except `node`, `operator` and `xdp-ebpf` to crates.io
+  (`cargo publish --workspace`, trusted publishing, no stored token).
+  `release-check` runs the same publish as a dry run. Merges to `main`
   publish nothing.
 - `.github/workflows/title-check.yml` checks every PR title (it becomes the
   squash commit): `type(scope): subject`, types `feat fix docs ci test
