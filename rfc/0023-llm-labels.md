@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-30 | #N | |
+| draft | 2026-10-30 | #193 | |
 
 > An operator turns on sampling from the console for a while; requests
 > that hit a worthwhile trigger (a WAF match, a failed challenge, an
