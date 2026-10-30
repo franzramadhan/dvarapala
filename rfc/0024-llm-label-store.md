@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-30 | #N | |
+| draft | 2026-10-30 | #212 | |
 
 > With `ml.llm.persist`, every replica writes its LLM labels (RFC 0023)
 > as rows in the PostgreSQL store (RFC 0010) instead of a file of its
