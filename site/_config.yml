@@ -2,6 +2,9 @@
 # pages under docs/ are markdown rendered with _layouts/doc.html. build.sh
 # generates the configuration, examples and roadmap pages from the repo.
 title: dvarapala
+# social previews (og: tags in index.html and _layouts/doc.html, image og.png)
+description: Anti-DDoS gateway in Rust. Per-client rate limits, adaptive detection, WAF and proof-of-work challenges, in one small binary.
+url: https://dvarapala.franzramadhan.dev
 repo: https://github.com/franzramadhan/dvarapala
 markdown: kramdown
 kramdown:
