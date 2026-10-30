@@ -1,7 +1,7 @@
 //! Starts the RFC 0010 sync task for a shared `[store]`.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dvarapala_engine::{Cluster, ClusterConfig, Limit};
@@ -34,7 +34,7 @@ pub fn start(
     })));
     let sync = SyncConfig {
         cluster: cfg.cluster.clone(),
-        replica: replica(),
+        replica: replica().into(),
         interval: cfg.sync_interval,
         timeout: cfg.timeout,
         max_list: cfg.max_keys,
@@ -83,12 +83,16 @@ fn spawn(
     }
 }
 
-/// Unique enough while it runs: the process id and the start time.
-fn replica() -> String {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    format!("{}-{t:x}", std::process::id())
+/// Unique enough while it runs: the process id and the start time. One
+/// value per process, shared by the sync task and the history (RFC 0022).
+pub(crate) fn replica() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(|| {
+        let t = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        format!("{}-{t:x}", std::process::id())
+    })
 }
 
 #[cfg(test)]

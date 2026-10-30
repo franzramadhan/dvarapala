@@ -211,6 +211,8 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
     if cfg.mode == config::ProxyMode::Reverse {
         cfg.pool.config(cfg.upstream.as_deref())?;
     }
+    // RFC 0022: only history.retention applies in place, the rest is checked
+    cfg.history.samples(&cfg.store)?;
     Ok(Reload {
         limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)
             .map_err(|e| format!("rate_limit: {e}"))?,
@@ -234,6 +236,8 @@ pub fn in_place(key: &str, cfg: &Config) -> bool {
             matches!(rest, "rate" | "burst") && cfg.store.backend == config::Backend::Memory
         }
         "detection" => matches!(rest, "mode" | "attack_rate_factor"),
+        // RFC 0022: the sampling task reads it at each sweep
+        "history" => rest == "retention",
         _ => false,
     }
 }
@@ -280,6 +284,13 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
         ("xdp", start.xdp != new.xdp),
         ("admin", start.admin != new.admin),
         ("pool", start.pool != new.pool),
+        (
+            "history",
+            config::History {
+                retention: new.history.retention,
+                ..start.history.clone()
+            } != new.history,
+        ),
         ("config_watch", start.config_watch != new.config_watch),
     ]
     .into_iter()
