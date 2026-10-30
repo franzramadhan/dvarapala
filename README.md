@@ -92,6 +92,13 @@ installs to `/usr/local/bin` (when writable) or `~/.local/bin`.
 picks the directory. Tarballs are also on the
 [releases](https://github.com/franzramadhan/dvarapala/releases) page.
 
+From crates.io, built on your machine with the default features (add
+`--features` as in Build from source below):
+
+```sh
+cargo install dvarapala
+```
+
 Container image (`linux/amd64`, `linux/arm64`), `FROM scratch` with the
 static binary built with the Redis and PostgreSQL stores (`[store]`, RFC 0010),
 running as UID 10001 on port 8080:
@@ -218,9 +225,7 @@ SDKs share the same logic.
 
 Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
 `tokio-postgres`, `aya` and `kube` (the operator); the console is SolidJS. CI fails when the idle binary goes over a
-10 MB RSS budget. The crates are on crates.io (`dvarapala-engine`,
-`dvarapala-l7` and the rest); `cargo install dvarapala` builds the binary
-with the default features.
+10 MB RSS budget.
 
 </details>
 
