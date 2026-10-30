@@ -1,7 +1,6 @@
 //! RFC 0025: the admin Service of a gateway, with a stable name so a
 //! hand-written Ingress or tailnet proxy can point at it, and `ClientIP`
 //! affinity so a console session stays on one pod.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::collections::BTreeMap;
 
@@ -18,11 +17,45 @@ pub const ADMIN_OF: &str = "dvarapala.franzramadhan.dev/admin-of";
 
 /// `<backend>-dvp-admin-<port>`, at most 63 characters.
 pub fn name(g: &Gateway) -> String {
-    todo!("rfc 0025")
+    let suffix = format!("-dvp-admin-{}", g.port);
+    let mut s: String = g.backend.chars().take(63 - suffix.len()).collect();
+    while s.ends_with('-') {
+        s.pop();
+    }
+    s + &suffix
 }
 
 pub fn service(g: &Gateway) -> Service {
-    todo!("rfc 0025")
+    let labels = [
+        MANAGED_BY,
+        (ADMIN_OF, &g.name),
+        (BACKEND, &g.backend),
+        (POLICY, &g.policy),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect::<BTreeMap<_, _>>();
+    Service {
+        metadata: ObjectMeta {
+            name: Some(name(g)),
+            namespace: Some(g.namespace.clone()),
+            labels: Some(labels),
+            ..ObjectMeta::default()
+        },
+        spec: Some(ServiceSpec {
+            selector: Some(selector(g)),
+            session_affinity: Some("ClientIP".into()),
+            ports: Some(vec![ServicePort {
+                name: Some("admin".into()),
+                port: PORT,
+                target_port: Some(IntOrString::String("admin".into())),
+                protocol: Some("TCP".into()),
+                ..ServicePort::default()
+            }]),
+            ..ServiceSpec::default()
+        }),
+        status: None,
+    }
 }
 
 #[cfg(test)]
@@ -30,7 +63,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "rfc 0025"]
     fn names_fit_and_keep_the_port() {
         let mut g = Gateway {
             name: "web-dvp-0".into(),
