@@ -5,7 +5,7 @@ mod sample;
 #[cfg(feature = "llm")]
 mod wire;
 
-pub use export::{ExportQuery, MAX_FILTER};
+pub use export::{ExportQuery, MAX_FILTER, export_query};
 pub(crate) use sample::Seen;
 pub use sample::{Llm, LlmConfig, MAX_PATH, On, Probe, Sample, Sink, Trigger, cut, redact};
 #[cfg(feature = "llm")]
