@@ -1,5 +1,7 @@
 //! The `DvarapalaPolicy` custom resource.
 
+use std::collections::BTreeMap;
+
 use k8s_openapi::api::core::v1::ResourceRequirements;
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -22,7 +24,8 @@ use serde::{Deserialize, Serialize};
 pub struct PolicySpec {
     /// dvarapala config as TOML. The operator owns `mode`, `listen`,
     /// `upstream`, `upstream_protocol`, `[pool]`, `config_watch`,
-    /// `metrics.listen`, `[admin]`, `[xdp]`, `[quic]` and `[tls]`.
+    /// `metrics.listen`, `admin.listen`, `[xdp]`, `[quic]` and `[tls]`,
+    /// and `waf.endpoint` with `gateway.waf`.
     #[serde(default)]
     pub config: String,
     /// A Secret whose keys become the gateway's environment, for example
@@ -48,6 +51,53 @@ pub struct GatewaySpec {
     pub autoscaling: Option<Autoscaling>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceRequirements>,
+    /// RFC 0025: the admin listener and console, one Service per gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin: Option<Admin>,
+    /// RFC 0025: `coraza-spoa` as a sidecar over a Unix socket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waf: Option<Waf>,
+    /// RFC 0025: ConfigMaps and Secrets of this namespace, read-only at
+    /// `/etc/dvarapala-mounts/<name>/`. At most 16.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mounts: Vec<Mount>,
+    /// Added to the gateway pods; the operator's own keys are refused.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pod_labels: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pod_annotations: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
+pub struct Admin {
+    /// `admin.listen` on port 9091; needs a `secretRef` with the token.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Waf {
+    /// Must start with a prefix of the operator's `--waf-images`; pin it
+    /// by digest.
+    pub image: String,
+    /// The agent's config under the key `config.yaml`; it binds
+    /// `unix:///run/waf/waf.sock`.
+    pub config_map: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourceRequirements>,
+}
+
+/// One of `configMap` or `secret`.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Mount {
+    /// A DNS label, unique in the list: the directory name.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_map: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
 }
 
 /// An HPA on CPU per gateway.
@@ -81,6 +131,10 @@ pub struct PolicyStatus {
     /// Backends left as they are, with the reason.
     #[serde(default)]
     pub skipped_backends: Vec<String>,
+    /// Accepted but probably not meant: an idle WAF sidecar, an image
+    /// without a digest, a `rules` entry a route does not have.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
@@ -94,6 +148,9 @@ pub struct GatewayStatus {
     /// `Passthrough` until the first gateway pod is ready, then `Protecting`.
     pub phase: String,
     pub ready_replicas: i32,
+    /// The admin Service with `gateway.admin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_service: Option<String>,
 }
 
 #[cfg(test)]

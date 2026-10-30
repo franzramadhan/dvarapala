@@ -394,6 +394,7 @@ async fn status(
                     }
                     .into(),
                     ready_replicas: n,
+                    admin_service: None,
                 }
             })
             .collect();
@@ -406,6 +407,7 @@ async fn status(
             gateways,
             routes: plan.routes.get(name).copied().unwrap_or(0),
             skipped_backends: plan.skipped.get(name).cloned().unwrap_or_default(),
+            warnings: Vec::new(),
         };
         if p.status.as_ref() != Some(&s) {
             let body = serde_json::json!({ "status": s });

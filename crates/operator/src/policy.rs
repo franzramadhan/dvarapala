@@ -3,6 +3,8 @@
 
 use toml::{Table, Value};
 
+use crate::crd::PolicySpec;
+
 /// Keys the operator sets per gateway; a policy may not.
 pub const OWNED: &[&str] = &[
     "mode",
@@ -59,6 +61,14 @@ pub fn render(config: &str) -> Result<Rendered, String> {
         restart_hash: hash(&fixed(&table).to_string()),
         toml,
     })
+}
+
+/// RFC 0025: [`render`], then the `gateway` fields against the config and
+/// the operator's `--waf-images` prefixes. `Ok` carries the warnings:
+/// accepted, but probably not meant.
+pub fn check(spec: &PolicySpec, waf_images: &[String]) -> Result<(Rendered, Vec<String>), String> {
+    let _ = (spec, waf_images);
+    todo!("rfc 0025")
 }
 
 /// The ConfigMap of the policy named `policy`.
@@ -129,6 +139,139 @@ mod tests {
         );
         // metrics keys other than listen are the policy's
         assert!(render("[metrics]").is_ok());
+    }
+
+    fn spec(config: &str) -> PolicySpec {
+        PolicySpec {
+            config: config.into(),
+            ..PolicySpec::default()
+        }
+    }
+
+    fn images() -> Vec<String> {
+        vec!["ghcr.io/corazawaf/coraza-spoa".into()]
+    }
+
+    fn with_admin(mut p: PolicySpec, secret: bool) -> PolicySpec {
+        p.gateway.admin = Some(crate::crd::Admin { enabled: true });
+        p.secret_ref = secret.then(|| crate::crd::SecretRef { name: "s".into() });
+        p
+    }
+
+    fn with_waf(mut p: PolicySpec, image: &str) -> PolicySpec {
+        p.gateway.waf = Some(crate::crd::Waf {
+            image: image.into(),
+            config_map: "coraza".into(),
+            resources: None,
+        });
+        p
+    }
+
+    // RFC 0025 case 3
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn admin_needs_a_secret_ref() {
+        let e = check(&with_admin(spec(""), false), &images()).unwrap_err();
+        assert_eq!(e, "admin needs secretRef");
+        assert!(check(&with_admin(spec(""), true), &images()).is_ok());
+    }
+
+    // RFC 0025 case 4
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn admin_keys_but_listen_are_the_policys() {
+        let ui = "[admin]\nui_enabled = true\n";
+        assert!(check(&with_admin(spec(ui), true), &images()).is_ok());
+        let e = check(
+            &with_admin(spec("[admin]\nlisten = \"0.0.0.0:1\"\n"), true),
+            &images(),
+        )
+        .unwrap_err();
+        assert!(e.contains("admin.listen"), "{e}");
+        // without gateway.admin the gateway would not start
+        let e = check(&spec(ui), &images()).unwrap_err();
+        assert!(e.contains("gateway.admin"), "{e}");
+    }
+
+    // RFC 0025 case 6
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn waf_images_outside_the_allowlist_are_refused() {
+        let on = "[waf]\nenabled = true\n";
+        for bad in [
+            "docker.io/evil/agent",
+            "ghcr.io/corazawaf/coraza-spoa-evil:1",
+            "ghcr.io/corazawaf",
+        ] {
+            let e = check(&with_waf(spec(on), bad), &images()).unwrap_err();
+            assert!(e.starts_with("waf image not allowed"), "{bad}: {e}");
+        }
+        let pinned = "ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:00";
+        let (_, w) = check(&with_waf(spec(on), pinned), &images()).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        let (_, w) = check(
+            &with_waf(spec(""), "ghcr.io/corazawaf/coraza-spoa"),
+            &images(),
+        )
+        .unwrap();
+        assert_eq!(w.len(), 2, "unpinned and idle: {w:?}");
+        // an empty allowlist refuses every sidecar
+        assert!(check(&with_waf(spec(on), pinned), &[]).is_err());
+    }
+
+    // RFC 0025 case 7
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn waf_endpoint_is_owned_with_the_sidecar() {
+        let c = "[waf]\nenabled = true\nendpoint = \"127.0.0.1:1\"\n";
+        assert!(check(&spec(c), &images()).is_ok());
+        let pinned = "ghcr.io/corazawaf/coraza-spoa@sha256:00";
+        let e = check(&with_waf(spec(c), pinned), &images()).unwrap_err();
+        assert!(e.contains("waf.endpoint"), "{e}");
+    }
+
+    // RFC 0025 case 9
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn bad_mounts_are_named() {
+        let m = |name: &str| crate::crd::Mount {
+            name: name.into(),
+            config_map: Some("c".into()),
+            secret: None,
+        };
+        let mut p = spec("");
+        for (mounts, want) in [
+            (vec![m("../x")], "\"../x\""),
+            (vec![m("a"), m("a")], "used twice"),
+            ((0..17).map(|i| m(&format!("m{i}"))).collect(), "at most 16"),
+            (
+                vec![crate::crd::Mount {
+                    secret: Some("s".into()),
+                    ..m("both")
+                }],
+                "one of",
+            ),
+        ] {
+            p.gateway.mounts = mounts;
+            let e = check(&p, &images()).unwrap_err();
+            assert!(e.starts_with("mount name") && e.contains(want), "{e}");
+        }
+        p.gateway.mounts = vec![m("pg-ca"), m("llm-key")];
+        assert!(check(&p, &images()).is_ok());
+    }
+
+    // RFC 0025 case 10
+    #[test]
+    #[ignore = "rfc 0025"]
+    fn operator_pod_labels_are_reserved() {
+        let mut p = spec("");
+        p.gateway.pod_labels = [("app.kubernetes.io/name".into(), "x".into())].into();
+        assert_eq!(
+            check(&p, &images()).unwrap_err(),
+            "reserved pod label: app.kubernetes.io/name"
+        );
+        p.gateway.pod_labels = [("team".into(), "shop".into())].into();
+        assert!(check(&p, &images()).is_ok());
     }
 
     // case 11

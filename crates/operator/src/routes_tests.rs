@@ -172,3 +172,113 @@ fn odd_shapes_do_not_panic() {
         }
     }
 }
+
+fn split_route(rules: Option<&str>) -> Value {
+    let mut r = json!({
+        "metadata": {"name": "shop", "labels": {LABEL: "default"}},
+        "spec": {"rules": [
+            {"name": "api", "backendRefs": [{"name": "api", "port": 80}]},
+            {"name": "assets", "backendRefs": [{"name": "assets", "port": 80}]}
+        ]}
+    });
+    if let Some(v) = rules {
+        r["metadata"]["annotations"] = json!({RULES: v});
+    }
+    r
+}
+
+fn rule_backend(route: &Value, i: usize) -> &str {
+    route["spec"]["rules"][i]["backendRefs"][0]["name"]
+        .as_str()
+        .unwrap()
+}
+
+// RFC 0025 cases 11 and 12
+#[test]
+#[ignore = "rfc 0025"]
+fn rules_annotation_picks_rules() {
+    let api = gateway::name("api", "80", "default");
+    let assets = gateway::name("assets", "80", "default");
+    let partial = rewrite(
+        Kind::HttpRoute,
+        &split_route(Some("api")),
+        "shop",
+        Some("default"),
+        &all,
+    );
+    assert_eq!(
+        (rule_backend(&partial, 0), rule_backend(&partial, 1)),
+        (api.as_str(), "assets")
+    );
+    assert_eq!(
+        backends(Kind::HttpRoute, &partial, "shop"),
+        [Backend {
+            service: "api".into(),
+            port: "80".into()
+        }]
+    );
+    // annotation removed: the whole route opts in
+    let mut whole = partial.clone();
+    whole["metadata"]["annotations"]
+        .as_object_mut()
+        .unwrap()
+        .remove(RULES);
+    let whole = rewrite(Kind::HttpRoute, &whole, "shop", Some("default"), &all);
+    assert_eq!(
+        (rule_backend(&whole, 0), rule_backend(&whole, 1)),
+        (api.as_str(), assets.as_str())
+    );
+    // listed again: the unlisted rule is restored
+    let mut again = whole.clone();
+    again["metadata"]["annotations"][RULES] = json!("api");
+    let again = rewrite(Kind::HttpRoute, &again, "shop", Some("default"), &all);
+    assert_eq!(rule_backend(&again, 1), "assets");
+}
+
+// RFC 0025 case 13
+#[test]
+#[ignore = "rfc 0025"]
+fn rules_annotation_picks_ingress_paths() {
+    let ing = json!({
+        "metadata": {"name": "i", "annotations": {RULES: "/api/"}},
+        "spec": {
+            "defaultBackend": {"service": {"name": "web", "port": {"number": 80}}},
+            "rules": [{"http": {"paths": [
+                {"path": "/api/", "backend": {"service": {"name": "api", "port": {"number": 80}}}},
+                {"path": "/", "backend": {"service": {"name": "web", "port": {"number": 80}}}}
+            ]}}]
+        }
+    });
+    let out = rewrite(Kind::Ingress, &ing, "shop", Some("p"), &all);
+    let paths = out.pointer("/spec/rules/0/http/paths").unwrap();
+    assert_eq!(
+        paths[0]["backend"]["service"]["name"],
+        json!(gateway::name("api", "80", "p"))
+    );
+    assert_eq!(paths[1]["backend"]["service"]["name"], json!("web"));
+    assert_eq!(
+        out.pointer("/spec/defaultBackend/service/name").unwrap(),
+        &json!("web")
+    );
+}
+
+// RFC 0025 case 14
+#[test]
+#[ignore = "rfc 0025"]
+fn unknown_rules_change_nothing_and_are_named() {
+    let r = split_route(Some("missing, api"));
+    assert_eq!(unknown_rules(Kind::HttpRoute, &r), ["missing"]);
+    let only = split_route(Some("missing"));
+    let out = rewrite(Kind::HttpRoute, &only, "shop", Some("default"), &all);
+    assert_eq!(
+        (rule_backend(&out, 0), rule_backend(&out, 1)),
+        ("api", "assets")
+    );
+    assert!(unknown_rules(Kind::HttpRoute, &split_route(None)).is_empty());
+    // capped: at most 64 entries of at most 253 bytes
+    let long = vec!["x"; 100].join(",") + "," + &"y".repeat(300);
+    assert_eq!(
+        unknown_rules(Kind::HttpRoute, &split_route(Some(&long))).len(),
+        64
+    );
+}

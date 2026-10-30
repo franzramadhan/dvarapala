@@ -12,6 +12,12 @@ pub const BACKENDS: &str = "dvarapala.franzramadhan.dev/backends";
 pub const LABEL: &str = "dvarapala.franzramadhan.dev/policy";
 /// The label value that opts a route out.
 pub const NONE: &str = "none";
+/// RFC 0025: on a route, the rules that opt in: rule names of an
+/// `HTTPRoute` or `GRPCRoute`, path values of an `Ingress`, comma separated.
+pub const RULES: &str = "dvarapala.franzramadhan.dev/rules";
+/// Entries of [`RULES`] read at most, each at most [`MAX_RULE`] bytes.
+pub const MAX_RULES: usize = 64;
+pub const MAX_RULE: usize = 253;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -96,6 +102,12 @@ pub fn rewrite(
     });
     record(&mut out, used);
     out
+}
+
+/// The entries of [`RULES`] that name no rule of `route`.
+pub fn unknown_rules(kind: Kind, route: &Value) -> Vec<String> {
+    let _ = (kind, route);
+    todo!("rfc 0025")
 }
 
 /// The `backends` annotation, or an empty map.
