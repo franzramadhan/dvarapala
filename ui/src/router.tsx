@@ -7,6 +7,7 @@ import { BlocksPage } from './pages/Blocks';
 import { ReloadPage } from './pages/Reload';
 import { ConfigPage } from './pages/Config';
 import { WafPage } from './pages/Waf';
+import { LlmPage } from './pages/Llm';
 import { HealthPage } from './pages/Health';
 
 function RouteError(props: { error: Error }) {
@@ -34,6 +35,7 @@ export function createAppRouter(history?: RouterHistory) {
     createRoute({ getParentRoute: () => app, path: '/reload', component: ReloadPage }),
     createRoute({ getParentRoute: () => app, path: '/config', component: ConfigPage }),
     createRoute({ getParentRoute: () => app, path: '/waf', component: WafPage }),
+    createRoute({ getParentRoute: () => app, path: '/llm', component: LlmPage }),
     createRoute({ getParentRoute: () => app, path: '/h/$page', component: HealthPage }),
   ] as const;
   const tree = root.addChildren([login, app.addChildren(pages)]);

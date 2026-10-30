@@ -18,6 +18,8 @@ export type Status = {
   /** The WAF's running mode, null when the WAF is off (RFC 0021). */
   waf?: Mode | null;
   switches?: Switch[];
+  /** RFC 0023: null when `ml.llm` is off. */
+  llm?: { sampling: boolean } | null;
 };
 export type Mode = 'observe' | 'enforce';
 export type Layer = 'detection' | 'waf';
@@ -39,6 +41,26 @@ export type HistoryRange = '15m' | '1h' | '6h' | '24h' | '7d';
 export type History = { interval_ms: number; source: 'memory' | 'store'; samples: Sample[] };
 export type Talker = { cidr: string; count: number };
 export type Block = { cidr: string; ttl_secs: number };
+export type LlmLabel = {
+  at: number;
+  trigger: string;
+  route: string;
+  method: string;
+  path: string;
+  label: string;
+  confidence: number;
+  /** Model text: render as text only. */
+  pattern: string;
+};
+export type Llm = {
+  configured: boolean;
+  sampling: boolean;
+  until?: number | null;
+  enabled?: boolean;
+  max_duration_secs?: number;
+  counts?: { label: string; trigger: string; count: number }[];
+  recent?: LlmLabel[];
+};
 
 export class ApiError extends Error {
   constructor(
@@ -118,6 +140,8 @@ export async function reload(): Promise<ReloadOk | ReloadFailed> {
 export const getConfig = () => request<{ keys: ConfigKey[] }>('/config').then((r) => r.keys);
 export const getWaf = () => request<Waf>('/waf');
 export const getMetricsText = () => request<string>('/metrics', { text: true, headers: { Accept: 'text/plain' } });
+export const getLlm = () => request<Llm>('/llm');
+export const setLlm = (on: string | null) => request<Llm>(on === null ? '/llm?off' : `/llm?on=${encodeURIComponent(on)}`, { method: 'POST' });
 export const setMode = (layer: Layer, mode: Mode) =>
   request<{ layer: Layer; mode: Mode; previous: Mode; switch: Switch | null }>(`/mode?layer=${layer}&mode=${mode}`, { method: 'POST' });
 
@@ -135,6 +159,7 @@ export const topQuery = () => queryOptions({ queryKey: ['top'], queryFn: getTop,
 export const blocksQuery = () => queryOptions({ queryKey: ['blocks'], queryFn: getBlocks, refetchInterval: 10_000, retry });
 
 export const configQuery = () => queryOptions({ queryKey: ['config'], queryFn: getConfig, retry });
+export const llmQuery = () => queryOptions({ queryKey: ['llm'], queryFn: getLlm, refetchInterval: 5000, retry });
 export const wafQuery = () => queryOptions({ queryKey: ['waf'], queryFn: getWaf, refetchInterval: 5000, retry });
 
 export function errMsg(e: unknown): string {

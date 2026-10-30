@@ -24,6 +24,7 @@ const NAV = [
   { to: '/top', label: 'Top talkers', reverse: true },
   { to: '/blocks', label: 'Blocks', reverse: true },
   { to: '/waf', label: 'WAF', waf: true },
+  { to: '/llm', label: 'LLM labels', llm: true },
   { to: '/config', label: 'Config' },
   { to: '/reload', label: 'Reload' },
 ] as const;
@@ -55,7 +56,7 @@ export function Shell() {
   const revert = useMutation(() => ({ mutationFn: reload, onSettled: () => void qc.invalidateQueries() }));
   const [help, setHelp] = createSignal(false);
   const nav = () =>
-    NAV.filter((n) => !('reverse' in n && status.data?.mode === 'forward') && !('waf' in n && status.data?.waf == null));
+    NAV.filter((n) => !('reverse' in n && status.data?.mode === 'forward') && !('waf' in n && status.data?.waf == null) && !('llm' in n && status.data?.llm == null));
   const health = () => HEALTH.filter((p) => present(p, metrics.data));
   const state = () => stateKey(status.data?.detection);
 

@@ -173,3 +173,52 @@ describe('traffic history', () => {
     expect(await screen.findByRole('img', { name: /over the last 24 hours/ })).toBeTruthy();
   });
 });
+
+const llm = {
+  configured: true,
+  sampling: false,
+  until: null,
+  enabled: false,
+  max_duration_secs: 3600,
+  counts: [{ label: 'scanner', trigger: 'waf', count: 3 }],
+  recent: [
+    {
+      at: 1767225600000,
+      trigger: 'waf',
+      route: '',
+      method: 'GET',
+      path: '/wp-login.php',
+      label: 'scanner',
+      confidence: 0.9,
+      pattern: '<script>alert(1)</script>',
+    },
+  ],
+};
+
+describe('LLM labels', () => {
+  // RFC 0023 case 9: the model's pattern is text, never markup
+  it('renders the pattern as text and starts sampling', async () => {
+    const { calls } = mockApi({
+      'GET /config': () => ({ body: config }),
+      'GET /status': () => ({ body: { ...attackStatus, llm: { sampling: false } } }),
+      'GET /llm': () => ({ body: llm }),
+      'POST /llm': () => ({ body: { sampling: true } }),
+    });
+    renderApp('/ui/llm');
+    const row = await screen.findByTestId('llm-row');
+    expect(row.textContent).toContain('<script>alert(1)</script>');
+    expect(row.querySelector('script')).toBeNull();
+    expect(screen.getByRole('link', { name: 'LLM labels' })).toBeTruthy();
+    // 4h and 24h are above max_duration
+    expect(within(screen.getByLabelText('Duration')).queryByText('4h')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Start sampling' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.startsWith('/llm'))?.url).toBe('/llm?on=30m'));
+  });
+
+  it('hides the nav entry when the labels are not configured', async () => {
+    mockApi({ 'GET /status': () => ({ body: { ...attackStatus, llm: null } }) });
+    renderApp('/ui/');
+    await screen.findAllByRole('link');
+    expect(screen.queryByRole('link', { name: 'LLM labels' })).toBeNull();
+  });
+});
