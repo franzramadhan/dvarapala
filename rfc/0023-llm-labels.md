@@ -27,6 +27,19 @@ in the request path, but it is good at naming a pattern after the fact.
 Operators already run gateways such as LiteLLM that put many models
 behind one OpenAI-compatible API, with budgets and rate limits per key.
 
+## Use cases
+
+| Use | Trigger | What the labels answer |
+|---|---|---|
+| Moving the WAF from `observe` to `enforce` | `waf` | Mostly `scanner`: enforce is safe. `benign` labels are false positives, and the sample's rule IDs name the rules to tune |
+| Training data for `[ml]` (RFC 0002) | any, with `export` | Features plus a label per client, the labeled traffic the model needs; once trained, the inline model scores and the LLM is rarely needed |
+| Incident triage | `attack` | `flood`, `scraper` or `credential_stuffing`, which picks the response: a route rate, a JA4 rule, the challenge |
+| Tuning the challenge | `challenge_failed` | Bots that fail the proof of work against real browsers that do, so `difficulty` or `mode` can change |
+| Checking the `[ml]` threshold | `ml_band` | What the uncertain scores near `ml.threshold` are |
+
+Labels do not help in real time (they never block) or on quiet traffic
+where no trigger fires.
+
 ## Proposal
 
 - **Labels, not verdicts.** The model's answer goes to a log line,
@@ -212,6 +225,19 @@ A fuzz target `fuzz_llm_reply` feeds the reply parser.
 - **Secrets.** The API key comes from the environment and is redacted in
   `GET /config` and the logs.
 - **Console.** `pattern` is model output and shown as text only.
+
+## Future work
+
+Suggested config changes (a route, a fingerprint rule, a rate) from the
+labels need their own RFC. The likely shape: deterministic rules over
+label counts per path, JA4 and window (a label share over a threshold
+suggests a change), with an LLM at most for the wording or patterns the
+rules miss; never raw requests in a prompt. Every suggestion is a diff
+the config validation checks, is run against logged traffic with
+`dvarapala replay` (RFC 0016) to show what it would refuse and how much
+of that is labeled `benign`, and applies only after an operator approves
+it, with an audit log. Attackers write the traffic, so an unchecked
+suggestion could be steered into blocking real users.
 
 ## Rollout
 
