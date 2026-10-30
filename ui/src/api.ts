@@ -60,6 +60,8 @@ export type Llm = {
   max_duration_secs?: number;
   counts?: { label: string; trigger: string; count: number }[];
   recent?: LlmLabel[];
+  /** RFC 0024: `store` with `ml.llm.persist`, the whole cluster's last 24 h. */
+  source?: 'memory' | 'store';
 };
 
 export class ApiError extends Error {

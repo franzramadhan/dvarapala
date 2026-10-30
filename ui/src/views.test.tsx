@@ -216,7 +216,7 @@ describe('LLM labels', () => {
   });
 
   // RFC 0024 case 17
-  it.skip('names the source and links the export with the store', async () => {
+  it('names the source and links the export with the store', async () => {
     mockApi({
       'GET /config': () => ({ body: config }),
       'GET /status': () => ({ body: { ...attackStatus, llm: { sampling: false } } }),
@@ -230,7 +230,7 @@ describe('LLM labels', () => {
     await waitFor(() => expect(link.getAttribute('href')).toBe('/llm/export?since=2026-10-29T00%3A00%3A00Z'));
   });
 
-  it.skip('shows the memory source without an export', async () => {
+  it('shows the memory source without an export', async () => {
     mockApi({
       'GET /config': () => ({ body: config }),
       'GET /status': () => ({ body: { ...attackStatus, llm: { sampling: false } } }),

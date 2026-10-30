@@ -7,6 +7,15 @@ import { fmtClock, fmtDuration, fmtInt } from '../format';
 const DURATIONS = ['15m', '30m', '1h', '4h', '24h'];
 const SECS: Record<string, number> = { '15m': 900, '30m': 1800, '1h': 3600, '4h': 14_400, '24h': 86_400 };
 
+/** `GET /llm/export` for whole UTC days, both ends optional (RFC 0024). */
+export function exportHref(since: string, until: string): string {
+  const q = new URLSearchParams();
+  if (since) q.set('since', `${since}T00:00:00Z`);
+  if (until) q.set('until', `${until}T23:59:59.999Z`);
+  const s = q.toString();
+  return s ? `/llm/export?${s}` : '/llm/export';
+}
+
 /** RFC 0023: the sampling switch, labels by trigger and the recent answers. */
 export function LlmPage() {
   const qc = useQueryClient();
@@ -14,6 +23,8 @@ export function LlmPage() {
   const cfg = useQuery(() => configQuery());
   const allowed = () => cfg.data?.find((k) => k.key === 'admin.mode_switch')?.value === true;
   const [dur, setDur] = createSignal('30m');
+  const [since, setSince] = createSignal('');
+  const [until, setUntil] = createSignal('');
   const run = useMutation(() => ({
     mutationFn: (on: string | null) => setLlm(on),
     onSettled: () => {
@@ -84,7 +95,7 @@ export function LlmPage() {
             </section>
             <section class="card overflow-x-auto" aria-labelledby="llm-counts">
               <h2 id="llm-counts" class="label p-3">
-                Labels since start
+                {l().source === 'store' ? 'Labels, all replicas, last 24 h' : 'Labels, this replica since start'}
               </h2>
               <table class="w-full">
                 <thead class="border-b border-line">
@@ -144,6 +155,22 @@ export function LlmPage() {
                 </tbody>
               </table>
             </section>
+            <Show when={l().source === 'store'}>
+              <section class="card flex flex-wrap items-end gap-3 p-4" aria-labelledby="llm-export">
+                <h2 id="llm-export" class="label w-full">
+                  Export (JSON lines, UTC days)
+                </h2>
+                <label class="text-sm">
+                  From <input type="date" class="input" value={since()} onInput={(e) => setSince(e.currentTarget.value)} />
+                </label>
+                <label class="text-sm">
+                  To <input type="date" class="input" value={until()} onInput={(e) => setUntil(e.currentTarget.value)} />
+                </label>
+                <a class="btn" href={exportHref(since(), until())} download="llm-labels.jsonl">
+                  Export
+                </a>
+              </section>
+            </Show>
           </Show>
         )}
       </Show>
