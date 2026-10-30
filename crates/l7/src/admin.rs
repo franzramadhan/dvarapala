@@ -25,6 +25,33 @@ pub enum Call {
     Unblock {
         net: Cidr,
     },
+    /// RFC 0021: the running config, redacted.
+    Config,
+    /// RFC 0021: the WAF settings, matched rules and rule files.
+    Waf,
+    /// RFC 0021: the Prometheus text.
+    Metrics,
+    /// RFC 0021: `observe` or `enforce` for one layer until the next reload.
+    Mode {
+        layer: ModeLayer,
+        enforce: bool,
+    },
+}
+
+/// A layer with an `observe` mode the console can switch (RFC 0021).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeLayer {
+    Detection,
+    Waf,
+}
+
+impl ModeLayer {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Detection => "detection",
+            Self::Waf => "waf",
+        }
+    }
 }
 
 /// A refused call: its status and a reason for the body.
@@ -45,7 +72,14 @@ pub fn parse(method: &str, path: &str, query: Option<&str>) -> Result<Call, Refu
             ttl: param(q, "ttl")?,
         },
         ("/blocks", "DELETE") => Call::Unblock { net: cidr(q)? },
-        ("/status" | "/top" | "/reload" | "/blocks", _) => {
+        ("/config", "GET") => Call::Config,
+        ("/waf", "GET") => Call::Waf,
+        ("/metrics", "GET") => Call::Metrics,
+        ("/mode", "POST") => mode(q)?,
+        (
+            "/status" | "/top" | "/reload" | "/blocks" | "/config" | "/waf" | "/metrics" | "/mode",
+            _,
+        ) => {
             return Err((StatusCode::METHOD_NOT_ALLOWED, "method not allowed".into()));
         }
         _ => return Err((StatusCode::NOT_FOUND, "no such endpoint".into())),
@@ -107,6 +141,22 @@ fn cidr(q: &str) -> Result<Cidr, Refusal> {
         .parse()
         .map_err(|e: dvarapala_engine::CidrError| bad(e.to_string()))?;
     Ok(Cidr::of(c.addr(), c.prefix()))
+}
+
+/// `layer=<detection|waf>&mode=<observe|enforce>`, both required.
+fn mode(q: &str) -> Result<Call, Refusal> {
+    let bad = |m: &str| (StatusCode::BAD_REQUEST, m.to_owned());
+    let layer = match param(q, "layer")?.as_deref() {
+        Some("detection") => ModeLayer::Detection,
+        Some("waf") => ModeLayer::Waf,
+        _ => return Err(bad("layer is \"detection\" or \"waf\"")),
+    };
+    let enforce = match param(q, "mode")?.as_deref() {
+        Some("observe") => false,
+        Some("enforce") => true,
+        _ => return Err(bad("mode is \"observe\" or \"enforce\"")),
+    };
+    Ok(Call::Mode { layer, enforce })
 }
 
 /// The first `name=` value, percent-decoded.
@@ -194,6 +244,46 @@ mod tests {
         assert_eq!(
             status("GET", "/blocks", Some(&long)),
             StatusCode::URI_TOO_LONG
+        );
+    }
+
+    // RFC 0021 case 13 (parsing)
+    #[test]
+    fn mode_switch_queries() {
+        assert_eq!(parse("GET", "/config", None), Ok(Call::Config));
+        assert_eq!(parse("GET", "/waf", None), Ok(Call::Waf));
+        assert_eq!(parse("GET", "/metrics", None), Ok(Call::Metrics));
+        assert_eq!(
+            parse("POST", "/mode", Some("layer=waf&mode=observe")),
+            Ok(Call::Mode {
+                layer: ModeLayer::Waf,
+                enforce: false
+            })
+        );
+        assert_eq!(
+            parse("POST", "/mode", Some("mode=enforce&layer=detection")),
+            Ok(Call::Mode {
+                layer: ModeLayer::Detection,
+                enforce: true
+            })
+        );
+        let status = |q| parse("POST", "/mode", q).unwrap_err().0;
+        for q in [
+            Some("layer=xdp&mode=observe"),
+            Some("layer=waf&mode=off"),
+            Some("layer=waf"),
+            Some("mode=observe"),
+            None,
+        ] {
+            assert_eq!(status(q), StatusCode::BAD_REQUEST, "{q:?}");
+        }
+        assert_eq!(
+            parse("GET", "/mode", None).unwrap_err().0,
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            parse("POST", "/config", None).unwrap_err().0,
+            StatusCode::METHOD_NOT_ALLOWED
         );
     }
 

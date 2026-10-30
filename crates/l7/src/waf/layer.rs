@@ -22,6 +22,7 @@ use tower_service::Service;
 use super::agent::{Answer, Endpoint, Failure, Pool};
 use super::body::WafBody;
 use super::frame::Value;
+use super::rules::MATCHED;
 use crate::rate_limit::forwarded_for;
 use crate::{GrpcStatus, NoWaf, PeerAddr, grpc_response, is_grpc};
 
@@ -29,8 +30,6 @@ use crate::{GrpcStatus, NoWaf, PeerAddr, grpc_response, is_grpc};
 const MESSAGE: &str = "coraza-req";
 /// Room for the request line and headers in a frame, on top of the body.
 pub const HEADROOM: usize = 16 * 1024;
-/// Rule IDs kept as metric labels; the rest count as `other`.
-const MAX_RULE_LABELS: usize = 256;
 
 #[derive(Debug, Clone)]
 pub struct WafConfig {
@@ -206,7 +205,7 @@ where
         Ok(a) if a.action.is_some() => {
             log_match(&parts, client.0, &a, cfg.enforce);
             if let Some(r) = a.rule {
-                count_rule(r);
+                count_rule(r, &parts, a.anomaly_score);
             }
             count(if cfg.enforce { "block" } else { "would_block" });
             cfg.enforce.then(|| status(a.status))
@@ -312,20 +311,16 @@ fn count(verdict: &'static str) {
     metrics::counter!("dvarapala_waf_requests_total", "verdict" => verdict).increment(1);
 }
 
-/// `dvarapala_waf_rule_matches_total{rule}`, the label set bounded.
-fn count_rule(rule: i64) {
-    static SEEN: std::sync::Mutex<Vec<i64>> = std::sync::Mutex::new(Vec::new());
-    let label = {
-        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-        if seen.contains(&rule) {
-            rule.to_string()
-        } else if seen.len() < MAX_RULE_LABELS {
-            seen.push(rule);
-            rule.to_string()
-        } else {
-            "other".to_owned()
-        }
-    };
+/// `dvarapala_waf_rule_matches_total{rule}` and the RFC 0021 table, the
+/// label set bounded by the table.
+fn count_rule(rule: i64, p: &Parts, score: Option<i64>) {
+    let label = MATCHED.record(
+        rule,
+        p.method.as_str(),
+        p.uri.path(),
+        score,
+        crate::unix_now(),
+    );
     metrics::counter!("dvarapala_waf_rule_matches_total", "rule" => label).increment(1);
 }
 
