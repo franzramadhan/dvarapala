@@ -1,0 +1,10 @@
+{
+  "name": "@dvarapala/darwin-x64",
+  "version": "0.19.1",
+  "description": "The dvarapala N-API addon for darwin x64 (RFC 0026), installed by the dvarapala package",
+  "license": "MIT",
+  "repository": "github:franzramadhan/dvarapala",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["dvarapala.node"]
+}

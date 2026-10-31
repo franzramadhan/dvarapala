@@ -1,0 +1,11 @@
+{
+  "name": "@dvarapala/linux-arm64-gnu",
+  "version": "0.19.1",
+  "description": "The dvarapala N-API addon for linux arm64 (RFC 0026), installed by the dvarapala package",
+  "license": "MIT",
+  "repository": "github:franzramadhan/dvarapala",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "files": ["dvarapala.node"]
+}

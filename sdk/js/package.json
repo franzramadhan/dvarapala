@@ -6,7 +6,13 @@
   "repository": "github:franzramadhan/dvarapala",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "dvarapala.node"],
+  "files": ["index.js", "index.d.ts", "locate.js"],
+  "optionalDependencies": {
+    "@dvarapala/linux-x64-gnu": "0.19.1",
+    "@dvarapala/linux-arm64-gnu": "0.19.1",
+    "@dvarapala/darwin-arm64": "0.19.1",
+    "@dvarapala/darwin-x64": "0.19.1"
+  },
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test test/*.test.js"

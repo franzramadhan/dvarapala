@@ -10,7 +10,7 @@ const none = () => {
 };
 
 // RFC 0026 case 5
-test('lookup order: env, local file, platform package', { skip: 'rfc 0026' }, () => {
+test('lookup order: env, local file, platform package', () => {
   const env = { DVARAPALA_NODE: '/env.node' };
   const local = path.join('/d', 'dvarapala.node');
   const opts = { dir: '/d', key: 'linux-x64-gnu', exists: () => true, resolve: pkg };
@@ -22,13 +22,13 @@ test('lookup order: env, local file, platform package', { skip: 'rfc 0026' }, ()
   );
 });
 
-test('missing platform package says how to fix it', { skip: 'rfc 0026' }, () => {
+test('missing platform package says how to fix it', () => {
   const opts = { env: {}, dir: '/d', key: 'darwin-arm64', exists: () => false, resolve: none };
   assert.throws(() => locate(opts), /@dvarapala\/darwin-arm64 is not installed/);
 });
 
 // RFC 0026 case 6
-test('musl and windows name the platform and the supported ones', { skip: 'rfc 0026' }, () => {
+test('musl and windows name the platform and the supported ones', () => {
   assert.equal(platform('linux', 'x64', null), 'linux-x64-musl');
   assert.equal(platform('linux', 'arm64', '2.28'), 'linux-arm64-gnu');
   for (const key of [platform('linux', 'x64', null), platform('win32', 'x64')]) {
