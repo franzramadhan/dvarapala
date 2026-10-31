@@ -30,6 +30,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0023](rfc/0023-llm-labels.md) | LLM labels for sampled traffic: on-demand from the console, worthwhile triggers (WAF, failed challenges, attack, uncertain `[ml]` scores, routes) sampled off the request path to a System One decision model (Clef, Jev) or an OpenAI-compatible chat model; labels for logs, metrics, the console and `[ml]` training, never verdicts | implemented | v0.16.0 |
 | [0024](rfc/0024-llm-label-store.md) | LLM labels in the PostgreSQL store (`ml.llm.persist`): every replica writes its labels as rows, so training data, the console's recent labels and counts cover all replicas and survive restarts; `GET /llm/export` streams them as JSON lines | implemented | v0.17.0 |
 | [0025](rfc/0025-operator-gateway-parity.md) | Operator gateways with the admin listener and console, the WAF agent as a sidecar over a Unix socket, read-only ConfigMap and Secret mounts, pod labels, and opt-in per route rule, so a policy can replace a hand-written gateway | implemented | v0.18.0 |
+| [0026](rfc/0026-sdk-registries.md) | SDK packages on npm and PyPI: the Python and JavaScript SDKs with the prebuilt library inside (per-platform wheels, an npm package per platform), published by `release.yml` with trusted publishing and provenance; Linux libraries built for glibc 2.28 | draft | |
 
 ## Shipped without an RFC
 
