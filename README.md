@@ -117,7 +117,7 @@ cargo install dvarapala --no-default-features --features tls  # smallest build
 | `xdp` | no | XDP fast path (RFC 0011), Linux only |
 
 Container image (`linux/amd64`, `linux/arm64`), `FROM scratch` with the
-static binary built with the Redis and PostgreSQL stores (`[store]`, RFC 0010),
+static binary built with every feature (the stores, `ml`, `http3`, `xdp`),
 running as UID 10001 on port 8080:
 
 ```sh

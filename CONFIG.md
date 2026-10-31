@@ -26,9 +26,9 @@ that is silently ignored.
 | `tls`, `ui`, `waf`, `replay`, `llm` (default) | `[tls]`, `[upstream_tls]`, the console (`admin.ui_enabled`), `[waf]`, `dvarapala replay`, `[ml.llm]` | yes | yes | default |
 | `redis` | `store.backend = "redis"` | no | yes | `--features redis` |
 | `postgres` | `store.backend = "postgres"` | no | yes | `--features postgres` |
-| `http3` | `[quic]` | no | no | `--features http3` |
-| `ml` | `[ml]` | no | no | `--features ml` |
-| `xdp` | `[xdp]` (Linux) | no | no | `--features xdp` |
+| `http3` | `[quic]` | no | yes | `--features http3` |
+| `ml` | `[ml]` | no | yes | `--features ml` |
+| `xdp` | `[xdp]` (Linux) | no | yes | `--features xdp` |
 
 The operator's gateways (RFC 0019) run the container image. With
 `gateway.admin` and `gateway.waf` in the policy (RFC 0025) the operator

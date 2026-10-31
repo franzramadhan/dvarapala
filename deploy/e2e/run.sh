@@ -21,6 +21,14 @@ export HELM_REPOSITORY_CONFIG HELM_REPOSITORY_CACHE
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 k() { kubectl --context "kind-$cluster" "$@"; }
+# A restart shows as a new pod uid; a pod still terminating from an earlier
+# rollout may be in $1 and gone from $2.
+no_new_pods() {
+  local u
+  for u in $2; do
+    case " $1 " in *" $u "*) ;; *) fail "gateway pods restarted: $1 / $2" ;; esac
+  done
+}
 
 up() {
   if [ "$flavor" = cilium ]; then
@@ -142,7 +150,7 @@ reload() {
   done
   [ -n "$ok" ] || fail "rate 100 not applied"
   after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
-  [ "$before" = "$after" ] || fail "gateway pods restarted: $before / $after"
+  no_new_pods "$before" "$after"
   echo "ok: reload without restart"
 }
 
@@ -192,7 +200,12 @@ console_waf() {
     \"gateway\":{\"admin\":{\"enabled\":true},\"waf\":{\"image\":\"$waf_image\",\"configMap\":\"coraza\"}}}}"
   gw=$(k -n shop get deploy -l app.kubernetes.io/name=dvarapala-gateway -o name | head -1)
   k -n shop rollout status "$gw" --timeout=240s
-  admin=$(k -n shop get dvarapalapolicy default -o jsonpath='{.status.gateways[0].adminService}')
+  # the status can lag the rollout: poll for it
+  for _ in $(seq 60); do
+    admin=$(k -n shop get dvarapalapolicy default -o jsonpath='{.status.gateways[0].adminService}')
+    [ -n "$admin" ] && break
+    sleep 2
+  done
   [ -n "$admin" ] || fail "no adminService in the status: $(k -n shop get dvarapalapolicy default -o yaml)"
   token=$(k -n shop get secret dvarapala-admin -o jsonpath='{.data.DVARAPALA__ADMIN__TOKEN}' | base64 -d)
   for _ in $(seq 30); do
@@ -220,7 +233,7 @@ console_waf() {
   done
   [ -n "$ok" ] || fail "waf mode enforce not applied"
   after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
-  [ "$before" = "$after" ] || fail "gateway pods restarted: $before / $after"
+  no_new_pods "$before" "$after"
   [ -n "$(k -n shop get endpointslices -l kubernetes.io/service-name="$admin" -o jsonpath='{.items[*].endpoints[*].addresses[0]}')" ] \
     || fail "admin Service lost its endpoints"
   echo "ok: waf mode reloaded without restart"

@@ -41,5 +41,6 @@ Packaging, install channels and docs need no RFC (see `CLAUDE.md`).
 | `install.sh` (served at `/install.sh`) and the Homebrew tap `franzramadhan/homebrew-tap` | v0.6.1 |
 | Container image `ghcr.io/franzramadhan/dvarapala` for linux/amd64 and linux/arm64 | v0.6.1 |
 | The Redis and PostgreSQL stores in the container image | v0.6.2 |
+| Every feature (`ml`, `http3`, `xdp` too) in the container image | next |
 | The crates on crates.io (`cargo install dvarapala`), published by `release.yml` with trusted publishing from v0.16.1 | v0.16.0 |
 | A README per published crate, install steps for the Python, JavaScript and Go SDKs | v0.16.1 |

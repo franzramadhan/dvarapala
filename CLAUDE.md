@@ -28,7 +28,7 @@ C ABI). The design and the milestones are in
 | `rfc/` | one RFC per feature, from `0000-template.md` |
 | `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/`, and `install.sh` (served at `/install.sh`) |
 | `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release |
-| `Dockerfile` | the release images: `FROM scratch` plus the musl binary with the Redis and PostgreSQL stores from `dist/<arch>/` (built in `release.yml`); `--target operator` builds the operator image |
+| `Dockerfile` | the release images: `FROM scratch` plus the musl binary with every feature from `dist/<arch>/` (built in `release.yml`); `--target operator` builds the operator image |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
 crates ahead of time.
@@ -141,7 +141,7 @@ comma, colon, parentheses or a new sentence.
   matches the workspace version and is on `main`, builds the per-target
   binaries, pushes the container image `ghcr.io/franzramadhan/dvarapala`
   (`<version>` and `<major>.<minor>`, linux/amd64 and linux/arm64, built
-  by `Dockerfile` from musl binaries built with `--features redis,postgres`;
+  by `Dockerfile` from musl binaries built with `--all-features`;
   the tarballs stay without them) and `ghcr.io/franzramadhan/dvarapala-operator`
   (same tags, `Dockerfile` target `operator`), and publishes a GitHub release
   with `SHA256SUMS`, `operator.yaml` (`deploy/operator.yaml` at
