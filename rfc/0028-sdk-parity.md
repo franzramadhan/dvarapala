@@ -54,8 +54,15 @@ Each of these lives in code the ABI can already reach, or close to it:
   `refuse <retry ms>` from the destination's schedule, and
   `dv_egress_pause(dest, retry_after_ms)` records a provider's
   `Retry-After`. The library never blocks or sleeps: each language waits
-  in its own way (Go `time.Timer` with a `context`, Python `asyncio.sleep`
-  or `time.sleep`, JavaScript `setTimeout`).
+  in its own way: Go `g.Egress(ctx, dest)` (a `time.Timer` with the
+  `context`), Python `await guard.egress(dest)` (`asyncio.sleep`) and
+  `guard.egress_wait(dest)` (`time.sleep`, for WSGI and other sync
+  servers), JavaScript `await guard.egress(dest)` (`setTimeout`).
+  - A `wait` slot is spent once handed out, as in the gateway: a caller
+    that gives up (a cancelled `context` or task) does not get it back,
+    and the queue frees the place when the slot's time passes. No cancel
+    call: a cancelled wait costs one slot of the provider's budget,
+    never more than the rate.
   - Go also gets `g.Transport(base http.RoundTripper)`: it shapes each
     request by origin, and pauses on `429` or `503` with `Retry-After`.
   - `max_concurrent` stays with the language's own semaphore (a Go
@@ -66,7 +73,9 @@ Each of these lives in code the ABI can already reach, or close to it:
   baseline, blocks and egress queue positions. A key that the gateway
   can only apply at restart (`rate_limit.max_clients`, `l4.max_clients`,
   `l4.max_connections`) fails the reload with an error naming it, and
-  the guard stays as it was.
+  the guard stays as it was. Reload is safe with checks in flight on
+  other threads: it takes the guard's one lock, as a check does, so a
+  check sees the old config or the new one, never a mix.
 - **List-shaped keys:** `routes` and `forward.destinations` take a JSON
   array in `dv_config_set`, with the `CONFIG.md` field names. JSON
   because every SDK language has a JSON encoder in its standard library;
@@ -81,6 +90,20 @@ Each of these lives in code the ABI can already reach, or close to it:
   The middleware passes only the headers that some route's `key` names
   (`dv_route_headers`), so a config without header keys reads no
   headers.
+- **Bad request input fails closed:** a field over 8 KiB, invalid UTF-8,
+  a header value with a newline, or a missing method or path make
+  `dv_check_request` return `DV_E_INVALID` (or `DV_E_UTF8`). The
+  middleware then answers `400` and closes the connection, never falls
+  back to allow. An app calling the ABI directly gets the error code and
+  decides.
+- **One guard per process:** each process has its own buckets, blocks
+  and egress budget. Behind gunicorn or uvicorn workers, Node `cluster`
+  or several replicas, a client's limit and a provider's budget multiply
+  by the number of processes. Until a shared store reaches the SDK (the
+  cluster store RFC, later), set `rate_limit.rate`, the route rates and
+  each destination's `rate` to the budget divided by the process count,
+  and run blocks on every process. The SDK docs say so next to each
+  middleware.
 - **Gateway:** unchanged. `l7` keeps its `RouteConfig` and calls the
   matcher from `engine` through a thin adapter over `http` types.
 
@@ -179,6 +202,10 @@ None new: the SDKs have no logger or metrics exporter.
 | 16 | Go `Transport` over a test server that answers `429` with `Retry-After: 1` once | two requests to it | the second waits about 1 s | integration (Go) |
 | 17 | `dv_check_request` with arbitrary bytes in method, host, path and headers | fuzzing | no panic, no unwinding across the ABI | fuzz (`ffi_check_request`) |
 | 18 | `dv_check_request` with no route matching | criterion bench | within 100 ns of `dv_check` (about 200 ns today, RFC 0008 case 14) | bench |
+| 19 | `dv_check_request` with a header value holding `\n`, a path over 8 KiB, or no method | called directly; through each SDK's middleware | `DV_E_INVALID`; the middleware answers `400` and closes, the handler never runs | unit (ffi), integration (per SDK) |
+| 20 | 8 threads calling `dv_check_request` for 192.0.2.1 to 192.0.2.8 | `dv_guard_reload` 100 times from another thread, alternating `rate = 1` and `rate = 100` | no error, no crash under ThreadSanitizer (Go `-race`); every verdict is one the old or the new config allows | unit (ffi), integration (Go) |
+| 21 | destination `stripe`, `rate = 1`, `burst = 1`, `max_queue = 1` | `dv_egress` twice, the second caller abandons its wait, then a third call before the second slot's time | the third is `refuse` (the abandoned slot still holds the queue); after that time it is `now` again | unit (ffi) |
+| 22 | the case 21 destination | Python `guard.egress_wait("stripe")` twice in a row, sync | the second returns after about 1 s | integration (Python) |
 
 ## Alternatives
 
