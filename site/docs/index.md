@@ -126,14 +126,22 @@ mode = "enforce"
 
 ## Next
 
+- [Architecture](architecture.html): the request path, the crates and the
+  failure policy.
 - [Protection layers](protection.html): what each layer does and when to
   tune it.
-- [Configuration](configuration.html): every key, default and metric.
-- [Examples](examples.html): TLS, gRPC, WebSocket, HTTP/3, connection
-  limits, forward proxy, cluster and XDP deployments.
+- [WAF](waf.html): the Coraza sidecar with the OWASP CRS.
 - [Forward proxy](forward-proxy.html): hold outbound calls to each
   provider's rate.
 - [SDKs](sdk.html): the same protection inside a Go, Python or JavaScript
   service.
 - [Clusters](clusters.html): replicas behind one load balancer sharing
   their limits.
+- [Kubernetes](kubernetes.html): the operator, a gateway per labeled
+  backend.
+- [Operations](operations.html): the admin API, the console, reloads and
+  replay.
+- [Configuration](configuration.html): every key, default and metric.
+- [Examples](examples.html): TLS, gRPC, WebSocket, HTTP/3, connection
+  limits, forward proxy, cluster and XDP deployments.
+- [Roadmap](roadmap.html): every RFC and its status.

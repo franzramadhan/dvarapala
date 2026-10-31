@@ -40,6 +40,13 @@
   <article>
     <h1>{{ page.title }}</h1>
     {{ content }}
+    {% for item in site.nav %}{% if item.url == page.url %}{% assign i = forloop.index0 %}{% endif %}{% endfor %}
+    {% if i %}{% assign p = i | minus: 1 %}{% assign n = i | plus: 1 %}
+    <nav class="pager" aria-label="Previous and next page">
+      {% if i > 0 %}<a class="prev" href="{{ site.nav[p].url | relative_url }}">&larr; {{ site.nav[p].title }}</a>{% endif %}
+      {% if site.nav[n] %}<a class="next" href="{{ site.nav[n].url | relative_url }}">{{ site.nav[n].title }} &rarr;</a>{% endif %}
+    </nav>
+    {% endif %}
   </article>
 </main>
 <footer>
