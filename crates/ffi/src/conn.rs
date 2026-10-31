@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use dvarapala_engine::ConnKey;
+use dvarapala_engine::{ClientKey, ConnKey};
 
 use crate::error::{DV_E_LIMIT, code, null, text};
 use crate::guard::{DvGuard, Shared, lock, peer};
@@ -25,7 +25,7 @@ impl Drop for DvConn {
 }
 
 /// Counts a new connection from `ip`: `DV_OK` with `*out` set, or
-/// `DV_E_LIMIT` with the reason (`total`, `per_client`, `rate`) in
+/// `DV_E_LIMIT` with the reason (`blocked`, `total`, `per_client`, `rate`) in
 /// `dv_last_error`. With `l4.enabled = false` every connection is `DV_OK`.
 ///
 /// # Safety
@@ -53,13 +53,19 @@ pub unsafe extern "C" fn dv_conn_open(
             key: None,
         });
         let limit = |reason: &str| (DV_E_LIMIT, reason.to_owned());
+        let now = Instant::now();
+        // RFC 0028: a blocked client gets no connection
+        if lock(&shared.state)
+            .blocks
+            .contains(ClientKey::from(ip).into(), now)
+        {
+            return Err(limit("blocked"));
+        }
         if shared.max_connections > 0 && open >= shared.max_connections {
             return Err(limit("total"));
         }
         if let Some(conns) = &shared.conns {
-            let key = lock(conns)
-                .open(ip, Instant::now())
-                .map_err(|r| limit(r.as_str()))?;
+            let key = lock(conns).open(ip, now).map_err(|r| limit(r.as_str()))?;
             conn.key = Some(key);
         }
         *out = Box::into_raw(conn);

@@ -84,6 +84,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ffi_check_request"
+path = "fuzz_targets/ffi_check_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "quic_datagram"
 path = "fuzz_targets/quic_datagram.rs"
 test = false

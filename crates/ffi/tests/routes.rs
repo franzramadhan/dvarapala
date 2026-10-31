@@ -13,7 +13,6 @@ const LOGIN: &str =
 
 /// RFC 0028 case 1
 #[test]
-#[ignore = "rfc 0028"]
 fn a_route_bucket_on_top_of_the_global_one() {
     let g = guard(&[("routes", LOGIN)]).unwrap();
     let post = || g.request(req("192.0.2.1", "POST", "/login")).unwrap();
@@ -31,7 +30,6 @@ fn a_route_bucket_on_top_of_the_global_one() {
 
 /// RFC 0028 case 2
 #[test]
-#[ignore = "rfc 0028"]
 fn a_denied_route_drops_before_any_bucket() {
     let routes = r#"[{"name": "probes", "path": "/wp-admin", "deny": true}]"#;
     let g = guard(&[
@@ -53,7 +51,6 @@ const API: &str =
 
 /// RFC 0028 cases 3 and 4
 #[test]
-#[ignore = "rfc 0028"]
 fn a_bucket_per_header_value() {
     let g = guard(&[("routes", API)]).unwrap();
     let with = |key: &str| {
@@ -75,7 +72,6 @@ fn a_bucket_per_header_value() {
 
 /// RFC 0028 case 5
 #[test]
-#[ignore = "rfc 0028"]
 fn gateway_only_route_fields_are_refused() {
     for (field, route) in [
         ("key", r#"[{"name": "fp", "key": "ja4", "rate": 1}]"#),
@@ -89,7 +85,6 @@ fn gateway_only_route_fields_are_refused() {
 
 /// RFC 0028 case 19
 #[test]
-#[ignore = "rfc 0028"]
 fn bad_request_input_fails_closed() {
     let g = guard(&[("routes", API)]).unwrap();
     let long = format!("/{}", "a".repeat(8 * 1024));
@@ -125,7 +120,6 @@ fn bad_request_input_fails_closed() {
 
 /// RFC 0028 case 20
 #[test]
-#[ignore = "rfc 0028"]
 fn reload_with_checks_in_flight() {
     let g = Arc::new(guard(&[("routes", LOGIN), ("rate_limit.rate", "1")]).unwrap());
     let workers: Vec<_> = (1..=8)

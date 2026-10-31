@@ -12,9 +12,12 @@ name = "dvarapala"
 # rlib for the tests and the fuzz target
 crate-type = ["cdylib", "staticlib", "rlib"]
 
-# The engine only: no parser, no runtime, nothing to unwind into the host.
+# The engine, and serde_json for the list-shaped keys (RFC 0028): no
+# runtime, nothing to unwind into the host.
 [dependencies]
 dvarapala-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

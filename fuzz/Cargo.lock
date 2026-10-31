@@ -442,6 +442,8 @@ name = "dvarapala-ffi"
 version = "0.18.0"
 dependencies = [
  "dvarapala-engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
