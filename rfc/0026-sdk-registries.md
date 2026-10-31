@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-31 | #N | |
+| draft | 2026-10-31 | #233 | |
 
 > Publish the JavaScript SDK to npm and the Python SDK to PyPI from
 > `release.yml`, with the prebuilt library inside the package, so
