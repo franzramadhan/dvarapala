@@ -2,10 +2,14 @@
 
 The dvarapala engine in process (RFC 0008): the gateway's per-client rate
 limit, flood detection and connection limits for services that cannot sit
-behind the proxy. Each package is a thin layer over the C ABI in
+behind the proxy, plus routes, manual blocks, egress shaping and reload
+(RFC 0028). Each package is a thin layer over the C ABI in
 `crates/ffi` (`crates/ffi/dvarapala.h`). Settings take the `CONFIG.md`
 names (`rate_limit.*`, `detection.*`, `trusted_proxies`, the connection
-keys of `[l4]`) with the gateway's defaults.
+keys of `[l4]`, `routes` and `forward.destinations` as JSON arrays,
+`admin.max_blocks`, `admin.max_block_ttl`) with the gateway's defaults.
+One guard per process: behind several workers, divide the rates by
+their number.
 
 | Package | Build the library | Test |
 |---|---|---|

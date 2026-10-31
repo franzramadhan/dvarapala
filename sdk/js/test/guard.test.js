@@ -58,3 +58,44 @@ test('attach caps connections per client', async (t) => {
   await once(second, 'close');
   assert.equal(got.length, 0);
 });
+
+const LOGIN = [{ name: 'login', path: '=/login', methods: ['POST'], rate: 1, burst: 2 }];
+
+// RFC 0028 cases 15 and 19
+test('middleware applies routes and refuses bad input', async (t) => {
+  const g = new Guard({ routes: LOGIN });
+  let ran = 0;
+  const mw = g.middleware();
+  const server = http.createServer((req, res) => mw(req, res, () => res.end(String(++ran))));
+  const port = await listen(server);
+  t.after(() => server.close());
+  const post = () => fetch(`http://127.0.0.1:${port}/login`, { method: 'POST' });
+  const codes = [];
+  for (let i = 0; i < 3; i++) codes.push((await post()).status);
+  assert.deepEqual(codes, [200, 200, 429]);
+  assert.equal((await post()).headers.get('retry-after'), '1');
+  const long = await fetch(`http://127.0.0.1:${port}/${'a'.repeat(9000)}`);
+  assert.equal(long.status, 400);
+  assert.equal(ran, 2);
+});
+
+// RFC 0028: blocks, egress and reload through the wrapper
+test('blocks, egress and reload', async () => {
+  const stripe = { origin: 'https://api.example.com', name: 'stripe', rate: 10, burst: 1, max_queue: 1, max_wait: '1s' };
+  const g = new Guard({ 'forward.destinations': [stripe], routes: LOGIN });
+  g.block('192.0.2.0/24', 60_000);
+  assert.equal(g.check('192.0.2.9').kind, 'drop');
+  assert.equal(g.blocks()[0].cidr, '192.0.2.0/24');
+  g.unblock('192.0.2.0/24');
+  assert.throws(() => g.unblock('192.0.2.0/24'), /not blocked/);
+  await g.egress('stripe');
+  const start = Date.now();
+  await g.egress('stripe');
+  assert.ok(Date.now() - start >= 80);
+  g.egressPause('stripe', 2000);
+  await assert.rejects(g.egress('stripe'), (e) => e.retryAfterMs > 1000);
+  assert.throws(() => g.reload({ 'rate_limit.max_clients': 10 }), /rate_limit\.max_clients/);
+  g.reload({ routes: [{ name: 'api', path: '/', key: 'header:x-api-key', rate: 1 }] });
+  const v = () => g.checkRequest({ ip: '192.0.2.1', method: 'GET', path: '/', headers: { 'x-api-key': 'a' } });
+  assert.deepEqual([v().kind, v().kind, v().route], ['allow', 'throttle', 'api']);
+});
