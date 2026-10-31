@@ -192,7 +192,12 @@ console_waf() {
     \"gateway\":{\"admin\":{\"enabled\":true},\"waf\":{\"image\":\"$waf_image\",\"configMap\":\"coraza\"}}}}"
   gw=$(k -n shop get deploy -l app.kubernetes.io/name=dvarapala-gateway -o name | head -1)
   k -n shop rollout status "$gw" --timeout=240s
-  admin=$(k -n shop get dvarapalapolicy default -o jsonpath='{.status.gateways[0].adminService}')
+  # the status can lag the rollout: poll for it
+  for _ in $(seq 60); do
+    admin=$(k -n shop get dvarapalapolicy default -o jsonpath='{.status.gateways[0].adminService}')
+    [ -n "$admin" ] && break
+    sleep 2
+  done
   [ -n "$admin" ] || fail "no adminService in the status: $(k -n shop get dvarapalapolicy default -o yaml)"
   token=$(k -n shop get secret dvarapala-admin -o jsonpath='{.data.DVARAPALA__ADMIN__TOKEN}' | base64 -d)
   for _ in $(seq 30); do
