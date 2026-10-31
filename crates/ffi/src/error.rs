@@ -10,10 +10,13 @@ pub const DV_E_NULL: i32 = 1;
 pub const DV_E_UTF8: i32 = 2;
 /// A bad address, key or value; `dv_last_error` says which.
 pub const DV_E_INVALID: i32 = 3;
-/// A connection over an `l4.*` limit; `dv_last_error` names the reason.
+/// A connection over an `l4.*` limit or from a blocked client, or a full
+/// block list; `dv_last_error` names the reason.
 pub const DV_E_LIMIT: i32 = 4;
 /// A bug in the library, caught before it crossed the ABI.
 pub const DV_E_PANIC: i32 = 5;
+/// An unknown egress destination, or an unlisted block (RFC 0028).
+pub const DV_E_NOT_FOUND: i32 = 6;
 
 /// An error code and its message.
 pub(crate) type Error = (i32, String);
