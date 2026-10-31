@@ -114,18 +114,25 @@ jobs:
 
   # RFC 0008: the libraries the SDKs load, per target. glibc, not musl:
   # Python and Node load a shared library, which a static musl build is not.
+  # RFC 0026: Linux builds in manylinux_2_28 (glibc 2.28) with the runner's
+  # toolchain mounted. RFC 0027: the static library without debug info.
   sdk:
     needs: verify
     strategy:
       matrix:
         include:
-          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04 }
-          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            image: quay.io/pypa/manylinux_2_28_x86_64@sha256:43f7ce12d79ed98b6dbfa3291d5afe389efd40a7e76de089959ffe99501b6edf
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux_2_28_aarch64@sha256:724b504247662e1cf122590957c857211ec2d16b113ec134f92c570a2d01250f
           - { target: aarch64-apple-darwin, runner: macos-15 }
           - { target: x86_64-apple-darwin, runner: macos-15 }
     runs-on: ${{ matrix.runner }}
     env:
       TARGET: ${{ matrix.target }}
+      IMAGE: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,18 +143,75 @@ jobs:
           key: ${{ matrix.target }}-sdk
       - name: Build
         run: |
-          cargo build --release --locked --target "$TARGET" -p dvarapala-ffi -p dvarapala-node
+          build="cargo build --release --locked --target $TARGET -p dvarapala-ffi -p dvarapala-node"
+          if [ -n "$IMAGE" ]; then
+            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+              -e CARGO_HOME="$HOME/.cargo" -e RUSTUP_HOME="$HOME/.rustup" \
+              -v "$HOME/.cargo:$HOME/.cargo" -v "$HOME/.rustup:$HOME/.rustup" \
+              -v "$PWD:$PWD" -w "$PWD" "$IMAGE" "$HOME/.cargo/bin/$build"
+          else
+            $build
+          fi
           out="target/${TARGET}/release"
           mkdir -p sdk-dist dist
           cp crates/ffi/dvarapala.h "$out/libdvarapala.a" sdk-dist/
           cp "$out"/libdvarapala.so "$out"/libdvarapala.dylib sdk-dist/ 2>/dev/null || true
           cp "$out"/libdvarapala_node.so sdk-dist/dvarapala.node 2>/dev/null \
             || cp "$out"/libdvarapala_node.dylib sdk-dist/dvarapala.node
+      - name: Strip, size and glibc checks
+        run: |
+          if [ -n "$IMAGE" ]; then strip --strip-debug sdk-dist/libdvarapala.a; else strip -S sdk-dist/libdvarapala.a; fi
+          size=$(wc -c < sdk-dist/libdvarapala.a)
+          [ "$size" -le 4194304 ] || { echo "::error::libdvarapala.a is $size bytes, over 4 MB (RFC 0027)"; exit 1; }
+          if [ -n "$IMAGE" ]; then
+            max=$(objdump -T sdk-dist/libdvarapala.so sdk-dist/dvarapala.node | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            [ "$(printf '%s\n' "$max" 2.28 | sort -V | tail -1)" = 2.28 ] \
+              || { echo "::error::needs glibc $max, over manylinux_2_28 (RFC 0026)"; exit 1; }
+          fi
           tar -czf "dist/dvarapala-sdk-${GITHUB_REF_NAME}-${TARGET}.tar.gz" -C sdk-dist .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dvarapala-sdk-${{ matrix.target }}
           path: dist/*.tar.gz
+          retention-days: 7
+
+  # RFC 0026: the wheels and npm tarballs, from the sdk job's files, so
+  # the registries get the bytes the GitHub release lists in SHA256SUMS
+  packages:
+    needs: sdk
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dvarapala-sdk-*
+          path: sdk
+          merge-multiple: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+      - name: Wheels and npm tarballs
+        run: |
+          mkdir -p dist
+          for p in x86_64-unknown-linux-gnu:manylinux_2_28_x86_64:linux-x64-gnu:so \
+                   aarch64-unknown-linux-gnu:manylinux_2_28_aarch64:linux-arm64-gnu:so \
+                   aarch64-apple-darwin:macosx_11_0_arm64:darwin-arm64:dylib \
+                   x86_64-apple-darwin:macosx_11_0_x86_64:darwin-x64:dylib; do
+            IFS=: read -r target wheel npm ext <<< "$p"
+            mkdir "lib-$target"
+            tar -xzf "sdk/dvarapala-sdk-${GITHUB_REF_NAME}-${target}.tar.gz" -C "lib-$target"
+            python3 scripts/wheel.py "$wheel" "lib-$target/libdvarapala.$ext" dist
+            cp "lib-$target/dvarapala.node" "sdk/js/npm/$npm/"
+            (cd dist && npm pack "../sdk/js/npm/$npm")
+          done
+          (cd dist && npm pack ../sdk/js)
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dvarapala-packages
+          path: dist/*
           retention-days: 7
 
   # ghcr.io/<owner>/dvarapala:<version>, linux/amd64 and linux/arm64, from the
@@ -218,7 +282,7 @@ jobs:
           sbom: true
 
   publish:
-    needs: [binary, sdk, image]
+    needs: [binary, packages, image]
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -242,7 +306,7 @@ jobs:
         run: |
           # RFC 0019: the operator manifest, pinned to this release's images
           sed "s/__VERSION__/${GITHUB_REF_NAME#v}/g" deploy/operator.yaml > dist/operator.yaml
-          (cd dist && sha256sum dvarapala-*.tar.gz operator.yaml > SHA256SUMS)
+          (cd dist && sha256sum dvarapala-*.tar.gz dvarapala-*.whl dvarapala-*.tgz operator.yaml > SHA256SUMS)
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md dist/*
 
@@ -264,3 +328,111 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --locked
+
+  # RFC 0026: PyPI by trusted publishing, with attestations. skip-existing
+  # makes a rerun publish nothing.
+  pypi:
+    needs: publish
+    runs-on: ubuntu-26.04
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dvarapala-packages
+          path: packages
+      - run: mkdir wheels && mv packages/*.whl wheels/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: wheels/
+          skip-existing: true
+
+  # RFC 0026: npm by trusted publishing, with provenance. The platform
+  # packages first, so the main package never points at a missing one; a
+  # version already on npm is skipped.
+  npm:
+    needs: publish
+    runs-on: ubuntu-26.04
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dvarapala-packages
+          path: packages
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          registry-url: https://registry.npmjs.org
+      - name: npm publish
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for f in packages/dvarapala-*-"$v".tgz packages/dvarapala-"$v".tgz; do
+            name=$(tar -xOzf "$f" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')
+            if npm view "$name@$v" version >/dev/null 2>&1; then
+              echo "$name@$v is on npm already"
+            else
+              npm publish "$f" --access public --provenance
+            fi
+          done
+
+  # RFC 0027: the generated module in franzramadhan/dvarapala-go, tagged
+  # v<version>. A tag that exists with the same tree is left alone; one
+  # with a different tree fails the job, since tags never move.
+  go:
+    needs: publish
+    runs-on: ubuntu-26.04
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dvarapala-sdk-*
+          path: sdk
+          merge-multiple: true
+      - name: Module tree
+        run: |
+          for p in x86_64-unknown-linux-gnu:linux_amd64 aarch64-unknown-linux-gnu:linux_arm64 \
+                   aarch64-apple-darwin:darwin_arm64 x86_64-apple-darwin:darwin_amd64; do
+            mkdir -p "libs/${p#*:}"
+            tar -xzf "sdk/dvarapala-sdk-${GITHUB_REF_NAME}-${p%%:*}.tar.gz" -C "libs/${p#*:}" ./libdvarapala.a
+          done
+          scripts/go-module.sh module libs
+      - name: Commit, tag and push
+        env:
+          DEPLOY_KEY: ${{ secrets.GO_MODULE_DEPLOY_KEY }}
+        run: |
+          install -m 600 /dev/null ~/.ssh-deploy-key
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh-deploy-key
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > ~/.ssh-known-hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh-deploy-key -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh-known-hosts"
+          git clone -q git@github.com:franzramadhan/dvarapala-go.git repo
+          cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/$GITHUB_REF_NAME" >/dev/null; then
+            git checkout -q "$GITHUB_REF_NAME"
+            if diff -r -x .git . ../module; then
+              echo "$GITHUB_REF_NAME is on dvarapala-go already with this tree"
+              exit 0
+            fi
+            echo "::error::$GITHUB_REF_NAME on dvarapala-go holds a different tree; tags never move, release a new version"
+            exit 1
+          fi
+          # an empty repository clones with an unborn main
+          git rm -rq --ignore-unmatch .
+          cp -R ../module/. .
+          git add -A
+          git commit -qm "dvarapala $GITHUB_REF_NAME" -m "Generated from franzramadhan/dvarapala@$GITHUB_SHA."
+          git tag -a "$GITHUB_REF_NAME" -m "$GITHUB_REF_NAME"
+          git push -q origin main "refs/tags/$GITHUB_REF_NAME"
+      - name: Ask proxy.golang.org for the version
+        run: |
+          for i in $(seq 30); do
+            curl -fsS "https://proxy.golang.org/github.com/franzramadhan/dvarapala-go/@v/$GITHUB_REF_NAME.info" && exit 0
+            sleep 10
+          done
+          echo "::error::proxy.golang.org does not serve $GITHUB_REF_NAME"
+          exit 1

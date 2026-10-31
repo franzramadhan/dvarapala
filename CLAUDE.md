@@ -27,7 +27,7 @@ C ABI). The design and the milestones are in
 | `deploy/` | `operator.yaml` (CRD, RBAC, operator, webhook; the release attaches it with its version) and the `kind` e2e in `e2e/` |
 | `rfc/` | one RFC per feature, from `0000-template.md` |
 | `site/` | GitHub Pages site: landing page, docs, pages generated from `CONFIG.md`, `ROADMAP.md` and `examples/`, and `install.sh` (served at `/install.sh`) |
-| `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release |
+| `scripts/` | `homebrew-formula.sh`: the formula `franzramadhan/homebrew-tap` generates for each release; `wheel.py`, `go-module.sh`: the PyPI wheels and the `franzramadhan/dvarapala-go` module tree a release publishes (RFC 0026, 0027); `sdk-packages-check.sh` installs them for the host platform |
 | `Dockerfile` | the release images: `FROM scratch` plus the musl binary with every feature from `dist/<arch>/` (built in `release.yml`); `--target operator` builds the operator image |
 
 Crates appear when the RFC that needs them is accepted. Do not scaffold empty
@@ -145,9 +145,14 @@ comma, colon, parentheses or a new sentence.
   the tarballs stay without them) and `ghcr.io/franzramadhan/dvarapala-operator`
   (same tags, `Dockerfile` target `operator`), and publishes a GitHub release
   with `SHA256SUMS`, `operator.yaml` (`deploy/operator.yaml` at
-  the version) and the notes from `CHANGELOG.md`, then publishes every
+  the version), the SDK wheels and npm tarballs, and the notes from
+  `CHANGELOG.md`. Then it publishes every
   crate except `node`, `operator` and `xdp-ebpf` to crates.io
-  (`cargo publish --workspace`, trusted publishing, no stored token).
+  (`cargo publish --workspace`, trusted publishing, no stored token),
+  the wheels to PyPI and the npm packages (trusted publishing, RFC 0026),
+  and pushes the Go module to `franzramadhan/dvarapala-go` with the
+  `GO_MODULE_DEPLOY_KEY` secret of the `release` environment (RFC 0027).
+  The SDK's Linux libraries build in `manylinux_2_28`.
   `release-check` runs the same publish as a dry run. Merges to `main`
   publish nothing.
 - `.github/workflows/title-check.yml` checks every PR title (it becomes the

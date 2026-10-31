@@ -33,7 +33,7 @@ jobs:
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
           printf '%s\n' "$files"
           rust=false
-          if grep -qE '^(crates/|fuzz/|examples/|sdk/|ui/dist/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|Dockerfile$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
+          if grep -qE '^(crates/|fuzz/|examples/|sdk/|scripts/(wheel\.py|go-module\.sh|sdk-packages-check\.sh)$|ui/dist/|Cargo\.(toml|lock)$|deny\.toml$|rust-toolchain\.toml$|Dockerfile$|\.github/workflows/ci\.yml$)' <<<"$files"; then rust=true; fi
           printf 'rust=%s\n' "$rust" >> "$GITHUB_OUTPUT"
           ui=false
           if grep -qE '^(ui/|\.github/workflows/ci\.yml$)' <<<"$files"; then ui=true; fi
@@ -391,6 +391,18 @@ jobs:
         run: |
           node --test test/*.test.js
           npx --yes -p typescript@5.9.3 tsc --noEmit --strict --module nodenext --moduleResolution nodenext test/types.ts
+      # RFC 0026 and 0027: the packages a release publishes, for this
+      # runner (release-check runs the same script)
+      - run: cargo build --locked --release -p dvarapala-ffi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdk/go/go.mod
+          cache: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - name: SDK packages
+        run: scripts/sdk-packages-check.sh
 
   # RFC 0018 cases 18 to 20: the console's tests and accessibility scan,
   # its 120 KiB gzip budget, and ui/dist matching a fresh build
@@ -527,6 +539,21 @@ jobs:
           exit "$fail"
       - name: Every published crate packages and builds
         run: cargo publish --workspace --locked --dry-run
+      # RFC 0026 cases 1, 4, 8, 10 and RFC 0027 cases 1, 3, 4: the npm,
+      # PyPI and Go packages for this runner, installed as a user would
+      - run: cargo build --locked --release -p dvarapala-ffi -p dvarapala-node
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdk/go/go.mod
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - name: SDK packages
+        run: scripts/sdk-packages-check.sh
       - name: Implemented RFCs are documented
         # every RFC marked implemented in ROADMAP.md is referenced as
         # "RFC NNNN" in README.md, CONFIG.md and the site's landing page;

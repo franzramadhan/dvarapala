@@ -18,7 +18,9 @@ git switch main && git pull --ff-only && git switch -c release/v<version>
 - the `version` of each `dvarapala-*` path dependency under
   `[workspace.dependencies]` in `Cargo.toml` (crates.io needs it; cargo
   rejects a stale one after a minor bump)
-- `sdk/js/package.json` and `sdk/python/pyproject.toml`
+- `sdk/js/package.json` (its `version` and the four `optionalDependencies`),
+  each `sdk/js/npm/*/package.json` and `sdk/python/pyproject.toml`;
+  `release-check` fails on any other version (RFC 0026)
 - `cargo update -w` and `(cd fuzz && cargo update -w)`; in
   `crates/xdp-ebpf/Cargo.lock` (its own workspace, nightly) bump the
   `dvarapala-xdp-common` version by hand. CI's `xdp object` step builds
@@ -95,11 +97,18 @@ grep -rnP "[\x{2013}\x{2014}]" README.md CONFIG.md site examples rfc CHANGELOG.m
 5. Check the Pages deploy (`pages.yml`) and the live site at
    `https://dvarapala.franzramadhan.dev`: the new cards, pages and the
    roadmap statuses.
-6. Install channels: `franzramadhan/homebrew-tap` picks up the release
+6. Registries: `npm view dvarapala@<version>` and `npm view
+   @dvarapala/linux-x64-gnu@<version>` print the version (the npm page
+   shows provenance), `pip download --no-deps dvarapala==<version>`
+   fetches the wheel, and `GOPROXY=https://proxy.golang.org go list -m
+   github.com/franzramadhan/dvarapala-go@v<version>` prints the version.
+   The `pypi`, `npm` and `go` jobs skip what is already published, so a
+   failed job can be rerun alone.
+7. Install channels: `franzramadhan/homebrew-tap` picks up the release
    within the hour (`gh workflow run update -R franzramadhan/homebrew-tap`
    to run it now), then check `Formula/dvarapala.rb` names the version.
    `site/install.sh` follows `releases/latest` with no change.
-7. Delete the local release branch.
+8. Delete the local release branch.
 
 ## 6. After the release
 
