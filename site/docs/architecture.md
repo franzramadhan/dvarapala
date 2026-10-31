@@ -77,7 +77,7 @@ Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 
 | Crate | Role |
 |---|---|
-| `engine` | Verdicts, token buckets, detection sketches. No I/O, no async runtime, so it can embed anywhere |
+| `engine` | Verdicts, token buckets, detection sketches, route matching. No I/O, no async runtime, so it can embed anywhere |
 | `l4` | Listener wrapper: connection caps, accept rate, header, idle and body timeouts |
 | `l7` | `tower` layers that run the engine on each request |
 | `proxy` | Server loop, TLS, HTTP/2 limits, HTTP/3 over QUIC, reverse and forward proxy, WebSocket and `CONNECT` tunnels |
