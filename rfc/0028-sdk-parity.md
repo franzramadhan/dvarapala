@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-31 | #N | |
+| draft | 2026-10-31 | #235 | |
 
 > Bring four gateway features into the SDKs: per-route policy, manual
 > blocks, egress shaping and live reload. Routes move from `l7` to
