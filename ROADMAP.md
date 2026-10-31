@@ -30,7 +30,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0023](rfc/0023-llm-labels.md) | LLM labels for sampled traffic: on-demand from the console, worthwhile triggers (WAF, failed challenges, attack, uncertain `[ml]` scores, routes) sampled off the request path to a System One decision model (Clef, Jev) or an OpenAI-compatible chat model; labels for logs, metrics, the console and `[ml]` training, never verdicts | implemented | v0.16.0 |
 | [0024](rfc/0024-llm-label-store.md) | LLM labels in the PostgreSQL store (`ml.llm.persist`): every replica writes its labels as rows, so training data, the console's recent labels and counts cover all replicas and survive restarts; `GET /llm/export` streams them as JSON lines | implemented | v0.17.0 |
 | [0025](rfc/0025-operator-gateway-parity.md) | Operator gateways with the admin listener and console, the WAF agent as a sidecar over a Unix socket, read-only ConfigMap and Secret mounts, pod labels, and opt-in per route rule, so a policy can replace a hand-written gateway | implemented | v0.18.0 |
-| [0028](rfc/0028-sdk-parity.md) | SDK parity: per-route policy (`dv_check_request`, routes moved to `engine`), manual blocks, egress shaping without the forward proxy, and live reload that keeps client counts, in the C ABI and the Go, Python and JavaScript packages | draft | |
+| [0028](rfc/0028-sdk-parity.md) | SDK parity: per-route policy (`dv_check_request`, routes moved to `engine`), manual blocks, egress shaping without the forward proxy, and live reload that keeps client counts, in the C ABI and the Go, Python and JavaScript packages | accepted | |
 
 ## Shipped without an RFC
 
