@@ -133,7 +133,7 @@ mode = "enforce"
 - [WAF](waf.html): the Coraza sidecar with the OWASP CRS.
 - [Forward proxy](forward-proxy.html): hold outbound calls to each
   provider's rate.
-- [SDKs](sdk.html): the same protection inside a Go, Python or JavaScript
+- [SDKs](sdk.html): the same protection, routes, blocks and egress shaping inside a Go, Python or JavaScript
   service.
 - [Clusters](clusters.html): replicas behind one load balancer sharing
   their limits.

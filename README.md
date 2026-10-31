@@ -73,6 +73,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Cluster** | One per-client limit, egress budget and heavy hitter list across replicas, synced off the request path. Features `redis`, `postgres` | [RFC 0010](rfc/0010-shared-state.md) |
 | **Kubernetes** | An operator: a `DvarapalaPolicy` and a label on a route; a webhook points the route at a managed gateway, `config_watch` reloads on policy edits | [RFC 0019](rfc/0019-operator.md) |
 | **Operator gateways** | The gateway pods run the admin console behind their own Service, a `coraza-spoa` WAF sidecar, extra ConfigMap and Secret mounts, and pod labels; a route can opt in per rule | [RFC 0025](rfc/0025-operator-gateway-parity.md) |
+| **SDK parity** | Per-route policy, manual blocks, egress shaping and live reload in the Go, Python and JavaScript packages, without the gateway | [RFC 0028](rfc/0028-sdk-parity.md) |
 
 ## Install
 
@@ -226,7 +227,7 @@ SDKs share the same logic.
 
 | Crate | Role |
 |---|---|
-| `engine` | Verdicts, token buckets, detection sketches, egress schedule. No I/O, no async runtime |
+| `engine` | Verdicts, token buckets, detection sketches, egress schedule, route matching and keyed route limits. No I/O, no async runtime |
 | `l4` | Listener wrapper: connection limits and timeouts |
 | `l7` | `tower` layers: rate limit, detection, challenge, WAF client, console sessions and OIDC |
 | `proxy` | Reverse and forward proxy, TLS, HTTP/2, HTTP/3, tunnels |

@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-31 | #235 | |
+| implemented | 2026-10-31 | #235 | v0.19.0 |
 
 > Bring four gateway features into the SDKs: per-route policy, manual
 > blocks, egress shaping and live reload. Routes move from `l7` to
@@ -277,7 +277,7 @@ None new: the SDKs have no logger or metrics exporter.
 
 ## Rollout
 
-- **Rollout:** the next minor after acceptance. The ABI gains functions
+- **Rollout:** v0.19.0. The ABI gains functions
   and one error code; no existing struct changes. `dv_check`, `dv_conn_open` and
   the existing config keys behave as before. The SDK middleware moves to
   `dv_check_request`; with no `routes`, its verdicts equal `dv_check`'s.
