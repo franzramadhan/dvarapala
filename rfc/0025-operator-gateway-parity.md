@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-30 | #213 | |
+| implemented | 2026-10-30 | #213 | v0.18.0 |
 
 > Operator-made gateways (RFC 0019) gain what hand-written dvarapala
 > Deployments use today: the admin listener and console, the WAF agent
@@ -215,7 +215,7 @@ operator as environment variables.
 
 ## Rollout
 
-- **Rollout:** a minor release of the operator image and
+- **Rollout:** v0.18.0 of the operator image and
   `deploy/operator.yaml` (the CRD gains optional fields; existing
   policies render unchanged, test 1). Migrating a hand-written gateway:
   create the policy, then label the route; the webhook's passthrough

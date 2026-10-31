@@ -30,7 +30,10 @@ that is silently ignored.
 | `ml` | `[ml]` | no | no | `--features ml` |
 | `xdp` | `[xdp]` (Linux) | no | no | `--features xdp` |
 
-The operator's gateways (RFC 0019) run the container image.
+The operator's gateways (RFC 0019) run the container image. With
+`gateway.admin` and `gateway.waf` in the policy (RFC 0025) the operator
+sets `admin.listen` and `waf.endpoint` itself; the policy's `[admin]` and
+`[waf]` hold the other keys.
 
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
