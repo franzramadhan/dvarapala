@@ -49,7 +49,8 @@ typedef struct DvConfig DvConfig;
 typedef struct DvConn DvConn;
 
 // A thread-safe guard: the client table, the detector, the trusted
-// proxies and the connection counts.
+// proxies, the routes, the blocks, the egress schedules and the
+// connection counts.
 typedef struct DvGuard DvGuard;
 
 typedef struct DvSlot {
@@ -142,7 +143,7 @@ char *dv_blocks(const struct DvGuard *g);
 void dv_string_free(char *s);
 
 // Counts a new connection from `ip`: `DV_OK` with `*out` set, or
-// `DV_E_LIMIT` with the reason (`total`, `per_client`, `rate`) in
+// `DV_E_LIMIT` with the reason (`blocked`, `total`, `per_client`, `rate`) in
 // `dv_last_error`. With `l4.enabled = false` every connection is `DV_OK`.
 //
 // # Safety

@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use dvarapala_engine::{Conns, Guard, TrustedProxies, Verdict, client_key};
+use dvarapala_engine::{Conns, Verdict, client_key};
 
 use crate::config::Settings;
 use crate::error::{DV_E_INVALID, Error, catch, code, null, text};
+use crate::state::State;
 
 pub const DV_ALLOW: i32 = 0;
 pub const DV_THROTTLE: i32 = 1;
@@ -18,12 +19,12 @@ pub const DV_DROP: i32 = 2;
 pub struct DvConfig(pub(crate) Settings);
 
 /// A thread-safe guard: the client table, the detector, the trusted
-/// proxies and the connection counts.
+/// proxies, the routes, the blocks, the egress schedules and the
+/// connection counts.
 pub struct DvGuard(pub(crate) Arc<Shared>);
 
 pub(crate) struct Shared {
-    pub(crate) guard: Mutex<Guard>,
-    pub(crate) trusted: TrustedProxies,
+    pub(crate) state: Mutex<State>,
     pub(crate) conns: Option<Mutex<Conns>>,
     pub(crate) max_connections: usize,
     pub(crate) open: AtomicUsize,
@@ -105,16 +106,14 @@ pub unsafe extern "C" fn dv_guard_new(cfg: *const DvConfig) -> *mut DvGuard {
         let cfg = unsafe { cfg.as_ref() }.ok_or_else(|| null("config"))?;
         let invalid = |e: String| (DV_E_INVALID, e);
         let b = cfg.0.build().map_err(invalid)?;
-        let guard = Guard::new(b.guard).map_err(|e| invalid(format!("detection: {}", e.0)))?;
-        let conns = b
-            .conns
+        let conns = (b.conns.clone())
             .map(|c| Conns::new(c).map_err(|e| invalid(format!("l4: {}", e.0))))
             .transpose()?;
+        let max_connections = b.max_connections;
         Ok(Shared {
-            guard: Mutex::new(guard),
-            trusted: b.trusted,
+            state: Mutex::new(State::new(b).map_err(invalid)?),
             conns: conns.map(Mutex::new),
-            max_connections: b.max_connections,
+            max_connections,
             open: AtomicUsize::new(0),
             counts: Default::default(),
         })
@@ -151,9 +150,25 @@ pub unsafe extern "C" fn dv_check(
         };
         // SAFETY: null or a valid DvVerdict, by contract
         let out = unsafe { out.as_mut() }.ok_or_else(|| null("out"))?;
-        let key = client_key(peer(ip)?, xff, &g.0.trusted);
-        let d = lock(&g.0.guard).check(key, Instant::now());
-        *out = match d.verdict {
+        let peer = peer(ip)?;
+        let now = Instant::now();
+        let mut s = lock(&g.0.state);
+        let key = client_key(peer, xff, &s.trusted);
+        // RFC 0028: a manual block before any bucket
+        let v = match s.blocks.contains(key.into(), now) {
+            true => Verdict::Drop,
+            false => s.guard.check(key, now).verdict,
+        };
+        drop(s);
+        *out = g.0.verdict(v);
+        Ok(())
+    })
+}
+
+impl Shared {
+    /// `v` for the caller, counted in the stats.
+    pub(crate) fn verdict(&self, v: Verdict) -> DvVerdict {
+        let out = match v {
             Verdict::Allow => DvVerdict {
                 kind: DV_ALLOW,
                 retry_after_ms: 0,
@@ -172,9 +187,9 @@ pub unsafe extern "C" fn dv_check(
                 retry_after_ms: 0,
             },
         };
-        g.0.counts[out.kind as usize].fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    })
+        self.counts[out.kind as usize].fetch_add(1, Ordering::Relaxed);
+        out
+    }
 }
 
 /// Applies `cfg` to a running guard (RFC 0028): client counts, the
@@ -188,8 +203,15 @@ pub unsafe extern "C" fn dv_check(
 /// `g` comes from [`dv_guard_new`]; `cfg` from [`dv_config_new`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dv_guard_reload(g: *mut DvGuard, cfg: *const DvConfig) -> i32 {
-    let _ = (g, cfg);
-    todo!("rfc 0028")
+    code(|| {
+        // SAFETY: null or from dv_guard_new, by contract
+        let g = unsafe { g.as_ref() }.ok_or_else(|| null("guard"))?;
+        // SAFETY: null or from dv_config_new, by contract
+        let cfg = unsafe { cfg.as_ref() }.ok_or_else(|| null("config"))?;
+        let invalid = |e: String| (DV_E_INVALID, e);
+        let b = cfg.0.build().map_err(invalid)?;
+        lock(&g.0.state).reload(b).map_err(invalid)
+    })
 }
 
 /// # Safety
@@ -203,8 +225,8 @@ pub unsafe extern "C" fn dv_stats(g: *const DvGuard, out: *mut DvStats) -> i32 {
         // SAFETY: null or a valid DvStats, by contract
         let out = unsafe { out.as_mut() }.ok_or_else(|| null("out"))?;
         let count = |i: usize| g.0.counts[i].load(Ordering::Relaxed);
-        let guard = lock(&g.0.guard);
-        let det = guard.detector();
+        let s = lock(&g.0.state);
+        let (guard, det) = (&s.guard, s.guard.detector());
         *out = DvStats {
             allowed: count(0),
             throttled: count(1),
@@ -238,7 +260,7 @@ pub(crate) fn peer(ip: &str) -> Result<IpAddr, Error> {
 }
 
 /// Whole milliseconds, rounded up, at least 1.
-fn millis(d: Duration) -> u64 {
+pub(crate) fn millis(d: Duration) -> u64 {
     (d.as_nanos().div_ceil(1_000_000) as u64).max(1)
 }
 

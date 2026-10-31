@@ -11,7 +11,6 @@ use dvarapala::*;
 
 /// RFC 0028 case 7
 #[test]
-#[ignore = "rfc 0028"]
 fn a_block_drops_requests_and_connections() {
     let g = guard(&[]).unwrap();
     assert_eq!(g.block("192.0.2.0/24", 60_000), DV_OK);
@@ -32,7 +31,6 @@ fn a_block_drops_requests_and_connections() {
 
 /// RFC 0028 case 8
 #[test]
-#[ignore = "rfc 0028"]
 fn a_block_expires() {
     let g = guard(&[]).unwrap();
     assert_eq!(g.block("192.0.2.9", 1), DV_OK);
@@ -43,7 +41,6 @@ fn a_block_expires() {
 
 /// RFC 0028 case 9
 #[test]
-#[ignore = "rfc 0028"]
 fn block_list_limits() {
     let g = guard(&[("admin.max_blocks", "2"), ("admin.max_block_ttl", "1m")]).unwrap();
     assert_eq!(g.block("192.0.2.1", 0), DV_OK);
@@ -63,7 +60,6 @@ fn stripe(rate: &str, burst: u32, max_queue: u32) -> String {
 
 /// RFC 0028 case 10
 #[test]
-#[ignore = "rfc 0028"]
 fn egress_now_wait_refuse() {
     let g = guard(&[("forward.destinations", &stripe("10", 1, 1))]).unwrap();
     let s: Vec<_> = (0..3).map(|_| g.egress("stripe")).collect();
@@ -85,7 +81,6 @@ fn egress_now_wait_refuse() {
 
 /// RFC 0028 case 11
 #[test]
-#[ignore = "rfc 0028"]
 fn egress_pause() {
     let g = guard(&[("forward.destinations", &stripe("10", 1, 1))]).unwrap();
     // SAFETY: a live guard and a NUL-terminated string
@@ -106,7 +101,6 @@ fn egress_pause() {
 
 /// RFC 0028 case 12
 #[test]
-#[ignore = "rfc 0028"]
 fn max_concurrent_is_refused() {
     let d = r#"[{"origin": "https://api.example.com", "rate": 1, "max_concurrent": 4}]"#;
     let e = guard(&[("forward.destinations", d)]).err().unwrap();
@@ -120,7 +114,6 @@ fn max_concurrent_is_refused() {
 
 /// RFC 0028 case 13
 #[test]
-#[ignore = "rfc 0028"]
 fn reload_keeps_counts_blocks_and_queues() {
     let dest = stripe("1", 1, 1);
     let start = [
@@ -151,7 +144,6 @@ fn reload_keeps_counts_blocks_and_queues() {
 
 /// RFC 0028 case 14
 #[test]
-#[ignore = "rfc 0028"]
 fn reload_refuses_start_only_keys() {
     let g = guard(&[("rate_limit.rate", "1"), ("rate_limit.burst", "1")]).unwrap();
     assert_eq!(g.check("192.0.2.1").kind, DV_ALLOW);
@@ -171,7 +163,6 @@ fn reload_refuses_start_only_keys() {
 
 /// RFC 0028 case 21
 #[test]
-#[ignore = "rfc 0028"]
 fn an_abandoned_wait_holds_its_place() {
     let g = guard(&[("forward.destinations", &stripe("1", 1, 1))]).unwrap();
     assert_eq!(g.egress("stripe").kind, DV_SLOT_NOW);

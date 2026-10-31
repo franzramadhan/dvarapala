@@ -8,7 +8,9 @@ mod conn;
 mod egress;
 mod error;
 mod guard;
+mod lists;
 mod request;
+mod state;
 
 pub use blocks::{dv_block, dv_blocks, dv_string_free, dv_unblock};
 pub use conn::{DvConn, dv_conn_close, dv_conn_open};

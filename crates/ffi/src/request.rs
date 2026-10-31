@@ -1,9 +1,16 @@
 //! RFC 0028: a request's verdict with the routes applied.
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 use std::ptr;
+use std::time::Instant;
 
-use crate::guard::DvGuard;
+use dvarapala_engine::{Verdict, client_key, strip_port};
+
+use crate::error::{DV_E_INVALID, DV_E_UTF8, Error, code, null};
+use crate::guard::{DvGuard, lock, peer};
+
+/// Longest field `dv_check_request` reads.
+const MAX_FIELD: usize = 8 * 1024;
 
 /// A request as the HTTP server parsed it. Every field is NUL-terminated
 /// UTF-8 of at most 8 KiB.
@@ -60,8 +67,63 @@ pub unsafe extern "C" fn dv_check_request(
     r: *const DvRequest,
     out: *mut DvRequestVerdict,
 ) -> i32 {
-    let _ = (g, r, out);
-    todo!("rfc 0028")
+    code(|| {
+        // SAFETY: null or from dv_guard_new, by contract
+        let g = unsafe { g.as_ref() }.ok_or_else(|| null("guard"))?;
+        // SAFETY: null or a valid DvRequest, by contract
+        let r = unsafe { r.as_ref() }.ok_or_else(|| null("request"))?;
+        // SAFETY: null or a valid DvRequestVerdict, by contract
+        let out = unsafe { out.as_mut() }.ok_or_else(|| null("out"))?;
+        // SAFETY: each field null or NUL-terminated, by contract
+        let (ip, xff, method, host, path, headers) = unsafe {
+            (
+                field(r.ip, "ip")?.ok_or_else(|| null("ip"))?,
+                field(r.xff, "xff")?,
+                field(r.method, "method")?.filter(|m| !m.is_empty()),
+                field(r.host, "host")?,
+                field(r.path, "path")?.filter(|p| !p.is_empty()),
+                field(r.headers, "headers")?.unwrap_or_default(),
+            )
+        };
+        let missing = |n: &str| (DV_E_INVALID, format!("{n} is missing"));
+        let method = method.ok_or_else(|| missing("method"))?;
+        let path = path.ok_or_else(|| missing("path"))?;
+        let headers = lines(headers)?;
+        let host = host.map(|h| strip_port(h.as_bytes()));
+        let peer = peer(ip)?;
+        let now = Instant::now();
+
+        let mut state = lock(&g.0.state);
+        let s = &mut *state;
+        let key = client_key(peer, xff, &s.trusted);
+        let mut route = None;
+        let v = if s.blocks.contains(key.into(), now) {
+            Verdict::Drop
+        } else {
+            let ip = key.into();
+            route = s
+                .routes
+                .iter()
+                .find(|r| r.matcher.matches(method, host, path, ip));
+            match route {
+                Some(r) if r.deny => Verdict::Drop,
+                _ => match (s.guard.check(key, now).verdict, route) {
+                    (Verdict::Allow, Some(r)) => r.limits.as_ref().map_or(Verdict::Allow, |l| {
+                        let value = r.header.as_deref().and_then(|h| header(&headers, h));
+                        l.take(value.map(str::as_bytes), key, now).0
+                    }),
+                    (v, _) => v,
+                },
+            }
+        };
+        let d = g.0.verdict(v);
+        *out = DvRequestVerdict {
+            kind: d.kind,
+            retry_after_ms: d.retry_after_ms,
+            route: route.map_or(ptr::null(), |r| r.name.as_ptr()),
+        };
+        Ok(())
+    })
 }
 
 /// The header names route keys read, lower case and comma separated; `""`
@@ -72,6 +134,57 @@ pub unsafe extern "C" fn dv_check_request(
 /// `g` is null or comes from [`crate::dv_guard_new`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dv_route_headers(g: *const DvGuard) -> *const c_char {
-    let _ = g;
-    todo!("rfc 0028")
+    // SAFETY: null or from dv_guard_new, by contract
+    match unsafe { g.as_ref() } {
+        Some(g) => lock(&g.0.state).headers.as_ptr(),
+        None => ptr::null(),
+    }
+}
+
+/// `p` as UTF-8 of at most [`MAX_FIELD`] bytes, `None` when null.
+///
+/// # Safety
+///
+/// `p` is null or NUL-terminated.
+unsafe fn field<'a>(p: *const c_char, name: &str) -> Result<Option<&'a str>, Error> {
+    if p.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: non-null and NUL-terminated by the caller's contract
+    let b = unsafe { CStr::from_ptr(p) }.to_bytes();
+    if b.len() > MAX_FIELD {
+        return Err((DV_E_INVALID, format!("{name} is over 8 KiB")));
+    }
+    let s = std::str::from_utf8(b).map_err(|_| (DV_E_UTF8, format!("{name} is not UTF-8")))?;
+    Ok(Some(s))
+}
+
+/// `name: value` lines; a line without a token name and a colon (a value
+/// that held a newline) or with a carriage return fails.
+fn lines(h: &str) -> Result<Vec<(&str, &str)>, Error> {
+    let bad = || {
+        (
+            DV_E_INVALID,
+            "headers: one \"name: value\" per line".to_owned(),
+        )
+    };
+    h.split('\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let (n, v) = l.split_once(':').ok_or_else(bad)?;
+            let token = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b);
+            if n.is_empty() || !n.bytes().all(token) || v.contains('\r') {
+                return Err(bad());
+            }
+            Ok((n, v.trim_matches([' ', '\t'])))
+        })
+        .collect()
+}
+
+/// The first value of `name` (lower case).
+fn header<'a>(lines: &[(&str, &'a str)], name: &str) -> Option<&'a str> {
+    lines
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| *v)
 }

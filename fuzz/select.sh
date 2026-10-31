@@ -13,7 +13,7 @@ declare -A crate=(
   [replay_line]=dvarapala-l7 [route_match]=dvarapala-l7
   [waf_frame]=dvarapala-l7 [llm_reply]=dvarapala-l7
   [client_key]=dvarapala-engine [tree_model]=dvarapala-engine
-  [ffi_check]=dvarapala-ffi
+  [ffi_check]=dvarapala-ffi [ffi_check_request]=dvarapala-ffi
   [forward_route]=dvarapala-proxy [ja4]=dvarapala-proxy
   [pem]=dvarapala-proxy [upgrade_headers]=dvarapala-proxy
   [quic_datagram]=dvarapala-proxy

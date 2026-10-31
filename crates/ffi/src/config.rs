@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use dvarapala_engine::{
     ChallengeMode, Cidr, ConnsConfig, DetectConfig, GuardConfig, GuardDetection, Limit,
-    TrustedProxies,
+    ScheduleConfig, TrustedProxies,
 };
+
+use crate::lists::{self, RouteSpec};
 
 /// What a guard is built from: `CONFIG.md` key names and string values.
 #[derive(Debug, Default, Clone)]
@@ -20,10 +22,47 @@ pub(crate) struct Built {
     pub(crate) conns: Option<ConnsConfig>,
     /// 0 off
     pub(crate) max_connections: usize,
+    /// RFC 0028: the `routes` JSON as given, so a reload that keeps it
+    /// keeps the route buckets
+    pub(crate) routes_src: String,
+    pub(crate) routes: Vec<RouteSpec>,
+    pub(crate) destinations: Vec<(String, ScheduleConfig)>,
+    pub(crate) max_blocks: usize,
+    pub(crate) max_block_ttl: Duration,
+}
+
+impl Built {
+    /// The first key that differs from `self` but only applies at start.
+    pub(crate) fn restart(&self, new: &Built) -> Option<&'static str> {
+        let detect = |b: &Built| b.guard.detection.as_ref().map(|d| d.detect.clone());
+        let conns = |b: &Built| {
+            b.conns.clone().map(|c| ConnsConfig {
+                max_clients: NonZeroUsize::MIN,
+                ..c
+            })
+        };
+        let max_clients = |b: &Built| b.conns.as_ref().map(|c| c.max_clients);
+        [
+            (
+                "rate_limit.max_clients",
+                self.guard.max_clients != new.guard.max_clients,
+            ),
+            ("l4.max_clients", max_clients(self) != max_clients(new)),
+            (
+                "l4.max_connections",
+                self.max_connections != new.max_connections,
+            ),
+            ("l4", conns(self) != conns(new)),
+            ("detection", detect(self) != detect(new)),
+            ("admin.max_blocks", self.max_blocks != new.max_blocks),
+        ]
+        .into_iter()
+        .find_map(|(k, changed)| changed.then_some(k))
+    }
 }
 
 /// Sections and keys that belong to the gateway's own server.
-const NOT_IN_PROCESS: [&str; 14] = [
+const NOT_IN_PROCESS: [&str; 15] = [
     "mode",
     "listen",
     "upstream",
@@ -35,6 +74,7 @@ const NOT_IN_PROCESS: [&str; 14] = [
     "http2.",
     "upgrade.",
     "forward.",
+    "admin.",
     "l4.header_timeout",
     "l4.idle_timeout",
     "l4.min_body_rate",
@@ -50,6 +90,9 @@ impl Settings {
         let (mut l4, mut max_connections) = (true, 0);
         let mut c = ConnsConfig::default();
         let (mut accept_rate, mut accept_burst) = (0, 64);
+        let (mut routes_src, mut routes, mut destinations) =
+            (String::new(), Vec::new(), Vec::new());
+        let (mut max_blocks, mut max_block_ttl) = (4096, Duration::from_secs(24 * 3600));
         for (k, v) in &self.0 {
             let k = k.as_str();
             match k {
@@ -91,6 +134,18 @@ impl Settings {
                         .ok_or_else(|| format!("{k} must be at least 1"))?;
                 }
                 "l4.exempt" => c.exempt = cidrs(k, v)?,
+                "routes" => {
+                    routes = lists::routes(v)?;
+                    routes_src.clone_from(v);
+                }
+                "forward.destinations" => destinations = lists::destinations(v)?,
+                "admin.max_blocks" => max_blocks = num(k, v)?,
+                "admin.max_block_ttl" => {
+                    max_block_ttl = duration(k, v)?;
+                    if max_block_ttl.is_zero() {
+                        return Err(format!("{k} must be above 0"));
+                    }
+                }
                 _ if NOT_IN_PROCESS
                     .iter()
                     .any(|p| k == *p || (p.ends_with('.') && k.starts_with(p))) =>
@@ -121,6 +176,11 @@ impl Settings {
             trusted: TrustedProxies::new(trusted),
             conns: l4.then_some(c),
             max_connections: if l4 { max_connections } else { 0 },
+            routes_src,
+            routes,
+            destinations,
+            max_blocks,
+            max_block_ttl,
         })
     }
 }
@@ -141,7 +201,7 @@ fn cidrs(k: &str, v: &str) -> Result<Vec<Cidr>, String> {
 }
 
 /// `"<n>ms"`, `"<n>s"`, `"<n>m"` or `"<n>h"`, as in the gateway's config.
-fn duration(k: &str, v: &str) -> Result<Duration, String> {
+pub(crate) fn duration(k: &str, v: &str) -> Result<Duration, String> {
     let units = [("ms", 1), ("s", 1_000), ("m", 60_000), ("h", 3_600_000)];
     units
         .iter()
