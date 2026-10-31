@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 use criterion::{Criterion, criterion_group, criterion_main};
 use dvarapala_engine::ClientKey;
 use dvarapala_l7::{Host, Matcher, PathMatch, RouteConfig, RouteKey, Routes};
-use http::{Method, Request};
+use http::Request;
 
 fn routes() -> Routes {
     let route = |i: usize| RouteConfig {
@@ -15,7 +15,7 @@ fn routes() -> Routes {
         matcher: Matcher {
             host: Some(Host::parse("*.example.com").unwrap()),
             path: Some(PathMatch::parse(&format!("/api/v{i}/")).unwrap()),
-            methods: vec![Method::GET, Method::POST],
+            methods: vec!["GET".into(), "POST".into()],
             clients: vec!["192.0.2.0/24".parse().unwrap()],
         },
         deny: false,
