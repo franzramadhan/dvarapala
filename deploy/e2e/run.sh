@@ -21,6 +21,14 @@ export HELM_REPOSITORY_CONFIG HELM_REPOSITORY_CACHE
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 k() { kubectl --context "kind-$cluster" "$@"; }
+# A restart shows as a new pod uid; a pod still terminating from an earlier
+# rollout may be in $1 and gone from $2.
+no_new_pods() {
+  local u
+  for u in $2; do
+    case " $1 " in *" $u "*) ;; *) fail "gateway pods restarted: $1 / $2" ;; esac
+  done
+}
 
 up() {
   if [ "$flavor" = cilium ]; then
@@ -142,7 +150,7 @@ reload() {
   done
   [ -n "$ok" ] || fail "rate 100 not applied"
   after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
-  [ "$before" = "$after" ] || fail "gateway pods restarted: $before / $after"
+  no_new_pods "$before" "$after"
   echo "ok: reload without restart"
 }
 
@@ -225,7 +233,7 @@ console_waf() {
   done
   [ -n "$ok" ] || fail "waf mode enforce not applied"
   after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
-  [ "$before" = "$after" ] || fail "gateway pods restarted: $before / $after"
+  no_new_pods "$before" "$after"
   [ -n "$(k -n shop get endpointslices -l kubernetes.io/service-name="$admin" -o jsonpath='{.items[*].endpoints[*].addresses[0]}')" ] \
     || fail "admin Service lost its endpoints"
   echo "ok: waf mode reloaded without restart"

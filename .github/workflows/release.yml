@@ -78,9 +78,9 @@ jobs:
           path: dist/*.tar.gz
           retention-days: 7
 
-  # The image's binaries: Linux musl with the shared-state stores (RFC 0010),
-  # since replicas behind one load balancer are the usual container setup.
-  # The release tarballs above stay without them.
+  # The image's binaries: Linux musl with every feature, so one image runs
+  # every section (stores, ml, http3, xdp). The release tarballs above stay
+  # on the default features.
   image-binary:
     needs: verify
     strategy:
@@ -102,7 +102,7 @@ jobs:
           key: ${{ matrix.target }}-image
       - name: Build
         run: |
-          cargo build --release --locked --target "$TARGET" -p dvarapala --features redis,postgres
+          cargo build --release --locked --target "$TARGET" -p dvarapala --all-features
           cargo build --release --locked --target "$TARGET" -p dvarapala-operator
           mkdir -p dist
           tar -czf "dist/image-${TARGET}.tar.gz" -C "target/${TARGET}/release" dvarapala dvarapala-operator
