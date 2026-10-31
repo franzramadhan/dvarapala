@@ -29,7 +29,8 @@ webhook certificate: no cert-manager needed.
 A policy holds the protection config as dvarapala TOML, the same keys as
 the [configuration](configuration.html), minus the ones the operator sets
 (`mode`, `listen`, `upstream`, `upstream_protocol`, `[pool]`,
-`config_watch`, `metrics.listen`, `[admin]`, `[xdp]`, `[quic]`, `[tls]`):
+`config_watch`, `metrics.listen`, `admin.listen`, `[xdp]`, `[quic]`,
+`[tls]`, and `waf.endpoint` with `gateway.waf`):
 
 ```yaml
 apiVersion: dvarapala.franzramadhan.dev/v1alpha1
@@ -56,6 +57,51 @@ kubectl -n shop label httproute web dvarapala.franzramadhan.dev/policy=default
 A route label overrides the namespace's; `none` opts a route out. The
 full example, with network policies, is
 [`kubernetes.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes.yaml).
+
+To protect only some rules of a route, list them in the annotation
+`dvarapala.franzramadhan.dev/rules`, comma separated: rule `name`s for an
+`HTTPRoute` or `GRPCRoute`, path values for an `Ingress` (`/api/,/login`).
+Other rules keep their backends; a listed rule the route does not have
+shows in the policy's `status.warnings` and changes nothing.
+
+## Console, WAF and mounts
+
+The gateway pods can run what a hand-written dvarapala Deployment has
+(RFC 0025). Each is off unless the policy's `gateway` asks for it:
+
+```yaml
+  gateway:
+    admin: {enabled: true}
+    waf:
+      image: ghcr.io/corazawaf/coraza-spoa:<version>@sha256:<digest>
+      configMap: shop-coraza          # the agent's config.yaml
+      resources: {requests: {cpu: 100m, memory: 96Mi}}
+    mounts:
+      - {name: pg-ca, configMap: lab-root-ca}   # or secret: <name>
+    podLabels: {team: shop}
+    podAnnotations: {}
+```
+
+- `admin`: the operator sets `admin.listen` to `0.0.0.0:9091` and adds a
+  Service `<backend>-dvp-admin-<port>` (ClientIP affinity) for the
+  console and the admin API, named in `status.gateways[].adminService`.
+  The policy needs a `secretRef` with `DVARAPALA__ADMIN__TOKEN`, and its
+  `[admin]` table holds the other admin keys. An `[admin]` table without
+  `gateway.admin` is refused.
+- `waf`: a `coraza-spoa` sidecar (uid 10001, `-autoreload`) with the
+  ConfigMap at `/etc/coraza-spoa/config.yaml`, also mounted in the
+  gateway at `/etc/dvarapala-waf/` for `waf.rules_files`. The operator
+  sets `waf.endpoint` to the shared socket `unix:/run/waf/waf.sock`, so
+  the agent's `bind` must be `unix:///run/waf/waf.sock`. The image must
+  start with a prefix in `--waf-images`; an image without a digest and a
+  sidecar while `[waf]` is off are warnings in `status.warnings`.
+- `mounts`: up to 16 ConfigMaps or Secrets, read-only at
+  `/etc/dvarapala-mounts/<name>/`, for a store CA or rule files.
+- `podLabels` and `podAnnotations`: for network policies and scrapers.
+  The operator's own labels and its restart annotation are refused.
+
+A refused policy is `Ready=False` with the reason. The full example is
+[`kubernetes-console-waf.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-console-waf.yaml).
 
 ## What happens
 
@@ -100,9 +146,9 @@ skipped backends (`ExternalName` Services, Services without a selector,
 - The operator owns `[tls]`, so the gateway listener is cleartext behind
   the ingress controller: `[fingerprint]` rules and `routes.key = "ja4"`
   never see a JA4.
-- A gateway pod has no WAF sidecar: `[waf]` needs an agent the pod can
-  reach over TCP (`endpoint = "<host>:<port>"`), for example a
-  `coraza-spoa` Deployment and Service (see [WAF](waf.html)).
+- Without `gateway.waf`, `[waf]` needs an agent the pod can reach over
+  TCP (`endpoint = "<host>:<port>"`), for example a `coraza-spoa`
+  Deployment and Service (see [WAF](waf.html)).
 - `[challenge]` with more than one gateway pod needs the same
   `challenge.secret` on every pod (through `secretRef`), or a pass from
   one pod fails on the others.
@@ -117,12 +163,13 @@ skipped backends (`ExternalName` Services, Services without a selector,
 | `--gateway-image` | `ghcr.io/franzramadhan/dvarapala:<operator version>` |
 | `--webhook-listen` | `0.0.0.0:9443` |
 | `--metrics-listen` | `0.0.0.0:9090` |
+| `--waf-images` | `ghcr.io/corazawaf/coraza-spoa` (comma separated prefixes; empty refuses every sidecar) |
 
 | Metric | Labels |
 |---|---|
-| `dvarapala_operator_admissions_total` | `kind`, `result`: `rewritten`, `unchanged`, `refused` |
+| `dvarapala_operator_admissions_total` | `kind`, `result`: `rewritten`, `partial`, `unchanged`, `refused` |
 | `dvarapala_operator_reconciles_total` | `result`: `ok`, `invalid` |
-| `dvarapala_operator_gateways` | `namespace`, `phase`: `passthrough`, `protecting` |
+| `dvarapala_operator_gateways` | `namespace`, `phase`: `passthrough`, `protecting`; `admin`, `waf`: `true`, `false` |
 
 ## Remove it
 
