@@ -3,9 +3,8 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
-use dvarapala_engine::{Cidr, Limit};
+use dvarapala_engine::{Cidr, Limit, parse_method};
 use dvarapala_l7::{Host, Matcher, PathMatch, RouteConfig, RouteKey};
-use http::Method;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -69,7 +68,7 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
             let methods = r
                 .methods
                 .iter()
-                .map(|m| Method::from_bytes(m.to_ascii_uppercase().as_bytes()))
+                .map(|m| parse_method(m))
                 .collect::<Result<Vec<_>, _>>();
             let clients = r
                 .clients
@@ -88,7 +87,7 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 matcher: Matcher {
                     host: host.map_err(|e| err("host", e))?,
                     path: path.map_err(|e| err("path", e))?,
-                    methods: methods.map_err(|e| err("methods", e.to_string()))?,
+                    methods: methods.map_err(|e| err("methods", e))?,
                     clients: clients.map_err(|e| err("clients", e.0))?,
                 },
                 deny: r.deny,
@@ -152,6 +151,6 @@ mod tests {
         r.methods = vec!["post".into()];
         let c = routes(&[r]).unwrap();
         assert_eq!(c[0].limit, Some(Limit::new(5, 5).unwrap()));
-        assert_eq!(c[0].matcher.methods, vec![Method::POST]);
+        assert_eq!(c[0].matcher.methods, vec!["POST"]);
     }
 }

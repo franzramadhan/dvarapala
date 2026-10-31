@@ -1,11 +1,10 @@
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-use dvarapala_engine::{ClientKey, Limit, Verdict};
+use dvarapala_engine::{ClientKey, Limit, Matcher, RouteKey, RouteLimits, Verdict, strip_port};
 use http::Request;
+use http::header::HOST;
 
-use super::limits::{Limits, RouteKey};
-use super::matcher::Matcher;
 use crate::Ja4;
 
 /// One `[[routes]]` entry (RFC 0013).
@@ -40,7 +39,8 @@ pub(crate) struct Route {
     pub(crate) deny: bool,
     pub(crate) challenge: bool,
     pub(crate) waf: bool,
-    limits: Option<Limits>,
+    key: RouteKey,
+    limits: Option<RouteLimits>,
 }
 
 impl Routes {
@@ -49,7 +49,8 @@ impl Routes {
             routes
                 .into_iter()
                 .map(|r| Route {
-                    limits: r.limit.map(|l| Limits::new(l, r.key, r.max_keys)),
+                    limits: r.limit.map(|l| RouteLimits::new(l, r.max_keys)),
+                    key: r.key,
                     name: r.name,
                     matcher: r.matcher,
                     deny: r.deny,
@@ -68,12 +69,18 @@ impl Routes {
     /// The first route matching `req` from `client`.
     pub(crate) fn find<B>(&self, req: &Request<B>, client: ClientKey) -> Option<&Route> {
         let ip = client.into();
+        // the URI's authority (HTTP/2, absolute form), else the Host header
+        let host = match req.uri().host() {
+            Some(h) => Some(h.as_bytes()),
+            None => req.headers().get(HOST).map(|h| h.as_bytes()),
+        }
+        .map(strip_port);
+        let (method, path) = (req.method().as_str(), req.uri().path());
         // ponytail: linear scan, about 20 ns a route; an index by host or
         // path prefix if configs grow to hundreds of routes
-        self.0.iter().find(|r| {
-            r.matcher
-                .matches(req.uri(), req.headers(), req.method(), ip)
-        })
+        self.0
+            .iter()
+            .find(|r| r.matcher.matches(method, host, path, ip))
     }
 }
 
@@ -89,7 +96,12 @@ impl Route {
         let Some(l) = &self.limits else {
             return Verdict::Allow;
         };
-        let (v, keys) = l.take(req.headers(), client, ja4, now);
+        let value = match &self.key {
+            RouteKey::Client => None,
+            RouteKey::Header(h) => req.headers().get(h.as_str()).map(|v| v.as_bytes()),
+            RouteKey::Ja4 => ja4.as_ref().map(|j| j.as_str().as_bytes()),
+        };
+        let (v, keys) = l.take(value, client, now);
         metrics::gauge!("dvarapala_route_keys", "route" => self.name.clone()).set(keys as f64);
         v
     }
@@ -121,8 +133,8 @@ pub fn fuzz_route_match(data: &[u8]) {
         return;
     };
     let matcher = Matcher {
-        host: super::Host::parse(host).ok(),
-        path: super::PathMatch::parse(path).ok(),
+        host: dvarapala_engine::Host::parse(host).ok(),
+        path: dvarapala_engine::PathMatch::parse(path).ok(),
         ..Matcher::default()
     };
     let Ok(req) = Request::builder()
@@ -182,6 +194,19 @@ mod tests {
         assert_eq!(name("/login").as_deref(), Some("login"));
         assert_eq!(name("/login/x").as_deref(), Some("rest"));
         assert_eq!(name("/a").as_deref(), Some("rest"));
+        // the authority of an absolute URI wins over the Host header
+        let abs = Request::get("https://a.example.com./x")
+            .header(HOST, "b.example.com")
+            .body(())
+            .unwrap();
+        let host = Routes::new(vec![RouteConfig {
+            matcher: Matcher {
+                host: Some(crate::Host::parse("a.example.com").unwrap()),
+                ..Matcher::default()
+            },
+            ..route("a", "/")
+        }]);
+        assert_eq!(host.matching(&abs, c), Some("a"));
         assert!(
             Routes::default()
                 .find(&Request::get("/").body(()).unwrap(), c)

@@ -1,8 +1,6 @@
 use std::net::IpAddr;
 
-use dvarapala_engine::Cidr;
-use http::header::HOST;
-use http::{HeaderMap, Method, Uri};
+use crate::Cidr;
 
 /// A route's host condition, compared without the port and ignoring case.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,31 +76,50 @@ impl PathMatch {
     }
 }
 
+/// A method name for [`Matcher::methods`]: an HTTP token, upper-cased.
+pub fn parse_method(s: &str) -> Result<String, String> {
+    if is_token(s) {
+        Ok(s.to_ascii_uppercase())
+    } else {
+        Err(format!("method {s:?} is not an HTTP token"))
+    }
+}
+
+/// RFC 9110 `token`: the characters of a method or a header name.
+pub(crate) fn is_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 /// What a request must look like for a route to apply. Every condition
 /// set must hold; an empty matcher matches every request.
 #[derive(Debug, Clone, Default)]
 pub struct Matcher {
     pub host: Option<Host>,
     pub path: Option<PathMatch>,
-    /// Any method when empty.
-    pub methods: Vec<Method>,
+    /// Upper case, from [`parse_method`]; any method when empty.
+    pub methods: Vec<String>,
     /// Networks of the client key (after `trusted_proxies`); any client
     /// when empty. An IPv6 key is its /64, so a longer prefix never matches.
     pub clients: Vec<Cidr>,
 }
 
 impl Matcher {
-    pub fn matches(&self, uri: &Uri, headers: &HeaderMap, method: &Method, client: IpAddr) -> bool {
-        if !self.methods.is_empty() && !self.methods.contains(method) {
+    /// `host` is the request's host without the port or a trailing dot
+    /// (see [`strip_port`]), `None` when it has none; `path` is the raw
+    /// path without the query.
+    pub fn matches(&self, method: &str, host: Option<&[u8]>, path: &str, client: IpAddr) -> bool {
+        if !self.methods.is_empty() && !self.methods.iter().any(|m| m == method) {
             return false;
         }
         if let Some(p) = &self.path
-            && !p.matches(uri.path())
+            && !p.matches(path)
         {
             return false;
         }
         if let Some(h) = &self.host
-            && !host_of(uri, headers).is_some_and(|host| h.matches(host))
+            && !host.is_some_and(|host| h.matches(host))
         {
             return false;
         }
@@ -110,39 +127,23 @@ impl Matcher {
     }
 }
 
-/// The request's host without the port or a trailing dot: the URI's
-/// authority (HTTP/2, absolute form), else the `Host` header.
-fn host_of<'a>(uri: &'a Uri, headers: &'a HeaderMap) -> Option<&'a [u8]> {
-    let raw = match uri.host() {
-        Some(h) => h.as_bytes(),
-        None => strip_port(headers.get(HOST)?.as_bytes()),
+/// A `Host` header value without the port and a trailing dot.
+pub fn strip_port(h: &[u8]) -> &[u8] {
+    let h = if h.first() == Some(&b'[') {
+        h.iter().position(|&b| b == b']').map_or(h, |i| &h[..=i])
+    } else {
+        h.iter().rposition(|&b| b == b':').map_or(h, |i| &h[..i])
     };
-    Some(raw.strip_suffix(b".").unwrap_or(raw))
-}
-
-fn strip_port(h: &[u8]) -> &[u8] {
-    if h.first() == Some(&b'[') {
-        return h.iter().position(|&b| b == b']').map_or(h, |i| &h[..=i]);
-    }
-    h.iter().rposition(|&b| b == b':').map_or(h, |i| &h[..i])
+    h.strip_suffix(b".").unwrap_or(h)
 }
 
 #[cfg(test)]
 mod tests {
-    use http::Request;
-
     use super::*;
 
-    fn req(method: &str, uri: &str, host: Option<&str>) -> Request<()> {
-        let mut b = Request::builder().method(method).uri(uri);
-        if let Some(h) = host {
-            b = b.header(HOST, h);
-        }
-        b.body(()).unwrap()
-    }
-
-    fn hit(m: &Matcher, r: &Request<()>, client: &str) -> bool {
-        m.matches(r.uri(), r.headers(), r.method(), client.parse().unwrap())
+    fn hit(m: &Matcher, method: &str, path: &str, host: Option<&str>, client: &str) -> bool {
+        let host = host.map(|h| strip_port(h.as_bytes()));
+        m.matches(method, host, path, client.parse().unwrap())
     }
 
     fn path(p: &str) -> Matcher {
@@ -152,16 +153,15 @@ mod tests {
         }
     }
 
-    // RFC 0013 case 1 (first match is in `Routes`; here each condition)
+    // RFC 0013 case 1 (first match is in the callers; here each condition)
     #[test]
     fn exact_and_prefix_paths() {
-        let login = path("=/login");
-        let root = path("/");
+        let (login, root) = (path("=/login"), path("/"));
         let c = "192.0.2.1";
-        assert!(hit(&login, &req("GET", "/login", None), c));
-        assert!(!hit(&login, &req("GET", "/login/x", None), c));
-        assert!(hit(&root, &req("GET", "/login/x", None), c));
-        assert!(hit(&root, &req("GET", "/a", None), c));
+        assert!(hit(&login, "GET", "/login", None, c));
+        assert!(!hit(&login, "GET", "/login/x", None, c));
+        assert!(hit(&root, "GET", "/login/x", None, c));
+        assert!(hit(&root, "GET", "/a", None, c));
     }
 
     // RFC 0013 case 2
@@ -172,18 +172,19 @@ mod tests {
             ..Matcher::default()
         };
         let c = "192.0.2.1";
-        assert!(hit(&m, &req("GET", "/", Some("a.example.com:8443")), c));
-        assert!(hit(&m, &req("GET", "/", Some("A.EXAMPLE.COM")), c));
-        assert!(hit(&m, &req("GET", "https://a.example.com./x", None), c));
-        assert!(!hit(&m, &req("GET", "/", Some("example.com")), c));
-        assert!(!hit(&m, &req("GET", "/", Some("badexample.com")), c));
-        assert!(!hit(&m, &req("GET", "/", None), c));
+        assert!(hit(&m, "GET", "/", Some("a.example.com:8443"), c));
+        assert!(hit(&m, "GET", "/", Some("A.EXAMPLE.COM"), c));
+        assert!(hit(&m, "GET", "/", Some("a.example.com."), c));
+        assert!(!hit(&m, "GET", "/", Some("example.com"), c));
+        assert!(!hit(&m, "GET", "/", Some("badexample.com"), c));
+        assert!(!hit(&m, "GET", "/", None, c));
         let exact = Matcher {
             host: Some(Host::parse("API.example.com").unwrap()),
             ..Matcher::default()
         };
-        assert!(hit(&exact, &req("GET", "/", Some("api.example.com.")), c));
-        assert!(!hit(&exact, &req("GET", "/", Some("x.api.example.com")), c));
+        assert!(hit(&exact, "GET", "/", Some("api.example.com."), c));
+        assert!(!hit(&exact, "GET", "/", Some("x.api.example.com"), c));
+        assert_eq!(strip_port(b"[2001:db8::1]:443"), b"[2001:db8::1]");
     }
 
     // RFC 0013 case 3
@@ -191,22 +192,22 @@ mod tests {
     fn raw_path_is_not_decoded() {
         let m = path("/admin");
         let c = "192.0.2.1";
-        assert!(hit(&m, &req("GET", "/admin", None), c));
-        assert!(!hit(&m, &req("GET", "/%61dmin", None), c));
-        assert!(!hit(&m, &req("GET", "//admin", None), c));
+        assert!(hit(&m, "GET", "/admin", None, c));
+        assert!(!hit(&m, "GET", "/%61dmin", None, c));
+        assert!(!hit(&m, "GET", "//admin", None, c));
     }
 
     // RFC 0013 case 4
     #[test]
     fn methods_and_clients() {
         let m = Matcher {
-            methods: vec![Method::POST],
+            methods: vec![parse_method("post").unwrap()],
             clients: vec!["192.0.2.0/24".parse().unwrap()],
             ..Matcher::default()
         };
-        assert!(!hit(&m, &req("GET", "/", None), "192.0.2.9"));
-        assert!(!hit(&m, &req("POST", "/", None), "198.51.100.9"));
-        assert!(hit(&m, &req("POST", "/", None), "192.0.2.9"));
+        assert!(!hit(&m, "GET", "/", None, "192.0.2.9"));
+        assert!(!hit(&m, "POST", "/", None, "198.51.100.9"));
+        assert!(hit(&m, "POST", "/", None, "192.0.2.9"));
     }
 
     #[test]
@@ -216,6 +217,8 @@ mod tests {
         assert!(Host::parse("*example.com").is_err());
         assert!(Host::parse("*.").is_err());
         assert!(Host::parse("a.example.com:80").is_err());
+        assert!(parse_method("GE T").is_err());
+        assert!(parse_method("").is_err());
         assert_eq!(
             Host::parse("*.Example.com").unwrap(),
             Host::Suffix(".example.com".into())
