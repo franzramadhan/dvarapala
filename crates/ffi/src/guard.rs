@@ -177,6 +177,21 @@ pub unsafe extern "C" fn dv_check(
     })
 }
 
+/// Applies `cfg` to a running guard (RFC 0028): client counts, the
+/// detection baseline, blocks and egress queues stay. A key that only
+/// applies at creation (`rate_limit.max_clients`, `l4.*`, the detector's
+/// own keys, `admin.max_blocks`) fails with `DV_E_INVALID` naming it, and
+/// the guard stays as it was. Safe with checks in flight on other threads.
+///
+/// # Safety
+///
+/// `g` comes from [`dv_guard_new`]; `cfg` from [`dv_config_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dv_guard_reload(g: *mut DvGuard, cfg: *const DvConfig) -> i32 {
+    let _ = (g, cfg);
+    todo!("rfc 0028")
+}
+
 /// # Safety
 ///
 /// `g` comes from [`dv_guard_new`]; `out` is null or points to a `DvStats`.

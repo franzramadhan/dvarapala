@@ -9,6 +9,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define DV_SLOT_NOW 0
+
+#define DV_SLOT_WAIT 1
+
+#define DV_SLOT_REFUSE 2
+
 #define DV_OK 0
 
 // A required pointer was null.
@@ -20,11 +26,15 @@
 // A bad address, key or value; `dv_last_error` says which.
 #define DV_E_INVALID 3
 
-// A connection over an `l4.*` limit; `dv_last_error` names the reason.
+// A connection over an `l4.*` limit or from a blocked client, or a full
+// block list; `dv_last_error` names the reason.
 #define DV_E_LIMIT 4
 
 // A bug in the library, caught before it crossed the ABI.
 #define DV_E_PANIC 5
+
+// An unknown egress destination, or an unlisted block (RFC 0028).
+#define DV_E_NOT_FOUND 6
 
 #define DV_ALLOW 0
 
@@ -41,6 +51,14 @@ typedef struct DvConn DvConn;
 // A thread-safe guard: the client table, the detector, the trusted
 // proxies and the connection counts.
 typedef struct DvGuard DvGuard;
+
+typedef struct DvSlot {
+  // `DV_SLOT_NOW`, `DV_SLOT_WAIT` or `DV_SLOT_REFUSE`.
+  int32_t kind;
+  // How long to wait with `DV_SLOT_WAIT`, when to retry with
+  // `DV_SLOT_REFUSE`, in milliseconds.
+  uint64_t ms;
+} DvSlot;
 
 typedef struct DvVerdict {
   // `DV_ALLOW`, `DV_THROTTLE` or `DV_DROP`.
@@ -61,9 +79,67 @@ typedef struct DvStats {
   double source_entropy;
 } DvStats;
 
+// A request as the HTTP server parsed it. Every field is NUL-terminated
+// UTF-8 of at most 8 KiB.
+typedef struct DvRequest {
+  // The peer address.
+  const char *ip;
+  // `X-Forwarded-For`, or null.
+  const char *xff;
+  const char *method;
+  // The authority or `Host`, or null when the request has none.
+  const char *host;
+  // The raw path, without the query.
+  const char *path;
+  // `name: value` lines, one per `\n`, for the names
+  // [`dv_route_headers`] lists; or null.
+  const char *headers;
+} DvRequest;
+
+typedef struct DvRequestVerdict {
+  // `DV_ALLOW`, `DV_THROTTLE` or `DV_DROP`.
+  int32_t kind;
+  // With `DV_THROTTLE`: when to retry, in milliseconds.
+  uint64_t retry_after_ms;
+  // The matched route's name, or null; valid while the guard lives.
+  const char *route;
+} DvRequestVerdict;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+// Blocks `cidr` (an address or `addr/prefix`) for `ttl_ms`, 0 for
+// `admin.max_block_ttl`; blocking a listed network again moves its
+// expiry. A full list is `DV_E_LIMIT`, a TTL over the maximum
+// `DV_E_INVALID`.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`]; `cidr` is null or NUL-terminated.
+int32_t dv_block(const struct DvGuard *g, const char *cidr, uint64_t ttl_ms);
+
+// Lifts the block on `cidr`; `DV_E_NOT_FOUND` when it is not listed.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`]; `cidr` is null or NUL-terminated.
+int32_t dv_unblock(const struct DvGuard *g, const char *cidr);
+
+// The blocks in force as JSON, `[{"cidr": "192.0.2.0/24", "ttl_ms": 59000}]`;
+// free it with [`dv_string_free`]. Null with `dv_last_error` on error.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`].
+char *dv_blocks(const struct DvGuard *g);
+
+// Frees a string from [`dv_blocks`]; null is a no-op.
+//
+// # Safety
+//
+// `s` is null or comes from [`dv_blocks`], freed once.
+void dv_string_free(char *s);
 
 // Counts a new connection from `ip`: `DV_OK` with `*out` set, or
 // `DV_E_LIMIT` with the reason (`total`, `per_client`, `rate`) in
@@ -81,6 +157,25 @@ int32_t dv_conn_open(const struct DvGuard *g, const char *ip, struct DvConn **ou
 //
 // `c` is null or comes from [`dv_conn_open`], closed once.
 void dv_conn_close(struct DvConn *c);
+
+// A slot for one call to `dest` (a destination's `name`): send now, wait
+// `ms` then send, or give up and retry after `ms`. A `WAIT` slot is spent
+// once given out, sent or not, and holds a queue place until its time.
+// `DV_E_NOT_FOUND` for an unknown destination.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`]; `dest` is null or
+// NUL-terminated; `out` is null or points to a `DvSlot`.
+int32_t dv_egress(const struct DvGuard *g, const char *dest, struct DvSlot *out);
+
+// Holds every call to `dest` for `retry_after_ms` (a provider's
+// `Retry-After`), at most the destination's `max_pause`.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`]; `dest` is null or NUL-terminated.
+int32_t dv_egress_pause(const struct DvGuard *g, const char *dest, uint64_t retry_after_ms);
 
 // The message of the last error on this thread, or null. Valid until the
 // next call on this thread.
@@ -119,6 +214,17 @@ struct DvGuard *dv_guard_new(const struct DvConfig *cfg);
 // NUL-terminated; `out` is null or points to a `DvVerdict`.
 int32_t dv_check(const struct DvGuard *g, const char *ip, const char *xff, struct DvVerdict *out);
 
+// Applies `cfg` to a running guard (RFC 0028): client counts, the
+// detection baseline, blocks and egress queues stay. A key that only
+// applies at creation (`rate_limit.max_clients`, `l4.*`, the detector's
+// own keys, `admin.max_blocks`) fails with `DV_E_INVALID` naming it, and
+// the guard stays as it was. Safe with checks in flight on other threads.
+//
+// # Safety
+//
+// `g` comes from [`dv_guard_new`]; `cfg` from [`dv_config_new`].
+int32_t dv_guard_reload(struct DvGuard *g, const struct DvConfig *cfg);
+
 // # Safety
 //
 // `g` comes from [`dv_guard_new`]; `out` is null or points to a `DvStats`.
@@ -130,6 +236,28 @@ int32_t dv_stats(const struct DvGuard *g, struct DvStats *out);
 //
 // `g` is null or comes from [`dv_guard_new`], freed once.
 void dv_guard_free(struct DvGuard *g);
+
+// The verdict for `r` with `routes` applied as the gateway applies them:
+// a block, then a denied route, then the global bucket, then the route's.
+// A field over 8 KiB, a bad header line or a missing method or path is
+// `DV_E_INVALID`, a field that is not UTF-8 `DV_E_UTF8`.
+//
+// # Safety
+//
+// `g` comes from [`crate::dv_guard_new`]; `r` is null or points to a
+// `DvRequest` whose fields are null or NUL-terminated; `out` is null or
+// points to a `DvRequestVerdict`.
+int32_t dv_check_request(const struct DvGuard *g,
+                         const struct DvRequest *r,
+                         struct DvRequestVerdict *out);
+
+// The header names route keys read, lower case and comma separated; `""`
+// when none does. Valid while the guard lives; null for a null guard.
+//
+// # Safety
+//
+// `g` is null or comes from [`crate::dv_guard_new`].
+const char *dv_route_headers(const struct DvGuard *g);
 
 #ifdef __cplusplus
 }  // extern "C"
