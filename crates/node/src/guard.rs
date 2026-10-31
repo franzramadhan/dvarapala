@@ -3,9 +3,10 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 
 use dvarapala::{
-    DV_OK, DvConn, DvGuard, DvStats, DvVerdict, dv_check, dv_config_free, dv_config_new,
-    dv_config_set, dv_conn_close, dv_conn_open, dv_guard_free, dv_guard_new, dv_last_error,
-    dv_stats,
+    DV_OK, DvConfig, DvConn, DvGuard, DvRequest, DvRequestVerdict, DvSlot, DvStats, DvVerdict,
+    dv_block, dv_blocks, dv_check, dv_check_request, dv_config_free, dv_config_new, dv_config_set,
+    dv_conn_close, dv_conn_open, dv_egress, dv_egress_pause, dv_guard_free, dv_guard_new,
+    dv_guard_reload, dv_last_error, dv_route_headers, dv_stats, dv_string_free, dv_unblock,
 };
 use napi::{Error, Result};
 use napi_derive::napi;
@@ -15,6 +16,22 @@ pub struct Verdict {
     /// 0 allow, 1 throttle, 2 drop
     pub kind: i32,
     pub retry_after_ms: f64,
+}
+
+/// RFC 0028: a request's verdict with the routes applied.
+#[napi(object)]
+pub struct RequestVerdict {
+    pub kind: i32,
+    pub retry_after_ms: f64,
+    /// The matched route's name.
+    pub route: Option<String>,
+}
+
+/// RFC 0028: 0 now, 1 wait `ms`, 2 refused, retry after `ms`.
+#[napi(object)]
+pub struct Slot {
+    pub kind: i32,
+    pub ms: f64,
 }
 
 #[napi(object)]
@@ -40,23 +57,128 @@ impl Guard {
     /// Settings by their CONFIG.md names; throws naming a bad key.
     #[napi(constructor)]
     pub fn new(config: Option<HashMap<String, String>>) -> Result<Self> {
-        let cfg = dv_config_new();
-        let set = || -> Result<*mut DvGuard> {
-            for (k, v) in config.unwrap_or_default() {
-                let (k, v) = (cstr(k)?, cstr(v)?);
-                // SAFETY: a live config and NUL-terminated strings
-                if unsafe { dv_config_set(cfg, k.as_ptr(), v.as_ptr()) } != DV_OK {
-                    return Err(last());
-                }
-            }
+        with_config(config, |cfg| {
             // SAFETY: a live config
             let g = unsafe { dv_guard_new(cfg) };
-            if g.is_null() { Err(last()) } else { Ok(g) }
+            if g.is_null() {
+                Err(last())
+            } else {
+                Ok(Self(g))
+            }
+        })
+    }
+
+    /// RFC 0028: applies `config` in place; throws naming a key that only
+    /// applies at creation, and the guard stays as it was.
+    #[napi]
+    pub fn reload(&self, config: Option<HashMap<String, String>>) -> Result<()> {
+        // SAFETY: a live guard and config
+        with_config(config, |cfg| ok(unsafe { dv_guard_reload(self.0, cfg) }))
+    }
+
+    /// RFC 0028: `headers` holds `name: value` lines for `routeHeaders()`.
+    /// Throws on bad input (a field over 8 KiB, a bad header line, no
+    /// method or path).
+    #[napi]
+    pub fn check_request(
+        &self,
+        ip: String,
+        xff: Option<String>,
+        method: String,
+        host: Option<String>,
+        path: String,
+        headers: Option<String>,
+    ) -> Result<RequestVerdict> {
+        let (ip, method, path) = (cstr(ip)?, cstr(method)?, cstr(path)?);
+        let (xff, host, headers) = (opt(xff)?, opt(host)?, opt(headers)?);
+        let p = |v: &Option<CString>| v.as_ref().map_or(ptr::null(), |v| v.as_ptr());
+        let r = DvRequest {
+            ip: ip.as_ptr(),
+            xff: p(&xff),
+            method: method.as_ptr(),
+            host: p(&host),
+            path: path.as_ptr(),
+            headers: p(&headers),
         };
-        let g = set();
-        // SAFETY: from dv_config_new, freed once
-        unsafe { dv_config_free(cfg) };
-        g.map(Self)
+        let mut v = DvRequestVerdict {
+            kind: 0,
+            retry_after_ms: 0,
+            route: ptr::null(),
+        };
+        // SAFETY: a live guard, a request of NUL-terminated strings, a valid out
+        ok(unsafe { dv_check_request(self.0, &r, &mut v) })?;
+        Ok(RequestVerdict {
+            kind: v.kind,
+            retry_after_ms: v.retry_after_ms as f64,
+            route: (!v.route.is_null())
+                // SAFETY: a name the guard keeps while it lives
+                .then(|| {
+                    unsafe { CStr::from_ptr(v.route) }
+                        .to_string_lossy()
+                        .into_owned()
+                }),
+        })
+    }
+
+    /// The header names route keys read, lower case and comma separated.
+    #[napi]
+    pub fn route_headers(&self) -> String {
+        // SAFETY: a live guard; the string lives as long as it
+        unsafe { CStr::from_ptr(dv_route_headers(self.0)) }
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// Blocks `cidr` for `ttl_ms`, 0 for `admin.max_block_ttl`.
+    #[napi]
+    pub fn block(&self, cidr: String, ttl_ms: Option<f64>) -> Result<()> {
+        let cidr = cstr(cidr)?;
+        let ttl = ttl_ms.unwrap_or(0.0).max(0.0) as u64;
+        // SAFETY: a live guard and a NUL-terminated string
+        ok(unsafe { dv_block(self.0, cidr.as_ptr(), ttl) })
+    }
+
+    /// Throws when `cidr` is not blocked.
+    #[napi]
+    pub fn unblock(&self, cidr: String) -> Result<()> {
+        let cidr = cstr(cidr)?;
+        // SAFETY: a live guard and a NUL-terminated string
+        ok(unsafe { dv_unblock(self.0, cidr.as_ptr()) })
+    }
+
+    /// The blocks in force, as JSON.
+    #[napi]
+    pub fn blocks(&self) -> Result<String> {
+        // SAFETY: a live guard; the string is freed once below
+        unsafe {
+            let p = dv_blocks(self.0);
+            if p.is_null() {
+                return Err(last());
+            }
+            let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+            dv_string_free(p);
+            Ok(s)
+        }
+    }
+
+    #[napi]
+    pub fn egress(&self, dest: String) -> Result<Slot> {
+        let dest = cstr(dest)?;
+        let mut s = DvSlot { kind: 0, ms: 0 };
+        // SAFETY: a live guard, a NUL-terminated string, a valid out pointer
+        ok(unsafe { dv_egress(self.0, dest.as_ptr(), &mut s) })?;
+        Ok(Slot {
+            kind: s.kind,
+            ms: s.ms as f64,
+        })
+    }
+
+    #[napi]
+    pub fn egress_pause(&self, dest: String, retry_after_ms: f64) -> Result<()> {
+        let dest = cstr(dest)?;
+        let ms = retry_after_ms.max(0.0) as u64;
+        // SAFETY: a live guard and a NUL-terminated string
+        ok(unsafe { dv_egress_pause(self.0, dest.as_ptr(), ms) })
     }
 
     #[napi]
@@ -146,6 +268,34 @@ impl Drop for Conn {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// Runs `f` with a config holding `config`, freed after.
+fn with_config<T>(
+    config: Option<HashMap<String, String>>,
+    f: impl FnOnce(*mut DvConfig) -> Result<T>,
+) -> Result<T> {
+    let cfg = dv_config_new();
+    let set = || -> Result<T> {
+        for (k, v) in config.unwrap_or_default() {
+            let (k, v) = (cstr(k)?, cstr(v)?);
+            // SAFETY: a live config and NUL-terminated strings
+            ok(unsafe { dv_config_set(cfg, k.as_ptr(), v.as_ptr()) })?;
+        }
+        f(cfg)
+    };
+    let r = set();
+    // SAFETY: from dv_config_new, freed once
+    unsafe { dv_config_free(cfg) };
+    r
+}
+
+fn ok(code: i32) -> Result<()> {
+    if code == DV_OK { Ok(()) } else { Err(last()) }
+}
+
+fn opt(s: Option<String>) -> Result<Option<CString>> {
+    s.map(cstr).transpose()
 }
 
 fn cstr(s: String) -> Result<CString> {

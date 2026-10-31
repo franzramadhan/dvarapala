@@ -24,6 +24,25 @@ class DvStats(ctypes.Structure):
     ]
 
 
+class DvRequest(ctypes.Structure):
+    _fields_ = [
+        ("ip", c_char_p),
+        ("xff", c_char_p),
+        ("method", c_char_p),
+        ("host", c_char_p),
+        ("path", c_char_p),
+        ("headers", c_char_p),
+    ]
+
+
+class DvRequestVerdict(ctypes.Structure):
+    _fields_ = [("kind", c_int32), ("retry_after_ms", c_uint64), ("route", c_char_p)]
+
+
+class DvSlot(ctypes.Structure):
+    _fields_ = [("kind", c_int32), ("ms", c_uint64)]
+
+
 def _path() -> str:
     """DVARAPALA_LIB, else the library next to this file (the wheel)."""
     if env := os.environ.get("DVARAPALA_LIB"):
@@ -46,12 +65,22 @@ _sigs = {
     "dv_conn_open": ([c_void_p, c_char_p, POINTER(c_void_p)], c_int32),
     "dv_conn_close": ([c_void_p], None),
     "dv_last_error": ([], c_char_p),
+    "dv_guard_reload": ([c_void_p, c_void_p], c_int32),
+    "dv_check_request": ([c_void_p, POINTER(DvRequest), POINTER(DvRequestVerdict)], c_int32),
+    "dv_route_headers": ([c_void_p], c_char_p),
+    "dv_block": ([c_void_p, c_char_p, c_uint64], c_int32),
+    "dv_unblock": ([c_void_p, c_char_p], c_int32),
+    # a c_void_p, not c_char_p, so the pointer survives for dv_string_free
+    "dv_blocks": ([c_void_p], c_void_p),
+    "dv_string_free": ([c_void_p], None),
+    "dv_egress": ([c_void_p, c_char_p, POINTER(DvSlot)], c_int32),
+    "dv_egress_pause": ([c_void_p, c_char_p, c_uint64], c_int32),
 }
 for _name, (_args, _res) in _sigs.items():
     _f = getattr(lib, _name)
     _f.argtypes, _f.restype = _args, _res
 
-DV_OK, DV_E_LIMIT = 0, 4
+DV_OK, DV_E_LIMIT, DV_E_NOT_FOUND = 0, 4, 6
 
 
 def last_error() -> str:

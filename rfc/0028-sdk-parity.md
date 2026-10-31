@@ -207,6 +207,40 @@ None new: the SDKs have no logger or metrics exporter.
 | 21 | destination `stripe`, `rate = 1`, `burst = 1`, `max_queue = 1` | `dv_egress` twice, the second caller abandons its wait, then a third call before the second slot's time | the third is `refuse` (the abandoned slot still holds the queue); after that time it is `now` again | unit (ffi) |
 | 22 | the case 21 destination | Python `guard.egress_wait("stripe")` twice in a row, sync | the second returns after about 1 s | integration (Python) |
 
+## Implementation notes
+
+- The engine holds `Matcher`, `RouteKey` and `RouteLimits`
+  (`engine/src/routes/`). The first-match loop stays with each caller (the
+  `l7` `Routes` and the ffi guard state, a few lines each), so there is no
+  `Routes::check` in the engine.
+- `route_match` stays mapped to `dvarapala-l7` in `fuzz/select.sh`: it
+  calls the `l7` adapter, and `select.sh` follows dependencies, so an
+  engine change still runs it.
+- A reload fails on every key the guard can only apply at creation, not
+  only the three named above: `rate_limit.max_clients`, every `l4.*` key,
+  the `detection.*` keys other than `mode` and `attack_rate_factor`, and
+  `admin.max_blocks`. The error names the first one.
+- `dv_block` with a TTL over `admin.max_block_ttl` is `DV_E_INVALID`, as
+  the admin API answers `400`.
+- `dv_route_headers` lists the header keys of routes that have a `rate`;
+  a route without a bucket reads no header.
+- Route names and the `dv_route_headers` string stay allocated for the
+  guard's life, so pointers handed out before a reload stay valid.
+- Go's `Config` stays `map[string]string`: `routes` and
+  `forward.destinations` take the JSON text. Python and JavaScript encode
+  a list.
+- `Transport` passes a request to a host with no destination through
+  unshaped.
+- Every middleware answers `400` for any error from `dv_check_request`,
+  a missing peer address included (Python answered `403` for that
+  before).
+- Case 21: once the abandoned slot's time passes, the queue place is
+  free and the next call gets `wait` for the next interval rather than
+  `now`, because the spent slot moved the schedule. The test checks it is
+  not refused.
+- Case 18 on Apple silicon: `dv_check` 208 ns, `dv_check_request` with
+  one route that does not match 276 ns.
+
 ## Alternatives
 
 | Option | Why not |

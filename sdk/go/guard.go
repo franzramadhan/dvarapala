@@ -1,5 +1,9 @@
 // Package dvarapala embeds the dvarapala engine (RFC 0008): the gateway's
-// per-client rate limit, flood detection and connection limits, in process.
+// per-client rate limit, flood detection and connection limits, in process,
+// with routes, blocks, egress shaping and reload (RFC 0028).
+//
+// One guard per process: behind several replicas, a client's limit and a
+// provider's budget multiply by their number; divide the rates by it.
 //
 // It links the static C library from crates/ffi. Build it first:
 //
@@ -19,13 +23,15 @@ import (
 	"errors"
 	"net/netip"
 	"runtime"
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
 
 // Config holds settings by their CONFIG.md names, for example
 // "rate_limit.rate": "20" or "trusted_proxies": "192.0.2.0/24,2001:db8::/32".
-// Unset keys keep the gateway defaults.
+// "routes" and "forward.destinations" take a JSON array with the
+// CONFIG.md field names. Unset keys keep the gateway defaults.
 type Config map[string]string
 
 // Kind is what to do with a request.
@@ -56,6 +62,8 @@ type Stats struct {
 // Guard is safe for concurrent use. Close frees it.
 type Guard struct {
 	g *C.DvGuard
+	// RouteHeaders, refreshed by Reload
+	headers atomic.Pointer[[]string]
 }
 
 // New builds a guard; the error names the bad key.
@@ -63,22 +71,36 @@ func New(cfg Config) (*Guard, error) {
 	// dv_last_error is per thread
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	c := C.dv_config_new()
+	c, err := config(cfg)
+	if err != nil {
+		return nil, err
+	}
 	defer C.dv_config_free(c)
+	g := C.dv_guard_new(c)
+	if g == nil {
+		return nil, lastError()
+	}
+	out := &Guard{g: g}
+	out.loadHeaders()
+	return out, nil
+}
+
+// config is a C config holding cfg; the caller holds its OS thread and
+// frees it.
+func config(cfg Config) (*C.DvConfig, error) {
+	c := C.dv_config_new()
 	for k, v := range cfg {
 		ck, cv := C.CString(k), C.CString(v)
 		rc := C.dv_config_set(c, ck, cv)
 		C.free(unsafe.Pointer(ck))
 		C.free(unsafe.Pointer(cv))
 		if rc != C.DV_OK {
-			return nil, lastError()
+			err := lastError()
+			C.dv_config_free(c)
+			return nil, err
 		}
 	}
-	g := C.dv_guard_new(c)
-	if g == nil {
-		return nil, lastError()
-	}
-	return &Guard{g}, nil
+	return c, nil
 }
 
 // Check is the verdict for one request from peer, with the raw
@@ -96,7 +118,11 @@ func (g *Guard) Check(peer netip.Addr, xff string) Verdict {
 		// fail closed: only a zero netip.Addr gets here
 		return Verdict{Kind: Drop}
 	}
-	return Verdict{Kind(v.kind), time.Duration(v.retry_after_ms) * time.Millisecond}
+	return verdict(v.kind, v.retry_after_ms)
+}
+
+func verdict(kind C.int32_t, ms C.uint64_t) Verdict {
+	return Verdict{Kind(kind), time.Duration(ms) * time.Millisecond}
 }
 
 func (g *Guard) Stats() Stats {
