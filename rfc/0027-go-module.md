@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-10-31 | #N | |
+| draft | 2026-10-31 | #234 | |
 
 > Make the Go SDK installable with `go get`: each release pushes the Go
 > package, the C header and a stripped static library per platform to a
