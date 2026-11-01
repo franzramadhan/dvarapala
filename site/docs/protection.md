@@ -83,10 +83,11 @@ stays under the rate.
 
 ### Requirements
 
-- A binary built with `--features ml`. No release tarball or container
-  image has it, so the operator's gateways and the SDKs cannot use it;
-  with a published binary, `ml.model` stops the start with `ml.model
-  <path> needs a build with the ml feature`.
+- A build with the `ml` feature: the container image since v0.19.1 (so
+  the operator's gateways, with the model mounted from a ConfigMap
+  through `gateway.mounts`), or a binary built with `--features ml`. The
+  release tarballs and the SDKs do not have it: there `ml.model` stops
+  the start with `ml.model <path> needs a build with the ml feature`.
 - Reverse mode with `[rate_limit]` enabled: scoring runs inside the rate
   limiter.
 - An XGBoost JSON model: objective `binary:logistic`, booster `gbtree`, at
@@ -113,9 +114,10 @@ Per client, computed online; the window is `detection.window`, default
 | `global_rate_z` | Instance rate z-score (0 with `detection.enabled = false`) |
 | `source_entropy` | Instance source entropy, 0 to 1 (0 without detection) |
 
-The averages are moving averages that move 10% toward each new value. dvarapala does not export these
-vectors: build the training set from your own access logs with the same
-definitions, label each row (1 attack, 0 normal), then:
+The averages are moving averages that move 10% toward each new value.
+Build the training set from your own access logs with the same
+definitions, or let LLM labels export the vectors (below). Label each
+row (1 attack, 0 normal), then:
 
 ```python
 import pandas as pd, xgboost as xgb
