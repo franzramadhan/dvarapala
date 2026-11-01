@@ -75,90 +75,12 @@ Keys: [`[detection]`](configuration.html#detection).
 
 ## Scoring model
 
-An optional model of your own scores each client on every request the
-other layers allow; a score above `ml.threshold` gets `429` with
-`Retry-After`. It is for operators who have labeled traffic of their own
-and want a signal the fixed limits miss, such as a slow scraper that
-stays under the rate.
-
-### Requirements
-
-- A build with the `ml` feature: the container image since v0.19.1 (so
-  the operator's gateways, with the model mounted from a ConfigMap
-  through `gateway.mounts`), or a binary built with `--features ml`. The
-  release tarballs and the SDKs do not have it: there `ml.model` stops
-  the start with `ml.model <path> needs a build with the ml feature`.
-- Reverse mode with `[rate_limit]` enabled: scoring runs inside the rate
-  limiter.
-- An XGBoost JSON model: objective `binary:logistic`, booster `gbtree`, at
-  most 1024 trees, 65 536 nodes, depth 16 and 16 MiB, trained on columns
-  named after dvarapala's features below (any subset, any order). A model
-  trained on another dataset's columns (for example CICDDoS2019) does not
-  load: `unknown feature "Flow Duration"`.
-
-### Features
-
-Per client, computed online; the window is `detection.window`, default
-1 s:
-
-| Name | Meaning |
-|---|---|
-| `window_requests` | Requests in the current window |
-| `rate_ewma` | Average requests per window |
-| `iat_mean` | Average seconds between requests |
-| `iat_var` | Variance of the seconds between requests |
-| `size_mean` | Average request body size in bytes (`Content-Length`; chunked counts as 0) |
-| `no_ua_share` | Share of requests without `User-Agent`, 0 to 1 |
-| `distinct_paths` | Distinct paths in the window, at most 8 |
-| `status_4xx_share` | Share of `4xx` responses, 0 to 1 |
-| `global_rate_z` | Instance rate z-score (0 with `detection.enabled = false`) |
-| `source_entropy` | Instance source entropy, 0 to 1 (0 without detection) |
-
-The averages are moving averages that move 10% toward each new value.
-Build the training set from your own access logs with the same
-definitions, or let LLM labels export the vectors (below). Label each
-row (1 attack, 0 normal), then:
-
-```python
-import pandas as pd, xgboost as xgb
-
-df = pd.read_csv("features.csv")  # the columns above plus "label"
-d = xgb.DMatrix(df.drop(columns="label"), label=df["label"])
-booster = xgb.train({"objective": "binary:logistic", "max_depth": 4}, d, num_boost_round=50)
-booster.save_model("model.json")
-```
-
-LLM labels ([`[ml.llm]`](configuration.html#mlllm), RFC 0023) can label
-the rows for you: `ml.llm.export` writes one JSON line per answer with
-these columns plus `label`, `confidence`, `trigger` and `at`. With
-`ml.llm.persist`, `GET /llm/export` gives the same lines for every
-replica. Review the labels before training on them:
-
-```python
-df = pd.read_json("labels.jsonl", lines=True)
-df = df[df.confidence >= 0.8]
-y = (df.label != "benign").astype(int)
-X = df.drop(columns=["label", "confidence", "trigger", "at"])
-booster = xgb.train({"objective": "binary:logistic", "max_depth": 4}, xgb.DMatrix(X, label=y), num_boost_round=50)
-```
-
-### What to expect
-
-- A bad model stops the start with the reason (for example `model:
-  objective "reg:squarederror" not supported, train with
-  binary:logistic`). A good one is read once; changing it needs a
-  restart.
-- `dvarapala_ml_score` is a histogram of every score. There is no observe
-  mode: start with `threshold = 1.0` (no score is above 1), read the
-  histogram for a few days, then lower it.
-- A request scored above the threshold gets `429` with `Retry-After` of
-  one detection window, counted as a throttle.
-
-```toml
-[ml]
-model = "/etc/dvarapala/model.json"
-threshold = 1.0  # watch only; lower it once the scores look right
-```
+An optional XGBoost model of your own scores each client on every
+request the client's bucket allows; a score above `ml.threshold` gets
+`429` with `Retry-After`. It catches what the fixed limits miss, such as
+a slow scraper that stays under the rate. LLM labels collect the
+training data. The full loop (features, sample input and output,
+training, rollout) is on [Learned scoring](ml.html).
 
 Keys: [`[ml]`](configuration.html#ml).
 

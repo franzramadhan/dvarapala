@@ -19,6 +19,7 @@ nav:
   - { title: Getting started, url: /docs/ }
   - { title: Architecture, url: /docs/architecture.html }
   - { title: Protection layers, url: /docs/protection.html }
+  - { title: Learned scoring, url: /docs/ml.html }
   - { title: WAF, url: /docs/waf.html }
   - { title: Forward proxy, url: /docs/forward-proxy.html }
   - { title: SDKs, url: /docs/sdk.html }

@@ -116,7 +116,7 @@ Optional per-client scoring with your own XGBoost model
 feature: the container image (and so the operator's gateways) has it
 since v0.19.1; the release tarballs do not, so build those from source
 with `--features ml`. Reverse mode only, inside the rate limiter. Not in
-the SDKs. How to train a model: [Protection layers](site/docs/protection.md#scoring-model).
+the SDKs. How to train a model: [Learned scoring](site/docs/ml.md).
 
 Every request the other layers allow is scored; a score above `threshold`
 answers `429` with `Retry-After` of one detection window. There is no
