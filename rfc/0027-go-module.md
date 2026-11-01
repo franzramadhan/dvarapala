@@ -149,3 +149,25 @@ None.
 - **Off switch:** drop the `go` job. A bad version is marked with a
   `retract` directive in the next release's `go.mod`, never by deleting
   or moving its tag.
+
+## Implementation notes
+
+- Every Go file in `sdk/go` carries
+  `//go:build cgo && (linux || darwin) && (amd64 || arm64)`;
+  `unsupported.go` has the negation and stops the build at
+  `undefined: dvarapala_needs_cgo_on_linux_or_darwin_with_amd64_or_arm64`.
+- Cases 1, 3 and 4 run in `scripts/sdk-packages-check.sh` (shared with
+  RFC 0026), in `release-check` and the `js` job, Linux x86_64 only;
+  darwin arm64 was run locally (stripped library 3.3 MB).
+- Case 2 is not run: the tree holds only Go files, the header, four
+  libraries of at most 4 MB (checked in the `sdk` job), `go.mod`,
+  `README.md` and `LICENSE`, far from the module zip limits.
+- Case 9 is not run, as RFC 0026 case 3: no Go toolchain is needed to
+  see the glibc floor, which the `sdk` job checks on the shared library
+  built from the same objects.
+- Cases 7 and 8 rest on the `go` job comparing the tagged tree with
+  `diff -r`; the first release confirms them. A rerun of the whole
+  workflow rebuilds the libraries, which may differ by a byte and then
+  fail case 8; rerun the `go` job alone instead.
+- The deploy key is the `GO_MODULE_DEPLOY_KEY` secret of the `release`
+  environment; GitHub's SSH host key is pinned in the job.

@@ -162,3 +162,30 @@ None.
 - **Off switch:** drop the `npm` and `pypi` jobs. A bad version is
   yanked on PyPI and deprecated on npm (`npm deprecate`; npm unpublish
   is limited to 72 hours), then fixed in a patch release.
+
+## Implementation notes
+
+- The wheels are written by `scripts/wheel.py` (stdlib only, no build
+  tools in the release), and a new `packages` job builds them and the npm
+  tarballs from the `sdk` job's files. They are attached to the GitHub
+  release and listed in `SHA256SUMS`, then the `pypi` and `npm` jobs
+  publish those same files.
+- The Linux `sdk` legs run `cargo` inside the pinned `manylinux_2_28`
+  image with the runner's Rust toolchain mounted, so no toolchain is
+  downloaded into the container.
+- Case 2: no `auditwheel`. The `sdk` job reads the glibc symbol versions
+  of `libdvarapala.so` and `dvarapala.node` with `objdump -T` and fails
+  above 2.28, which is the check `auditwheel` would make for these two
+  files.
+- Case 3 is not run: `almalinux:8` has neither Python 3.10 nor Node 20.
+  The symbol check above covers the glibc floor.
+- `twine check` is replaced by installing the wheel into a fresh venv
+  and calling `Guard`. `scripts/sdk-packages-check.sh` runs cases 1, 4,
+  8 and 10 for the host platform, in `release-check` and in the `js` job
+  (so a change to the scripts is tested before a release). CI runs it on
+  Linux x86_64 only, which keeps `release-check` a single check; macOS
+  arm64 was run locally.
+- Case 9 rests on `skip-existing` (PyPI) and `npm view` before each
+  `npm publish`; the first release confirms it.
+- The main npm package no longer lists `dvarapala.node` in `files`, so
+  it can never ship a binary.
