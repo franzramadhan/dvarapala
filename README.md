@@ -146,10 +146,22 @@ The SDKs install from their registries with the prebuilt library for
 Linux (glibc 2.28 or newer) and macOS, `x86_64` and `aarch64` (RFC 0026,
 RFC 0027):
 
+Go:
+
+```sh
+go get github.com/franzramadhan/dvarapala-go@v<version>
+```
+
+Python:
+
+```sh
+pip install dvarapala
+```
+
+JavaScript:
+
 ```sh
 npm install dvarapala
-pip install dvarapala
-go get github.com/franzramadhan/dvarapala-go@v<version>
 ```
 
 <details>
