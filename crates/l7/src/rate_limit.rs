@@ -70,7 +70,6 @@ pub(crate) struct Shared {
     /// RFC 0014 manual blocks
     pub(crate) blocks: RwLock<Blocks>,
     pub(crate) now: fn() -> Instant,
-    scoring: Option<Scoring>,
     /// seeds the path hash of the distinct-paths feature
     paths: RandomState,
     cluster: Option<Arc<Mutex<Cluster>>>,
@@ -122,10 +121,10 @@ impl RateLimitLayer {
                     fingerprints: config.fingerprints,
                     routes: Arc::new(Routes::new(config.routes)),
                     enforce,
+                    scoring: config.scoring,
                 })),
                 blocks: RwLock::new(Blocks::new(config.max_blocks)),
                 now: config.now,
-                scoring: config.scoring,
                 paths: RandomState::new(),
                 cluster: config.cluster,
                 cooldown,
@@ -223,11 +222,10 @@ where
         if route.is_some_and(|r| !r.challenge) && pass != Pass::Valid {
             pass = Pass::Exempt;
         }
-        let info = self
-            .shared
+        let info = policy
             .scoring
             .as_ref()
-            .map(|_| ReqInfo::of(&req, &self.shared.paths));
+            .map(|s| (s, ReqInfo::of(&req, &self.shared.paths)));
         let heavy_ttl = self.shared.cooldown.filter(|_| policy.enforce);
         let (mut verdict, scope, seen) = self.shared.take(key, info, pass, heavy_ttl);
         // the route's bucket on top of the global one: both must allow
@@ -322,7 +320,7 @@ impl Shared {
     fn take(
         &self,
         key: ClientKey,
-        info: Option<ReqInfo>,
+        info: Option<(&Scoring, ReqInfo)>,
         pass: Pass,
         heavy_ttl: Option<Duration>,
     ) -> (Verdict, Scope, Seen) {
@@ -352,7 +350,7 @@ impl Shared {
                 log_would_drop(key);
             }
             let mut v = d.verdict;
-            if let (Some(s), Some(info), Verdict::Allow) = (&self.scoring, info, v) {
+            if let (Some((s, info)), Verdict::Allow) = (info, v) {
                 let window = guard.window();
                 let instance = guard
                     .detector()
