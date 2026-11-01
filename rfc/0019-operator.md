@@ -256,7 +256,7 @@ New dvarapala key (in `CONFIG.md`, `examples/dvarapala.toml`):
 | 13 | dvarapala with `config_watch` | the file is rewritten with an invalid route | `config reload failed`, the running config unchanged | integration (`dvarapala/tests`) |
 | 14 | dvarapala with `config_watch` | the file is replaced through a symlink swap, as kubelet does | reloaded once | integration (`dvarapala/tests`) |
 | 15 | a kind cluster with Envoy Gateway, the operator, a policy at `rate = 1`, an echo Deployment, its Service and an `HTTPRoute` | label the route, keep sending requests | no request fails during the switch; after `Protecting`, the second request per client `429`; echo Deployment and Service unchanged | e2e (`kind` job) |
-| 16 | the same with ingress-nginx and an `Ingress` | the same | the same | e2e (`kind` job) |
+| 16 | the same with ingress-nginx and an `Ingress` | the same | the same, except a `503` that ingress-nginx itself logs with no upstream right after its reload (its own race, outside dvarapala) | e2e (`kind` job) |
 | 17 | the same, policy edited to `rate = 100` | requests after the kubelet sync | `200`; the gateway pods not restarted | e2e (`kind` job) |
 | 18 | the same, the gateway Deployment scaled to zero | a request | `503`; the Service did not go back to passthrough | e2e (`kind` job) |
 | 19 | a rewritten route | `kubectl apply --server-side --dry-run=server` of its manifest, then a diff | no difference on the backends | e2e (`kind` job) |
