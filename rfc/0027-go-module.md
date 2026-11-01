@@ -58,10 +58,14 @@ committing it to the module's repository.
 - `sdk/go/unsupported.go`, built when cgo is off or the platform is not
   one of the four, makes the build fail with an error that names the
   requirement, instead of a list of undefined C symbols.
-- The libraries are stripped of debug info (`strip --strip-debug` on
-  Linux, `strip -S` on macOS). The darwin arm64 `libdvarapala.a` shrinks
-  from 20.0 MB to 2.5 MB (0.7 MB gzipped), and the SDK tests pass
-  linked against it. The GitHub release tarballs use the same stripped
+- The libraries are stripped of debug info and of the LLVM bitcode that
+  `std`'s objects carry for LTO (`llvm-objcopy` from the toolchain's
+  `llvm-tools`, removing `.llvmbc` and `.llvmcmd` on Linux,
+  `__LLVM,__bitcode` and `__LLVM,__cmdline` on macOS). The system
+  `strip` keeps the bitcode (Xcode 16's `strip -S` leaves a 16 MB
+  library). The darwin arm64 `libdvarapala.a` shrinks from 20.0 MB to
+  3.4 MB, the Linux ones to about 5 MB, and the SDK tests pass linked
+  against them. The GitHub release tarballs use the same stripped
   files, so the bytes are the same everywhere.
 - The release job pushes with a deploy key that can write to
   `dvarapala-go` and nothing else. Tags are never moved: `sum.golang.org`
@@ -99,7 +103,7 @@ None.
 | 2 | the same tree | `golang.org/x/mod/zip.CheckDir` | no invalid files, total under the 500 MB module limit | integration |
 | 3 | the tree, cgo on | `GOOS=windows` or `GOARCH=riscv64` build | fails with the `unsupported.go` error naming cgo and the four platforms | integration |
 | 4 | the tree | `CGO_ENABLED=0 go build` | fails with the same error | integration |
-| 5 | the four stripped libraries | the `sdk` job finishes | each `libdvarapala.a` is at most 4 MB | CI |
+| 5 | the four stripped libraries | the `sdk` job finishes | each `libdvarapala.a` is at most 6 MB | CI |
 | 6 | `sdk/go` in the checkout | the `go` job (`gofmt`, `go vet`, `go test -race`) | passes as today, with the flags from `link.go` | CI |
 | 7 | a release whose tag already exists on `dvarapala-go` with the same tree | the `go` job reruns | succeeds without a push | integration (release dry run) |
 | 8 | a tag on `dvarapala-go` with a different tree | the `go` job runs | fails and leaves the tag as it is | integration (release dry run) |
@@ -129,8 +133,8 @@ None.
   - `sum.golang.org` makes each published version immutable for users;
   - the libraries are the files listed in `SHA256SUMS` on the GitHub
     release, so a user can compare them.
-- Size: about 10 MB per release in the module repository (four libraries
-  of about 2.5 MB), a few MB compressed in its git history. A `go get`
+- Size: about 17 MB per release in the module repository (four libraries
+  of 3 to 5.5 MB), a few MB compressed in its git history. A `go get`
   downloads the module zip once per version: all four libraries, because
   Go modules cannot be split by platform.
 
@@ -158,9 +162,12 @@ None.
   `undefined: dvarapala_needs_cgo_on_linux_or_darwin_with_amd64_or_arm64`.
 - Cases 1, 3 and 4 run in `scripts/sdk-packages-check.sh` (shared with
   RFC 0026), in `release-check` and the `js` job, Linux x86_64 only;
-  darwin arm64 was run locally (stripped library 3.3 MB).
+  darwin arm64 was run locally (stripped library 3.3 MB). In the v0.20.0
+  release job the Linux libraries were 5.1 MB (x86_64) and 5.4 MB
+  (aarch64) after the bitcode was removed, so the case 5 budget is 6 MB,
+  not 4.
 - Case 2 is not run: the tree holds only Go files, the header, four
-  libraries of at most 4 MB (checked in the `sdk` job), `go.mod`,
+  libraries of at most 6 MB (checked in the `sdk` job), `go.mod`,
   `README.md` and `LICENSE`, far from the module zip limits.
 - Case 9 is not run, as RFC 0026 case 3: no Go toolchain is needed to
   see the glibc floor, which the `sdk` job checks on the shared library

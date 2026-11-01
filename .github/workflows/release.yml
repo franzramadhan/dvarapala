@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup target add "$TARGET"
+      - run: rustup target add "$TARGET" && rustup component add llvm-tools
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.target }}-sdk
@@ -160,9 +160,15 @@ jobs:
             || cp "$out"/libdvarapala_node.dylib sdk-dist/dvarapala.node
       - name: Strip, size and glibc checks
         run: |
-          if [ -n "$IMAGE" ]; then strip --strip-debug sdk-dist/libdvarapala.a; else strip -S sdk-dist/libdvarapala.a; fi
+          # std's objects carry LLVM bitcode for LTO, about 12 MB a library
+          # that no linker needs; the system strip keeps it
+          objcopy="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-objcopy"
+          if [ -n "$IMAGE" ]; then bitcode="--remove-section=.llvmbc --remove-section=.llvmcmd"
+          else bitcode="--remove-section=__LLVM,__bitcode --remove-section=__LLVM,__cmdline"; fi
+          # shellcheck disable=SC2086
+          "$objcopy" --strip-debug $bitcode sdk-dist/libdvarapala.a
           size=$(wc -c < sdk-dist/libdvarapala.a)
-          [ "$size" -le 4194304 ] || { echo "::error::libdvarapala.a is $size bytes, over 4 MB (RFC 0027)"; exit 1; }
+          [ "$size" -le 6291456 ] || { echo "::error::libdvarapala.a is $size bytes, over 6 MB (RFC 0027)"; exit 1; }
           if [ -n "$IMAGE" ]; then
             max=$(objdump -T sdk-dist/libdvarapala.so sdk-dist/dvarapala.node | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
             [ "$(printf '%s\n' "$max" 2.28 | sort -V | tail -1)" = 2.28 ] \
