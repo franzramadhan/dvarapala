@@ -41,6 +41,14 @@ export function HealthPage() {
           <Show when={p().id === 'detection'}>
             <ModeSwitch layer="detection" mode={detectionMode()} allowed={allowed()} />
           </Show>
+          <Show when={p().id === 'detection' && status.data?.ml}>
+            {(ml) => (
+              <p class="text-sm" data-testid="ml-model">
+                Model <span class="font-mono">{ml().sha256.slice(0, 12)}</span>, threshold {ml().threshold}, loaded{' '}
+                {new Date(ml().loaded_at * 1000).toLocaleString()}
+              </p>
+            )}
+          </Show>
           <Show when={p().id === 'tls' && cert() !== null && cert()! < CERT_WARN_SECS}>
             <p role="alert" class="field-error">
               The served certificate expires in {fmtDuration(Math.max(0, cert()!))}.

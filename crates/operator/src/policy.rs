@@ -32,6 +32,9 @@ pub const RELOADABLE: &[&str] = &[
     "fingerprint",
     "routes",
     "waf",
+    // RFC 0029
+    "ml.model",
+    "ml.threshold",
 ];
 
 /// RFC 0025: at most this many `gateway.mounts`.
@@ -377,7 +380,6 @@ mod tests {
 
     // RFC 0029 case 12
     #[test]
-    #[ignore = "rfc 0029"]
     fn model_and_threshold_keep_the_restart_hash() {
         let a = render("[ml]\nmodel = \"/m/a.json\"\nthreshold = 0.9\n").unwrap();
         let b = render("[ml]\nmodel = \"/m/b.json\"\nthreshold = 0.5\n").unwrap();

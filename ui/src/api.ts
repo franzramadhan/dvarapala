@@ -20,6 +20,8 @@ export type Status = {
   switches?: Switch[];
   /** RFC 0023: null when `ml.llm` is off. */
   llm?: { sampling: boolean } | null;
+  /** RFC 0029: the scoring model in force, null without one. */
+  ml?: { sha256: string; threshold: number; loaded_at: number } | null;
 };
 export type Mode = 'observe' | 'enforce';
 export type Layer = 'detection' | 'waf';
