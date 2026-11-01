@@ -79,6 +79,7 @@
         <div class="card"><span class="tag">RFC 0028</span><h3>SDK parity</h3><p>The in-process packages apply the gateway's per-route policy, honor manual blocks with a TTL, shape egress calls to rate-limited providers, and reload their config while keeping client counts.</p></div>
         <div class="card"><span class="tag">RFC 0026</span><h3>npm and PyPI</h3><p><code>npm install dvarapala</code> and <code>pip install dvarapala</code> bring the prebuilt library for Linux and macOS: no checkout, no Rust toolchain. Published with provenance by the release workflow.</p></div>
         <div class="card"><span class="tag">RFC 0027</span><h3>Go module</h3><p><code>go get github.com/franzramadhan/dvarapala-go</code> fetches the Go package with a static library per platform, tagged with each release.</p></div>
+        <div class="card"><span class="tag">RFC 0029</span><h3>Model reload</h3><p>Retrain, replace the model file, and the gateways swap it in on the next reload or <code>config_watch</code> poll, operator ConfigMaps included. Clients keep their scoring history, a bad model is refused while the old one keeps scoring, and the model in force shows by its SHA-256.</p></div>
         <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store, XDP, the WAF and the LLM labels on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>

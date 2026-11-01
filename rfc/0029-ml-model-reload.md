@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-11-01 | #259 | |
+| implemented | 2026-11-01 | #259 | v0.21.0 |
 
 > Apply `ml.model` and `ml.threshold` on a reload (`SIGHUP`,
 > `POST /reload`, `config_watch`) instead of only at start, keep every
@@ -140,7 +140,7 @@ The other `[ml]` keys keep their current reload behavior.
 
 ## Rollout
 
-- **Rollout:** v0.21.0. No new key, no default change. A config that
+- **Rollout:** v0.21.0 (released). No new key, no default change. A config that
   restarted to change the model keeps working; a reload now applies it.
   Operator gateways already run with `config_watch = "10s"` and mounts
   never roll pods, so a model ConfigMap update reaches them within about

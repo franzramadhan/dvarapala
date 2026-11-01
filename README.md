@@ -75,6 +75,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Operator gateways** | The gateway pods run the admin console behind their own Service, a `coraza-spoa` WAF sidecar, extra ConfigMap and Secret mounts, and pod labels; a route can opt in per rule | [RFC 0025](rfc/0025-operator-gateway-parity.md) |
 | **SDK parity** | Per-route policy, manual blocks, egress shaping and live reload in the Go, Python and JavaScript packages, without the gateway | [RFC 0028](rfc/0028-sdk-parity.md) |
 | **SDK packages** | `npm install dvarapala`, `pip install dvarapala` and `go get github.com/franzramadhan/dvarapala-go` with the prebuilt library inside, no Rust toolchain needed | [RFC 0026](rfc/0026-sdk-registries.md), [RFC 0027](rfc/0027-go-module.md) |
+| **Model reload** | A retrained XGBoost model or a new threshold swaps in on reload or `config_watch`, without a restart; clients keep their features, a bad model is refused, the model in force shows by SHA-256 | [RFC 0029](rfc/0029-ml-model-reload.md) |
 
 ## Install
 
