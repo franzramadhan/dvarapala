@@ -1,6 +1,6 @@
 {
   "name": "@dvarapala/darwin-arm64",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "The dvarapala N-API addon for darwin arm64 (RFC 0026), installed by the dvarapala package",
   "license": "MIT",
   "repository": "github:franzramadhan/dvarapala",
