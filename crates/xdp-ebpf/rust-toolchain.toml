@@ -2,6 +2,6 @@
 # case 13). Bump together with bpf-linker (its LLVM must match) and
 # commit the rebuilt crates/xdp/dvarapala-xdp.o.
 [toolchain]
-channel = "nightly-2026-10-29"
+channel = "nightly-2026-11-01"
 components = ["rust-src"]
 profile = "minimal"
