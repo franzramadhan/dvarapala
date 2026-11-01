@@ -37,7 +37,9 @@ sets `admin.listen` and `waf.endpoint` itself; the policy's `[admin]` and
 
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
-The SDKs ([RFC 0008](rfc/0008-sdk.md), [sdk/](sdk/README.md)) take the same
+The SDKs ([RFC 0008](rfc/0008-sdk.md), [sdk/](sdk/README.md); on npm,
+PyPI and the Go module since [RFC 0026](rfc/0026-sdk-registries.md) and
+[RFC 0027](rfc/0027-go-module.md)) take the same
 names and defaults for the keys that apply in process: `rate_limit.rate`,
 `rate_limit.burst`, `rate_limit.max_clients`, `detection.*`,
 `trusted_proxies`, the connection keys of `[l4]` (not its timeouts) and,

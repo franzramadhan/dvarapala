@@ -74,6 +74,7 @@ metric and a structured log line, so you can watch before you enforce.
 | **Kubernetes** | An operator: a `DvarapalaPolicy` and a label on a route; a webhook points the route at a managed gateway, `config_watch` reloads on policy edits | [RFC 0019](rfc/0019-operator.md) |
 | **Operator gateways** | The gateway pods run the admin console behind their own Service, a `coraza-spoa` WAF sidecar, extra ConfigMap and Secret mounts, and pod labels; a route can opt in per rule | [RFC 0025](rfc/0025-operator-gateway-parity.md) |
 | **SDK parity** | Per-route policy, manual blocks, egress shaping and live reload in the Go, Python and JavaScript packages, without the gateway | [RFC 0028](rfc/0028-sdk-parity.md) |
+| **SDK packages** | `npm install dvarapala`, `pip install dvarapala` and `go get github.com/franzramadhan/dvarapala-go` with the prebuilt library inside, no Rust toolchain needed | [RFC 0026](rfc/0026-sdk-registries.md), [RFC 0027](rfc/0027-go-module.md) |
 
 ## Install
 
@@ -139,6 +140,28 @@ installs from the release's manifest:
 ```sh
 kubectl apply --server-side -f \
   https://github.com/franzramadhan/dvarapala/releases/download/v<version>/operator.yaml
+```
+
+The SDKs install from their registries with the prebuilt library for
+Linux (glibc 2.28 or newer) and macOS, `x86_64` and `aarch64` (RFC 0026,
+RFC 0027):
+
+Go:
+
+```sh
+go get github.com/franzramadhan/dvarapala-go@v<version>
+```
+
+Python:
+
+```sh
+pip install dvarapala
+```
+
+JavaScript:
+
+```sh
+npm install dvarapala
 ```
 
 <details>

@@ -1,6 +1,6 @@
 {
   "name": "dvarapala",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "In-process rate limit, flood detection and connection limits from the dvarapala gateway (RFC 0008)",
   "license": "MIT",
   "repository": "github:franzramadhan/dvarapala",
@@ -8,10 +8,10 @@
   "types": "index.d.ts",
   "files": ["index.js", "index.d.ts", "locate.js"],
   "optionalDependencies": {
-    "@dvarapala/linux-x64-gnu": "0.19.1",
-    "@dvarapala/linux-arm64-gnu": "0.19.1",
-    "@dvarapala/darwin-arm64": "0.19.1",
-    "@dvarapala/darwin-x64": "0.19.1"
+    "@dvarapala/linux-x64-gnu": "0.20.0",
+    "@dvarapala/linux-arm64-gnu": "0.20.0",
+    "@dvarapala/darwin-arm64": "0.20.0",
+    "@dvarapala/darwin-x64": "0.20.0"
   },
   "engines": { "node": ">=20" },
   "scripts": {
