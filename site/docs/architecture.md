@@ -43,6 +43,9 @@ carry out what it decides.
   challenge  no pass during an attack (or always) -> proof-of-work page,
     |        then a signed cookie and the normal limit
     v
+  model      optional XGBoost score of the client's -> 429 + Retry-After
+    |        features, only when every stage above allowed
+    v
   waf        optional coraza-spoa sidecar over SPOP  -> observe: log only
     |        (OWASP CRS), body up to max_body           enforce: 403
     v
@@ -65,6 +68,15 @@ Without `[pool]`, `upstream` is a pool of one with no checks.
 The admin API and its web console ([Operations](operations.html)) run on
 its own listener, next to the metrics one, and change the running policy
 in place.
+
+With `[ml]` ([RFC 0002](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0002-adaptive-detection.md)),
+the model runs in the rate limiter, under the same lock as the client's
+bucket, after the bucket, detection and challenge all said allow. Only
+those requests update the client's features, so a throttled client does
+not feed its own score. The score costs one walk of the trees in process,
+no I/O. LLM labels ([RFC 0023](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0023-llm-labels.md))
+are not a stage: samples go to a queue and the LLM answers off the
+request path, never changing a verdict. See [Learned scoring](ml.html).
 
 With `[waf]` ([RFC 0017](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0017-waf.md)), the agent is a separate
 process: rules change without a dvarapala build, and its memory and CPU
