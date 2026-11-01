@@ -20,6 +20,8 @@ pub(crate) struct Policy {
     pub(crate) routes: Arc<Routes>,
     /// detection in enforce mode, so heavy hitters are published
     pub(crate) enforce: bool,
+    /// RFC 0002 scorer; RFC 0029 swaps it on a reload
+    pub(crate) scoring: Option<Scoring>,
 }
 
 /// The keys a reload applies in place.
@@ -81,6 +83,7 @@ impl RateLimitLayer {
             fingerprints: r.fingerprints,
             routes,
             enforce,
+            scoring: r.scoring.unwrap_or_else(|| policy.scoring.clone()),
         });
         Ok(())
     }

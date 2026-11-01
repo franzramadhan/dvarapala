@@ -101,7 +101,6 @@ where
 
 // RFC 0029 case 1
 #[tokio::test]
-#[ignore = "rfc 0029"]
 async fn a_new_threshold_applies_to_the_next_request() {
     let l = layer(Some(scoring(Fixed(0.2), 0.9)));
     let mut svc = l.layer(inner());
@@ -116,7 +115,6 @@ async fn a_new_threshold_applies_to_the_next_request() {
 
 // RFC 0029 cases 2 and 8: a new scorer, then `None` keeps it, then off
 #[tokio::test]
-#[ignore = "rfc 0029"]
 async fn a_new_scorer_applies_none_keeps_it_some_none_turns_it_off() {
     let l = layer(Some(scoring(Fixed(0.2), 0.9)));
     let mut svc = l.layer(inner());
@@ -133,7 +131,6 @@ async fn a_new_scorer_applies_none_keeps_it_some_none_turns_it_off() {
 
 // RFC 0029 case 3
 #[tokio::test]
-#[ignore = "rfc 0029"]
 async fn features_survive_the_swap() {
     let l = layer(Some(scoring(Fixed(0.0), 0.5)));
     let mut svc = l.layer(inner());
@@ -151,7 +148,6 @@ async fn features_survive_the_swap() {
 
 // RFC 0029 case 7 at the layer: scoring off at start, on after a reload
 #[tokio::test]
-#[ignore = "rfc 0029"]
 async fn scoring_turned_on_by_a_reload_starts_the_features() {
     let l = layer(None);
     let mut svc = l.layer(inner());
@@ -170,7 +166,6 @@ async fn scoring_turned_on_by_a_reload_starts_the_features() {
 
 // RFC 0029 case 10
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-#[ignore = "rfc 0029"]
 async fn swaps_under_load_give_one_models_verdict() {
     let l = layer(Some(scoring(Fixed(0.0), 0.5)));
     let svc = l.layer(inner());
