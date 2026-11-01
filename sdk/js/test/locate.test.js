@@ -29,9 +29,9 @@ test('missing platform package says how to fix it', { skip: 'rfc 0026' }, () => 
 
 // RFC 0026 case 6
 test('musl and windows name the platform and the supported ones', { skip: 'rfc 0026' }, () => {
-  assert.equal(platform('linux', 'x64', undefined), 'linux-x64-musl');
+  assert.equal(platform('linux', 'x64', null), 'linux-x64-musl');
   assert.equal(platform('linux', 'arm64', '2.28'), 'linux-arm64-gnu');
-  for (const key of [platform('linux', 'x64', undefined), platform('win32', 'x64')]) {
+  for (const key of [platform('linux', 'x64', null), platform('win32', 'x64')]) {
     const opts = { env: {}, dir: '/d', key, exists: () => false, resolve: pkg };
     assert.throws(
       () => locate(opts),
