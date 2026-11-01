@@ -1,4 +1,5 @@
-//! RFC 0019 cases 12, 13 and 14: `config_watch` against the running binary.
+//! RFC 0019 cases 12, 13 and 14 and RFC 0029 case 6: `config_watch`
+//! against the running binary.
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -154,4 +155,30 @@ fn symlink_swap_reloads_once() {
     std::thread::sleep(Duration::from_millis(500));
     let log = p.stop();
     assert_eq!(log.matches("config changed on disk").count(), 1, "{log}");
+}
+
+// RFC 0029 case 6: the model file changes, the config file does not
+#[cfg(feature = "ml")]
+#[test]
+#[ignore = "rfc 0029"]
+fn changed_model_file_swaps_the_model() {
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../engine/tests/fixtures/xgb_stumps.json"
+    );
+    let model = std::fs::read_to_string(fixture).unwrap();
+    let d = dir("model");
+    let config = d.join("d.toml");
+    let m = d.join("m.json");
+    let listen = port();
+    std::fs::write(&m, &model).unwrap();
+    let ml = format!("[ml]\nmodel = \"{}\"\n", m.display());
+    std::fs::write(&config, format!("{}{ml}", toml(listen, 100))).unwrap();
+    let p = start(d, &config, listen);
+    std::fs::write(&m, format!("{model}\n")).unwrap();
+    std::thread::sleep(Duration::from_millis(800));
+    let log = p.stop();
+    assert!(log.contains("model changed on disk"), "{log}");
+    assert_eq!(log.matches("model loaded").count(), 2, "{log}");
+    assert!(!log.contains("config changed on disk"), "{log}");
 }
