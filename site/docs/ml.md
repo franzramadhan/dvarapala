@@ -41,18 +41,28 @@ For each client (the rate limiter's key: source IP, or the address from
 The window is `detection.window` (default 1 s). The averages move 10%
 toward each new value, so they follow a client within a few requests.
 
-When a request is allowed by the client's bucket, the model reads the
-client's features and returns a score between 0 (normal) and 1 (attack):
+When the client's bucket, detection and the challenge all allow a
+request, the model reads the client's features and returns a score
+between 0 (normal) and 1 (attack):
 
 ```
-  rate limit  token bucket per client     -> 429 + Retry-After
+  rate limit  token bucket per client      -> 429 + Retry-After
+    |
+    v
+  detection   heavy hitters, baseline       -> enforce: 403
+    |
+    v
+  challenge   no pass during an attack      -> proof-of-work page
     |
     v
   model       score of the client's features
-    |         score > ml.threshold        -> 429 + Retry-After
+    |         score > ml.threshold         -> 429 + Retry-After
     v
-  the rest of the request path (see Architecture)
+  waf, pool, upstream (see Architecture)
 ```
+
+Only requests that reach the model update the features, so a client
+that is already throttled does not raise its own score.
 
 The model is a tree ensemble: each tree asks a few questions such as
 "is `rate_ewma` above 1.05?" and adds its leaf value; the sum goes
