@@ -1,0 +1,49 @@
+# Learned scoring with a model you retrain and swap without a restart.
+#
+# Use case: a public API where the rate limit alone lets slow scrapers and
+# path walkers through. LLM labels collect training data from suspicious
+# traffic, you train an XGBoost model on it, and the gateway scores every
+# client with that model. The loop repeats: watch the scores, retrain,
+# replace the file. config_watch picks up a new model file (or a new
+# threshold) and swaps it in place; every client keeps its features and
+# its bucket. A bad model is refused and the running one keeps scoring.
+#
+# Start with threshold = 1.0 (a score is never above 1, so nothing is
+# throttled) and read dvarapala_ml_score until the split is clear, then
+# lower it in this file. Build with --features ml (the container image has
+# it). Placeholders: <host>, <model>, api.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://api.example:8080"
+# Rereads this file and the model file; a change reloads like SIGHUP.
+config_watch = "10s"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[ml]
+model = "/etc/dvarapala/model.json"
+threshold = 1.0
+
+# Labels for the next training round: clients the model already scores
+# high, and the traffic of an attack.
+[ml.llm]
+endpoint = "http://<host>:4000/v1"
+protocol = "chat"
+model = "<model>"
+instructions = "A public JSON API. Normal clients call a few endpoints a few times a minute."
+export = "/var/lib/dvarapala/labels.jsonl"
+
+[[ml.llm.triggers]]
+on = "ml_band"
+band = [0.5, 1.0]
+
+[[ml.llm.triggers]]
+on = "attack"

@@ -4,6 +4,7 @@ mod layer;
 #[cfg(feature = "llm")]
 mod llm;
 mod metrics;
+mod model;
 #[cfg(feature = "http3")]
 mod quic;
 mod reload;
@@ -185,8 +186,15 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let waf = waf::Layer::new(waf::config(&cfg)?);
     let proxy = ReverseProxy::<waf::Body<Incoming>>::with_pool(pool.clone(), &upstream)?;
     spawn_health(&pool, &upstream)?;
+    let mut model = None;
     let limiter = if cfg.rate_limit.enabled {
-        let mut c = layer::config(&cfg, Instant::now)?;
+        model = cfg
+            .ml
+            .model
+            .as_deref()
+            .map(|p| model::load(p, None))
+            .transpose()?;
+        let mut c = layer::config(&cfg, Instant::now, model.as_ref())?;
         c.cluster = store::start(&cfg.store, Some(c.limit), cfg.rate_limit.max_clients)?;
         c.block = block.clone();
         Some(RateLimitLayer::new(c)?)
@@ -211,7 +219,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         &cfg,
         config,
         admin,
-        limiter.clone(),
+        limiter.clone().map(|l| (l, model)),
         waf.clone(),
         layered && ja4,
         labels,
@@ -272,17 +280,20 @@ async fn control(
     cfg: &config::Config,
     path: Option<PathBuf>,
     admin: Option<std::net::SocketAddr>,
-    layer: Option<RateLimitLayer>,
+    // RFC 0029: with the model it started with
+    limiter: Option<(RateLimitLayer, Option<model::Model>)>,
     waf: waf::Layer,
     ja4: bool,
     labels: Labels,
 ) -> Result<(), Box<dyn Error>> {
+    let (layer, model) = limiter.unzip();
     let reloader = Arc::new(reload::Reloader::new(
         path.clone(),
         layer.clone(),
         waf,
         ja4,
         cfg.clone(),
+        model.flatten(),
     ));
     #[cfg(feature = "llm")]
     if let Some(l) = labels.clone() {

@@ -14,6 +14,7 @@ the values differ from the defaults. Every key is described in
 | [l4-limits.toml](l4-limits.toml) | Public endpoint without a load balancer: tight connection caps, accept rate, slowloris timeouts |
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 | [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
+| [ml.toml](ml.toml) | Learned scoring: an XGBoost model scores every client, LLM labels collect the next training set, a new model or threshold swaps in on `config_watch` without a restart (build with `--features ml`, [RFC 0029](../rfc/0029-ml-model-reload.md)) |
 | [challenge.toml](challenge.toml) | Public website: browsers solve a proof of work during an attack instead of sharing the attack limit; JA4 rules and forwarding |
 | [routes.toml](routes.toml) | One site, three policies: scanner paths denied, a low login rate, an API limited per key and exempt from the challenge |
 | [pool.toml](pool.toml) | Three app servers without a load balancer: least requests, health checks, ejection and budgeted retries |

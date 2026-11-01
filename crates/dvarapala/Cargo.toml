@@ -37,6 +37,8 @@ dvarapala-proxy.workspace = true
 dvarapala-store.workspace = true
 dvarapala-xdp.workspace = true
 figment.workspace = true
+# RFC 0029: the model's SHA-256; already in the tree through rustls
+ring.workspace = true
 # RFC 0013: route methods; already in the tree through hyper
 http.workspace = true
 # RFC 0016: the replay's inner service

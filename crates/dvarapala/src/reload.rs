@@ -11,6 +11,7 @@ use hyper::StatusCode;
 use crate::admin::switch::Switches;
 
 use crate::config::{self, Config};
+use crate::model::{self, Model};
 
 /// The last reload, for the admin API.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +40,8 @@ pub struct Reloader {
     last: Mutex<Option<Outcome>>,
     /// RFC 0021: the file as last applied, and the switches over it
     current: Mutex<Config>,
+    /// RFC 0029: the model in force
+    model: Mutex<Option<Model>>,
     pub switches: Switches,
     /// RFC 0023: ends the console's LLM sampling switch; RFC 0024: the
     /// label retention.
@@ -52,7 +55,9 @@ impl Reloader {
         waf: crate::waf::Layer,
         ja4: bool,
         start: Config,
+        model: Option<Model>,
     ) -> Self {
+        model::publish(model.as_ref(), None);
         Self {
             path,
             layer,
@@ -62,6 +67,7 @@ impl Reloader {
             current: Mutex::new(start.clone()),
             start,
             last: Mutex::new(None),
+            model: Mutex::new(model),
             switches: Switches::default(),
             on_reload: std::sync::OnceLock::new(),
         }
@@ -118,13 +124,28 @@ impl Reloader {
         if new.routes == *routes {
             reload.routes = None;
         }
+        // RFC 0029: reread on every reload, swapped only when the bytes change
+        let mut running = lock(&self.model);
+        let model = match (&self.layer, &new.ml.model) {
+            (Some(_), Some(p)) => Some(model::load(p, running.as_ref())?),
+            _ => None,
+        };
+        reload.scoring = Some(model::scoring(&new, model.as_ref()));
         if let Some(l) = &self.layer {
             l.reload(reload).map_err(|e| e.to_string())?;
         }
+        model::publish(model.as_ref(), running.as_ref());
+        *running = model;
+        drop(running);
         self.waf.reload(waf);
         routes.clone_from(&new.routes);
         *lock(&self.current) = new;
         Ok(restart)
+    }
+
+    /// RFC 0029: the model in force.
+    pub fn model(&self) -> Option<Model> {
+        lock(&self.model).clone()
     }
 
     /// The config the process started with and the one last applied.
@@ -253,7 +274,8 @@ pub fn in_place(key: &str, cfg: &Config) -> bool {
         // RFC 0022: the sampling task reads it at each sweep
         "history" => rest == "retention",
         // RFC 0024: the sweep reads it each hour
-        "ml" => rest == "llm.retention",
+        // RFC 0029: the model and its threshold too
+        "ml" => matches!(rest, "llm.retention" | "model" | "threshold"),
         _ => false,
     }
 }
@@ -288,10 +310,11 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
             "detection",
             fixed(&start.detection) != fixed(&new.detection),
         ),
+        // RFC 0029: only [ml.llm] is left, less its retention (RFC 0024)
         ("ml", {
-            let mut ml = new.ml.clone();
-            ml.llm.retention = start.ml.llm.retention;
-            start.ml != ml
+            let mut llm = new.ml.llm.clone();
+            llm.retention = start.ml.llm.retention;
+            start.ml.llm != llm
         }),
         ("tls", start.tls != new.tls),
         ("upstream_tls", start.upstream_tls != new.upstream_tls),
@@ -360,6 +383,7 @@ mod tests {
             Default::default(),
             false,
             start,
+            None,
         )
     }
 

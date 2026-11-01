@@ -68,7 +68,7 @@ Top-level keys go above the first `[section]` in the file.
 | `upstream` | URL | required in reverse mode without `pool.upstreams` | Upstream base URL, `http://` or `https://`; ignored in forward mode. Not together with `pool.upstreams` |
 | `upstream_protocol` | `"http1"`, `"http2"` or `"auto"` | `"http1"` | Protocol to the upstream ([RFC 0004](rfc/0004-http2-grpc.md)): `http2` is h2c with prior knowledge for `http://` and ALPN `h2` for `https://` (an upstream that cannot speak it gets 502); `auto` lets ALPN choose for `https://` and keeps HTTP/1.1 for `http://` |
 | `trusted_proxies` | list of CIDRs | `[]` | Peers allowed to set `X-Forwarded-For`; others are keyed by their own address |
-| `config_watch` | duration | unset | Reread `--config` at this interval (at least `100ms`) and reload when its bytes change, as `SIGHUP` does ([RFC 0019](rfc/0019-operator.md)); for a file Kubernetes mounts from a ConfigMap. Needs `--config`; restart-only |
+| `config_watch` | duration | unset | Reread `--config` at this interval (at least `100ms`) and reload when its bytes change, as `SIGHUP` does ([RFC 0019](rfc/0019-operator.md)); for a file Kubernetes mounts from a ConfigMap. Also polls the `ml.model` file ([RFC 0029](rfc/0029-ml-model-reload.md)). Needs `--config`; restart-only |
 
 ## `[metrics]`
 
@@ -125,10 +125,17 @@ answers `429` with `Retry-After` of one detection window. There is no
 observe mode: to watch scores first, set `threshold = 1.0` (a score is
 never above 1) and read `dvarapala_ml_score`.
 
+Both keys reload in place ([RFC 0029](rfc/0029-ml-model-reload.md)):
+every reload rereads the model file and swaps it when its bytes changed
+(SHA-256), and `config_watch` also polls the model file. Each client's
+features stay across the swap. A model that does not read or parse
+refuses the reload and the running one keeps scoring. `GET /status`
+`ml` and `dvarapala_ml_model_info` name the model in force.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `model` | path | unset | XGBoost JSON model (`binary:logistic`, `gbtree`, named features); unset turns scoring off. Read once at start: a bad model is an error naming the problem. Restart |
-| `threshold` | float | `0.9` | Score above which `Allow` becomes `Throttle`. Restart |
+| `model` | path | unset | XGBoost JSON model (`binary:logistic`, `gbtree`, named features); unset turns scoring off. A bad model stops the start, or refuses a reload, with the reason. Reload (the file is reread on each reload) |
+| `threshold` | float | `0.9` | Score above which `Allow` becomes `Throttle`. Reload |
 
 ### `[ml.llm]`
 
@@ -533,7 +540,7 @@ JSON over HTTP/1.1 on its own listener; every call needs
 
 | Call | Answer |
 |---|---|
-| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload`, `waf` (the WAF's running mode, `null` when off), `llm` (`{"sampling": bool}`, `null` when `[ml.llm]` is off) and `switches` (the mode switches in force: `layer`, `mode`, `file_mode`, `actor`, `at`) |
+| `GET /status` | `version`, `mode`, `detection` state, `clients`, `blocks`, `last_reload`, `waf` (the WAF's running mode, `null` when off), `llm` (`{"sampling": bool}`, `null` when `[ml.llm]` is off), `ml` (`{"sha256", "threshold", "loaded_at"}` of the model in force, `null` without one, [RFC 0029](rfc/0029-ml-model-reload.md)) and `switches` (the mode switches in force: `layer`, `mode`, `file_mode`, `actor`, `at`) |
 | `GET /config` | the running config ([RFC 0021](rfc/0021-admin-ui-config-waf.md)): `keys`, each with `key` (dotted), `value`, `reload` (`true` when a reload applies it in place; a `false` key shows the value the process started with) and `default`. `admin.token`, `admin.oidc.client_secret`, `challenge.secret` and `store.url` show as `"<redacted>"` when set |
 | `GET /waf` | the `[waf]` `settings`, the running `mode` and its `switch`, the matched `rules` (`rule`, `count`, `last_seen`, the last match's `method`, `path` without the query and `anomaly_score`; 256 IDs, then the `other` count) and the `files` of `waf.rules_files` read now (`path`, `size`, `modified`, `content`, or `error`) |
 | `GET /metrics` | the Prometheus text of the metrics listener |
@@ -615,7 +622,8 @@ the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
 `trusted_proxies`, `history.retention`, `detection.mode`, `detection.attack_rate_factor`,
 `[challenge]` (passes stay valid while `secret` is unchanged),
 `[fingerprint]`, `[[routes]]` (route tables start empty when the list
-changes) and `[waf]` (the agent connections stay while `endpoint`,
+changes), `ml.model` and `ml.threshold` (the model file is reread, client
+features stay) and `[waf]` (the agent connections stay while `endpoint`,
 `max_body` and `max_concurrent` do). Every other key keeps its running value and is named in the
 log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
 on after a start without it, and a new rate with a shared `[store]` (the
@@ -804,6 +812,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_detection_heavy_hitters` | Prefixes in the top-k above the per-client limit |
 | `dvarapala_detection_transitions_total{from,to}` | State changes |
 | `dvarapala_ml_score` | Histogram of model scores (feature `ml`) |
+| `dvarapala_ml_model_info{sha256}` | `1` for the model in force (first 12 hex digits of its SHA-256), `0` for the one it replaced |
+| `dvarapala_ml_model_loaded_timestamp_seconds` | Unix time the model in force was loaded |
 | `dvarapala_l4_connections_open` | Open connections; compare with `l4.max_connections` |
 | `dvarapala_l4_rejected_total{reason}` | Connections closed on accept: `total`, `per_client`, `rate`; logged as `connection limit` at most once a second |
 | `dvarapala_l4_timeouts_total{kind}` | Connections or requests cut by a timeout: `header`, `idle`, `body` (`408`) |

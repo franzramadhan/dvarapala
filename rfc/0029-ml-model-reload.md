@@ -90,9 +90,10 @@ The other `[ml]` keys keep their current reload behavior.
 
 | | |
 |---|---|
-| `msg="model loaded" sha256=<hex> trees=<n>` | at start and on each swap |
+| `msg="model loaded" sha256=<hex>` | at start and on each swap |
+| `msg="model changed on disk"` | `config_watch` saw new model bytes, followed by the reload lines |
 | `msg="config reload failed" error="ml.model <path>: <reason>"` | the existing refusal line, with the model's reason |
-| `dvarapala_ml_model_info{sha256}` | `1` for the model in force (first 12 hex digits); the old series is removed on a swap |
+| `dvarapala_ml_model_info{sha256}` | `1` for the model in force (first 12 hex digits), `0` for the one it replaced |
 | `dvarapala_ml_model_loaded_timestamp_seconds` | Unix time of the last load or swap |
 | `GET /status` `ml` | `{"sha256": "<hex>", "threshold": f, "loaded_at": unix}`, `null` without a model |
 
@@ -147,3 +148,26 @@ The other `[ml]` keys keep their current reload behavior.
   `ml.threshold` or `ml.model` reloads instead of rolling the pods.
 - **Off switch:** none needed: an unchanged model file never swaps. To
   roll back a model, put the old file back and reload.
+
+## Implementation notes
+
+- The hash lives in the binary, not in l7: `crates/dvarapala/src/model.rs`
+  holds the running model (`Model`: scorer, SHA-256, load time), loads it
+  at start and on reload, and moves the features-only scorer (RFC 0023)
+  out of `layer.rs`. `Scoring` in l7 is unchanged; it moved from the
+  layer's `Shared` into its `Policy`, and `Reload.scoring` is
+  `Option<Option<Scoring>>` (`None` keeps it, as `routes` does).
+- The `metrics` crate cannot remove a series, so the replaced model's
+  `dvarapala_ml_model_info` goes to `0` instead.
+- The `model loaded` line has no tree count: the engine does not expose
+  it, and the hash identifies the model.
+- The model is loaded only with the rate limiter on, as before: scoring
+  runs inside it, and `rate_limit.enabled` needs a restart.
+- Case 4 checks invalid JSON, a non-object and `reg:squarederror`; the
+  size and shape limits are the engine's own tests (RFC 0002).
+- Case 3 and 10 run at the l7 layer with stub scorers
+  (`crates/l7/tests/scoring_reload.rs`), cases 1, 2, 4, 5, 7, 8, 9 and
+  11 through the reloader (`crates/dvarapala/src/model_tests.rs`), case
+  6 against the binary (`crates/dvarapala/tests/watch.rs`).
+- The console's Detection page shows the hash, the threshold and the
+  load time, and lists the `dvarapala_ml_*` series.
