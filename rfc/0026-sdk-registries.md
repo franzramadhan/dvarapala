@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-31 | #233 | |
+| implemented | 2026-10-31 | #233 | v0.20.0 |
 
 > Publish the JavaScript SDK to npm and the Python SDK to PyPI from
 > `release.yml`, with the prebuilt library inside the package, so
@@ -152,7 +152,7 @@ None.
     package to exist before a trusted publisher can be added, the first
     publish uses a granular token scoped to these packages, revoked
     right after.
-- **Rollout:** the next minor after acceptance. The GitHub release keeps
+- **Rollout:** v0.20.0, the next minor after acceptance. The GitHub release keeps
   its SDK tarballs, now built for glibc 2.28. Existing `DVARAPALA_LIB` and
   `DVARAPALA_NODE` setups keep working.
 - **After each release:**

@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-10-31 | #234 | |
+| implemented | 2026-10-31 | #234 | v0.20.0 |
 
 > Make the Go SDK installable with `go get`: each release pushes the Go
 > package, the C header and a stripped static library per platform to a
@@ -141,7 +141,7 @@ None.
   - add the deploy key with write access, with its private half as a
     secret in the `release` environment of `franzramadhan/dvarapala`;
   - add the ruleset described above.
-- **Rollout:** the next minor after acceptance. `sdk/go` keeps working
+- **Rollout:** v0.20.0, the next minor after acceptance. `sdk/go` keeps working
   from a checkout. The docs switch to
   `go get github.com/franzramadhan/dvarapala-go@v<version>`.
 - **After each release:** `GOPROXY=https://proxy.golang.org go list -m
