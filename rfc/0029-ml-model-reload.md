@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-01 | #N | |
+| draft | 2026-11-01 | #259 | |
 
 > Apply `ml.model` and `ml.threshold` on a reload (`SIGHUP`,
 > `POST /reload`, `config_watch`) instead of only at start, keep every
