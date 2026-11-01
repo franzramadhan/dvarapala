@@ -114,9 +114,10 @@ Per client, computed online; the window is `detection.window`, default
 | `global_rate_z` | Instance rate z-score (0 with `detection.enabled = false`) |
 | `source_entropy` | Instance source entropy, 0 to 1 (0 without detection) |
 
-The averages are moving averages that move 10% toward each new value. dvarapala does not export these
-vectors: build the training set from your own access logs with the same
-definitions, label each row (1 attack, 0 normal), then:
+The averages are moving averages that move 10% toward each new value.
+Build the training set from your own access logs with the same
+definitions, or let LLM labels export the vectors (below). Label each
+row (1 attack, 0 normal), then:
 
 ```python
 import pandas as pd, xgboost as xgb
