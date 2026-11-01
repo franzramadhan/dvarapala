@@ -54,7 +54,7 @@ tower = { version = "0.5.3", default-features = false }
 tower-layer = "0.3.3"
 tower-service = "0.3.3"
 # RFC 0019: the Kubernetes operator only
-kube = { version = "4.2.0", default-features = false, features = ["client", "rustls-tls", "ring", "runtime", "derive", "admission", "jsonpatch"] }
+kube = { version = "5.0.0", default-features = false, features = ["client", "rustls-tls", "ring", "runtime", "derive", "admission", "jsonpatch"] }
 # kube 4.2 is built on 0.28; v1_33 is the oldest API server we support
 k8s-openapi = { version = "0.28.0", default-features = false, features = ["std", "v1_33", "schemars"] }
 schemars = { version = "1.2.3", default-features = false, features = ["derive", "std"] }
