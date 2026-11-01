@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-01 | #N | |
+| draft | 2026-11-01 | #268 | |
 
 > Read a PROXY protocol v1 or v2 header from trusted load balancers on the
 > TCP listener, before TLS, and use the address it carries as the client
