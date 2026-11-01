@@ -21,7 +21,7 @@ use tower_layer::Layer;
 use tower_service::Service;
 use tracing_subscriber::EnvFilter;
 
-use crate::{config, layer, metrics, waf};
+use crate::{config, layer, metrics, model, waf};
 
 const USAGE: &str = "dvarapala replay --config <file> [--out <file>] <log | ->";
 
@@ -131,7 +131,14 @@ fn run(a: Args) -> Result<(), Box<dyn Error>> {
     let handle = metrics::install()?;
     // RFC 0017: the agent sees the request line and headers, no body
     let waf = waf::Layer::new(waf::config(&cfg)?);
-    let mut svc = RateLimitLayer::new(layer::config(&cfg, now)?)?.layer(waf.layer(Answer));
+    let model = cfg
+        .ml
+        .model
+        .as_deref()
+        .map(|p| model::load(p, None))
+        .transpose()?;
+    let mut svc =
+        RateLimitLayer::new(layer::config(&cfg, now, model.as_ref())?)?.layer(waf.layer(Answer));
     let input: Box<dyn Read> = match a.log.as_str() {
         "-" => Box::new(io::stdin()),
         p => Box::new(File::open(p).map_err(|e| format!("{p}: {e}"))?),

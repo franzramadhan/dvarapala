@@ -179,15 +179,23 @@ threshold = 1.0  # watch only: a score is never above 1
   `--features ml`. The release tarballs and the SDKs do not have it.
 - Reverse mode with `[rate_limit]` enabled: scoring runs inside the rate
   limiter.
-- The model is read once at start. A bad one stops the start with the
-  reason, for example
+- A bad model stops the start with the reason, for example
   `model: objective "reg:squarederror" not supported, train with binary:logistic`.
-  A new model needs a restart.
+- A new model needs no restart
+  ([RFC 0029](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0029-ml-model-reload.md)):
+  replace the file and reload (`SIGHUP`, `POST /reload`), or let
+  `config_watch` see the change. Every reload rereads the file and swaps
+  the model when its bytes changed; `ml.threshold` reloads too. Each
+  client keeps its features across the swap. A bad file refuses the
+  reload with the reason and the running model keeps scoring.
+- `dvarapala_ml_model_info{sha256}` and `GET /status` (`ml`) show which
+  model each replica runs: compare with `sha256sum model.json`. With the
+  operator, update the model's ConfigMap: the gateways poll it.
 
 There is no observe mode, so start with `threshold = 1.0` and read
 `dvarapala_ml_score` for a few days. An `ml_band` trigger
 (`band = [0.5, 1.0]`) sends the high scorers to the LLM, so you can check
-who they are before you lower the threshold. Retrain on the new labels
-and repeat.
+who they are before you lower the threshold. Lower it with a reload,
+retrain on the new labels, replace the file, and repeat.
 
 Keys: [`[ml]`](configuration.html#ml), [`[ml.llm]`](configuration.html#mlllm).

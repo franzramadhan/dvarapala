@@ -143,13 +143,14 @@ impl Admin {
             .map(Switch::json)
             .collect();
         format!(
-            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}},\"waf\":{waf},\"switches\":{},\"llm\":{}}}",
+            "{{\"version\":\"{}\",\"mode\":\"{}\",\"detection\":{detection},\"clients\":{},\"blocks\":{},\"last_reload\":{reload},\"requests\":{{{requests}}},\"waf\":{waf},\"switches\":{},\"llm\":{},\"ml\":{}}}",
             env!("CARGO_PKG_VERSION"),
             self.mode,
             s.as_ref().map_or(0, |s| s.clients),
             s.as_ref().map_or(0, |s| s.blocks),
             serde_json::Value::Array(switches),
             self.llm_status(),
+            crate::model::status(&cur, self.reloader.model().as_ref()),
         )
     }
 }

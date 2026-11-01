@@ -160,7 +160,6 @@ fn symlink_swap_reloads_once() {
 // RFC 0029 case 6: the model file changes, the config file does not
 #[cfg(feature = "ml")]
 #[test]
-#[ignore = "rfc 0029"]
 fn changed_model_file_swaps_the_model() {
     let fixture = concat!(
         env!("CARGO_MANIFEST_DIR"),
