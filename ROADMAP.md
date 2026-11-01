@@ -34,6 +34,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0027](rfc/0027-go-module.md) | Go module with prebuilt libraries: each release pushes the Go package, the header and a stripped static library per platform to `franzramadhan/dvarapala-go` and tags it, so `go get` works without Rust | implemented | v0.20.0 |
 | [0028](rfc/0028-sdk-parity.md) | SDK parity: per-route policy (`dv_check_request`, routes moved to `engine`), manual blocks, egress shaping without the forward proxy, and live reload that keeps client counts, in the C ABI and the Go, Python and JavaScript packages | implemented | v0.19.0 |
 | [0029](rfc/0029-ml-model-reload.md) | Reload the scoring model in place: `ml.model` and `ml.threshold` on `SIGHUP`, `POST /reload` and `config_watch`, client features kept, a bad model refused, the model in force by SHA-256 | implemented | v0.21.0 |
+| [0031](rfc/0031-network-intel.md) | Network intelligence: reputation feeds from files or URLs (`[[intel.feed]]`, deny, challenge or tag, `observe` first, last good list kept), route `country`, `asn` and `feeds` matchers from an operator-supplied MaxMind DB | draft | v0.24.0 |
 
 ## Shipped without an RFC
 
