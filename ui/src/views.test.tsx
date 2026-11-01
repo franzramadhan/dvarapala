@@ -131,7 +131,7 @@ describe('health pages', () => {
   });
 
   // RFC 0029: the model in force on the Detection page
-  it.skip('shows the model hash and threshold (rfc 0029)', async () => {
+  it('shows the model hash and threshold', async () => {
     const sha256 = 'ab'.repeat(32);
     mockApi({
       'GET /metrics': () => ({ body: `dvarapala_detection_state 0\ndvarapala_ml_model_info{sha256="${sha256.slice(0, 12)}"} 1\n` }),

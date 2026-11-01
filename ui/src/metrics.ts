@@ -59,7 +59,7 @@ export const HEALTH: HealthPage[] = [
   },
   { id: 'store', label: 'Store', rfc: '0010', prefixes: ['dvarapala_store_'], health: (m) => (storeDown(m) ? 'failing' : 'ok') },
   { id: 'routes', label: 'Routes', rfc: '0013', prefixes: ['dvarapala_route_'] },
-  { id: 'detection', label: 'Detection', rfc: '0002', prefixes: ['dvarapala_detection_', 'dvarapala_ml_score'] },
+  { id: 'detection', label: 'Detection', rfc: '0002', prefixes: ['dvarapala_detection_', 'dvarapala_ml_'] },
   {
     id: 'challenge',
     label: 'Challenge and JA4',
