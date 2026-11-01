@@ -36,6 +36,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0029](rfc/0029-ml-model-reload.md) | Reload the scoring model in place: `ml.model` and `ml.threshold` on `SIGHUP`, `POST /reload` and `config_watch`, client features kept, a bad model refused, the model in force by SHA-256 | implemented | v0.21.0 |
 | [0030](rfc/0030-proxy-protocol.md) | PROXY protocol v1/v2 from trusted load balancers (`l4.proxy_protocol`), read before TLS: the carried address is the client for `[l4]` limits, the rate limiter, detection, routes and blocks, never pushed to XDP | accepted | v0.22.0 |
 | [0032](rfc/0032-adaptive-concurrency.md) | Adaptive concurrency limit for the upstream (`[concurrency]`): `fixed` or latency `gradient`, sheds with `503` and `Retry-After`, challenge-passed and low-score clients admitted first, attack heavy hitters last | accepted | v0.23.0 |
+| [0031](rfc/0031-network-intel.md) | Network intelligence: reputation feeds from files or URLs (`[[intel.feed]]`, deny, challenge or tag, `observe` first, last good list kept), route `country`, `asn` and `feeds` matchers from an operator-supplied MaxMind DB | draft | v0.24.0 |
 
 ## Shipped without an RFC
 
