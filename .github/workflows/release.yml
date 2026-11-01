@@ -143,14 +143,14 @@ jobs:
           key: ${{ matrix.target }}-sdk
       - name: Build
         run: |
-          build="cargo build --release --locked --target $TARGET -p dvarapala-ffi -p dvarapala-node"
+          set -- build --release --locked --target "$TARGET" -p dvarapala-ffi -p dvarapala-node
           if [ -n "$IMAGE" ]; then
             docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
               -e CARGO_HOME="$HOME/.cargo" -e RUSTUP_HOME="$HOME/.rustup" \
               -v "$HOME/.cargo:$HOME/.cargo" -v "$HOME/.rustup:$HOME/.rustup" \
-              -v "$PWD:$PWD" -w "$PWD" "$IMAGE" "$HOME/.cargo/bin/$build"
+              -v "$PWD:$PWD" -w "$PWD" "$IMAGE" "$HOME/.cargo/bin/cargo" "$@"
           else
-            $build
+            cargo "$@"
           fi
           out="target/${TARGET}/release"
           mkdir -p sdk-dist dist
