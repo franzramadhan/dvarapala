@@ -83,10 +83,11 @@ stays under the rate.
 
 ### Requirements
 
-- A binary built with `--features ml`. No release tarball or container
-  image has it, so the operator's gateways and the SDKs cannot use it;
-  with a published binary, `ml.model` stops the start with `ml.model
-  <path> needs a build with the ml feature`.
+- A build with the `ml` feature: the container image since v0.19.1 (so
+  the operator's gateways, with the model mounted from a ConfigMap
+  through `gateway.mounts`), or a binary built with `--features ml`. The
+  release tarballs and the SDKs do not have it: there `ml.model` stops
+  the start with `ml.model <path> needs a build with the ml feature`.
 - Reverse mode with `[rate_limit]` enabled: scoring runs inside the rate
   limiter.
 - An XGBoost JSON model: objective `binary:logistic`, booster `gbtree`, at

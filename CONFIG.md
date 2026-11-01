@@ -113,9 +113,10 @@ Adaptive detection ([RFC 0002](rfc/0002-adaptive-detection.md)). Starts in
 
 Optional per-client scoring with your own XGBoost model
 ([RFC 0002](rfc/0002-adaptive-detection.md)), in builds with the `ml`
-feature. No published binary or image has it: build from source with
-`--features ml`. Reverse mode only, inside the rate limiter. Not in the
-SDKs. How to train a model: [Protection layers](site/docs/protection.md#scoring-model).
+feature: the container image (and so the operator's gateways) has it
+since v0.19.1; the release tarballs do not, so build those from source
+with `--features ml`. Reverse mode only, inside the rate limiter. Not in
+the SDKs. How to train a model: [Protection layers](site/docs/protection.md#scoring-model).
 
 Every request the other layers allow is scored; a score above `threshold`
 answers `429` with `Retry-After` of one detection window. There is no
