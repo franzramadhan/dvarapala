@@ -82,8 +82,12 @@ dvarapala-l7 = "<version>"
 
 ## Go
 
+```sh
+go get github.com/franzramadhan/dvarapala-go@v<version>
+```
+
 ```go
-import "github.com/franzramadhan/dvarapala/sdk/go"
+import dvarapala "github.com/franzramadhan/dvarapala-go"
 
 g, err := dvarapala.New(dvarapala.Config{"rate_limit.rate": "20"})
 if err != nil {
@@ -94,63 +98,43 @@ http.Serve(g.Listener(l), g.Middleware(mux))
 ```
 
 `Middleware` answers `429` with `Retry-After`, or `403` with the connection closed, as the gateway does;
-`Listener` applies the connection limits on accept. The package links the
-static library from the repository's `target/release`, so `go get` alone
-cannot build it. Clone the repository at a release tag, build the library,
-and point your module at the clone:
+`Listener` applies the connection limits on accept.
+[RFC 0027](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0027-go-module.md):
+each release generates the module from `sdk/go` with the static library
+prebuilt for Linux (glibc 2.28 or later) and macOS, on amd64 and arm64.
+It needs cgo and a C toolchain, no Rust. Without cgo, or on another
+platform, the build stops at
+`undefined: dvarapala_needs_cgo_on_linux_or_darwin_with_amd64_or_arm64`.
 
-```sh
-git clone --depth 1 -b v<version> https://github.com/franzramadhan/dvarapala
-(cd dvarapala && cargo build --release -p dvarapala-ffi)
-go mod edit -require github.com/franzramadhan/dvarapala/sdk/go@v0.0.0 \
-  -replace github.com/franzramadhan/dvarapala/sdk/go=./dvarapala/sdk/go
-```
+## Platforms
 
-## The native library
+[RFC 0026](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0026-sdk-registries.md):
+the PyPI and npm packages carry the native library for:
 
-The Python and JavaScript packages are not on PyPI or npm yet. Each
-installs from the repository at a release tag, and loads a native library
-from that release's SDK archive:
+| Platform | PyPI wheel | npm package |
+|---|---|---|
+| Linux x86_64 (glibc 2.28 or later) | `manylinux_2_28_x86_64` | `@dvarapala/linux-x64-gnu` |
+| Linux aarch64 (glibc 2.28 or later) | `manylinux_2_28_aarch64` | `@dvarapala/linux-arm64-gnu` |
+| macOS Apple silicon | `macosx_11_0_arm64` | `@dvarapala/darwin-arm64` |
+| macOS Intel | `macosx_11_0_x86_64` | `@dvarapala/darwin-x64` |
 
-| Target | Archive |
-|---|---|
-| Linux x86_64 (glibc) | `dvarapala-sdk-<tag>-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux aarch64 (glibc) | `dvarapala-sdk-<tag>-aarch64-unknown-linux-gnu.tar.gz` |
-| macOS Intel | `dvarapala-sdk-<tag>-x86_64-apple-darwin.tar.gz` |
-| macOS Apple silicon | `dvarapala-sdk-<tag>-aarch64-apple-darwin.tar.gz` |
-
-Alpine (musl) and Windows have no archive: build the library from source
-with `cargo build --release -p dvarapala-ffi` (Python, Go) or
-`-p dvarapala-node` (JavaScript).
-
-```sh
-tag=v<version>; target=x86_64-unknown-linux-gnu
-gh release download "$tag" -R franzramadhan/dvarapala \
-  -p "dvarapala-sdk-$tag-$target.tar.gz"
-mkdir -p dvarapala-sdk && tar xzf dvarapala-sdk-*.tar.gz -C dvarapala-sdk
-```
-
-`dvarapala-sdk/` then holds `libdvarapala.so` (`.dylib` on macOS) for
-Python, `dvarapala.node` for JavaScript, `libdvarapala.a` and
-`dvarapala.h` for Go and C. Use the archive of the same tag as the
-package.
+On another platform (Alpine with musl, Windows) `pip` finds no matching
+distribution, and `require('dvarapala')` throws naming the platform.
+Build the library from source there, `cargo build --release -p
+dvarapala-ffi` (Python, Go) or `-p dvarapala-node` (JavaScript), and
+point the package at it with `DVARAPALA_LIB` or `DVARAPALA_NODE`. Each
+release also attaches the libraries as
+`dvarapala-sdk-<tag>-<target>.tar.gz`.
 
 ## Python
 
-Python 3.10 or later, no dependencies. Add it to a
-[uv](https://docs.astral.sh/uv/) project from the release tag:
+Python 3.10 or later, no dependencies:
 
 ```sh
-uv add "dvarapala @ git+https://github.com/franzramadhan/dvarapala@v<version>#subdirectory=sdk/python"
+pip install dvarapala      # or: uv add dvarapala
 ```
 
-and point it at the library with `DVARAPALA_LIB` (the package looks next
-to itself otherwise):
-
-```sh
-export DVARAPALA_LIB=$PWD/dvarapala-sdk/libdvarapala.so
-uv run uvicorn app:app
-```
+The wheel carries the library; `DVARAPALA_LIB` overrides its path.
 
 For an ASGI app (FastAPI, Starlette, Django ASGI), wrap it:
 
@@ -193,22 +177,17 @@ raises `Refused` over a limit, and `guard.conn_close(h)` frees the place.
 
 ## JavaScript and TypeScript
 
-Node 20 or later. npm cannot install a subdirectory of a git repository,
-so take the package from the release's source and add the addon:
+Node 20 or later:
 
 ```sh
-tag=v<version>
-mkdir -p vendor/dvarapala
-curl -fsSL "https://github.com/franzramadhan/dvarapala/archive/refs/tags/$tag.tar.gz" \
-  | tar xz -C vendor/dvarapala --strip-components=3 "dvarapala-${tag#v}/sdk/js"
-cp dvarapala-sdk/dvarapala.node vendor/dvarapala/
-npm install ./vendor/dvarapala
+npm install dvarapala
 ```
 
-Commit `vendor/dvarapala` with the app (one addon per platform you
-deploy), or run `npm pack ./vendor/dvarapala` for a tarball to install
-elsewhere. `DVARAPALA_NODE` overrides the addon's path. Types ship in
-`index.d.ts`.
+npm installs the addon of your platform from its `@dvarapala/*`
+package. Install with optional dependencies (no `--omit=optional`), and
+on the platform you deploy to: a lock file made on macOS still installs
+the Linux package on Linux. `DVARAPALA_NODE` overrides the addon's
+path. Types ship in `index.d.ts`.
 
 With Express:
 

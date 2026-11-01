@@ -17,8 +17,21 @@ their number.
 | `python` | `cargo build --release -p dvarapala-ffi` | `cd sdk/python && DVARAPALA_LIB=../../target/release/libdvarapala.so PYTHONPATH=src python -m unittest discover -s tests` |
 | `js` | `cargo build --release -p dvarapala-node` | `cd sdk/js && DVARAPALA_NODE=../../target/release/libdvarapala_node.so node --test test/*.test.js` |
 
-On macOS the shared libraries end in `.dylib`. Releases attach prebuilt
-libraries per platform as `dvarapala-sdk-<tag>-<target>.tar.gz`.
+On macOS the shared libraries end in `.dylib`. Install from the
+registries (RFC 0026, RFC 0027), with the library prebuilt for Linux
+(glibc 2.28 or later) and macOS on x86_64 and arm64:
+
+```sh
+go get github.com/franzramadhan/dvarapala-go@v<version>
+pip install dvarapala
+npm install dvarapala
+```
+
+The Go module is generated from `sdk/go` by `scripts/go-module.sh`; the
+wheels by `scripts/wheel.py`; the npm addon ships in the platform
+packages under `js/npm/`. `scripts/sdk-packages-check.sh` builds and
+installs all three for the host platform. Releases also attach the
+libraries as `dvarapala-sdk-<tag>-<target>.tar.gz`.
 
 ```go
 g, err := dvarapala.New(dvarapala.Config{"rate_limit.rate": "20"})
