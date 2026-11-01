@@ -373,7 +373,8 @@ jobs:
       - name: npm publish
         run: |
           v="${GITHUB_REF_NAME#v}"
-          for f in packages/dvarapala-*-"$v".tgz packages/dvarapala-"$v".tgz; do
+          # ./ keeps npm from reading packages/<file> as a GitHub owner/repo
+          for f in ./packages/dvarapala-*-"$v".tgz ./packages/dvarapala-"$v".tgz; do
             name=$(tar -xOzf "$f" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')
             if npm view "$name@$v" version >/dev/null 2>&1; then
               echo "$name@$v is on npm already"
