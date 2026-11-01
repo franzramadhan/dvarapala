@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-01 | #N | |
+| draft | 2026-11-01 | #270 | |
 
 > Load lists of networks from files or URLs (reputation feeds such as
 > Spamhaus DROP, Tor exits or an operator's own list), refresh them in
