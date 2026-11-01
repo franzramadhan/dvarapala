@@ -18,6 +18,7 @@ release branch (see `CLAUDE.md`).
 
 - **sdk:** Install from npm, pypi and the go module (#247)
 - **config:** Ml is in the container image since v0.19.1 (#251)
+- Learned scoring page, from llm labels to an xgboost model (#253)
 
 ### Build and CI
 
