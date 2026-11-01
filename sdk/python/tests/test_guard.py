@@ -1,7 +1,10 @@
 import asyncio
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
+from dvarapala import _lib
 from dvarapala import (
     ALLOW,
     DROP,
@@ -156,3 +159,13 @@ class ControlTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LibTest(unittest.TestCase):
+    # RFC 0026 case 7
+    @unittest.skip("rfc 0026")
+    def test_no_library_is_an_import_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(ImportError, "supported: linux-x86_64, linux-aarch64"):
+                _lib._path({}, Path(d))
+            self.assertEqual(_lib._path({"DVARAPALA_LIB": "/x.so"}, Path(d)), "/x.so")
