@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import platform
 import sys
 from ctypes import POINTER, c_char_p, c_double, c_int32, c_uint8, c_uint64, c_void_p
 from pathlib import Path
@@ -43,14 +44,24 @@ class DvSlot(ctypes.Structure):
     _fields_ = [("kind", c_int32), ("ms", c_uint64)]
 
 
-def _path() -> str:
-    """DVARAPALA_LIB, else the library next to this file (the wheel)."""
-    if env := os.environ.get("DVARAPALA_LIB"):
-        return env
+SUPPORTED = ("linux-x86_64", "linux-aarch64", "darwin-arm64", "darwin-x86_64")
+
+
+def _path(env=os.environ, here=Path(__file__).parent) -> str:
+    """DVARAPALA_LIB, else the library next to this file (the wheel, RFC 0026)."""
+    if lib := env.get("DVARAPALA_LIB"):
+        return lib
     name = {"darwin": "libdvarapala.dylib", "win32": "dvarapala.dll"}.get(
         sys.platform, "libdvarapala.so"
     )
-    return str(Path(__file__).with_name(name))
+    path = here / name
+    if not path.exists():
+        raise ImportError(
+            f"dvarapala: no prebuilt library for {sys.platform}-{platform.machine()}; "
+            f"supported: {', '.join(SUPPORTED)}. "
+            "Set DVARAPALA_LIB to a library built from crates/ffi."
+        )
+    return str(path)
 
 
 lib = ctypes.CDLL(_path())

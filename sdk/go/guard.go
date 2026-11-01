@@ -1,3 +1,5 @@
+//go:build cgo && (linux || darwin) && (amd64 || arm64)
+
 // Package dvarapala embeds the dvarapala engine (RFC 0008): the gateway's
 // per-client rate limit, flood detection and connection limits, in process,
 // with routes, blocks, egress shaping and reload (RFC 0028).
@@ -5,15 +7,16 @@
 // One guard per process: behind several replicas, a client's limit and a
 // provider's budget multiply by their number; divide the rates by it.
 //
-// It links the static C library from crates/ffi. Build it first:
+// From a checkout it links the static C library from crates/ffi (link.go).
+// Build it first:
 //
 //	cargo build --release -p dvarapala-ffi
+//
+// Releases publish this package with prebuilt libraries as the module
+// github.com/franzramadhan/dvarapala-go (RFC 0027).
 package dvarapala
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../crates/ffi
-#cgo LDFLAGS: ${SRCDIR}/../../target/release/libdvarapala.a -lm
-#cgo linux LDFLAGS: -ldl -lpthread
 #include <stdlib.h>
 #include "dvarapala.h"
 */

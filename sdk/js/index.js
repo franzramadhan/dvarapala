@@ -1,10 +1,10 @@
 'use strict';
 // The dvarapala engine in process (RFC 0008), over the N-API addon from
-// crates/node. DVARAPALA_NODE overrides the addon path.
-const path = require('node:path');
+// crates/node. DVARAPALA_NODE overrides the addon path (RFC 0026).
+const { locate } = require('./locate');
 
 const addon = { exports: {} };
-process.dlopen(addon, process.env.DVARAPALA_NODE || path.join(__dirname, 'dvarapala.node'));
+process.dlopen(addon, locate());
 const native = addon.exports;
 
 const KINDS = ['allow', 'throttle', 'drop'];

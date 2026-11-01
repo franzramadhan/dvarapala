@@ -163,7 +163,6 @@ if __name__ == "__main__":
 
 class LibTest(unittest.TestCase):
     # RFC 0026 case 7
-    @unittest.skip("rfc 0026")
     def test_no_library_is_an_import_error(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaisesRegex(ImportError, "supported: linux-x86_64, linux-aarch64"):

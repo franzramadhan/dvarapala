@@ -1,3 +1,5 @@
+//go:build cgo && (linux || darwin) && (amd64 || arm64)
+
 package dvarapala
 
 /*
