@@ -1,0 +1,5 @@
+# @dvarapala/linux-x64-gnu
+
+The prebuilt dvarapala N-API addon for linux-x64-gnu. Install
+[`dvarapala`](https://www.npmjs.com/package/dvarapala) instead: it pulls
+in this package on matching platforms.
