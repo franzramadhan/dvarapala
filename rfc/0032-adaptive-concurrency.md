@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-01 | #N | |
+| draft | 2026-11-01 | #269 | |
 
 > Cap the requests in flight to the upstream at a limit learned from its
 > latency, and shed the excess with `503` and `Retry-After` before it
