@@ -47,7 +47,7 @@ for d in sdk/js/npm/*/; do
   cp "target/release/libdvarapala_node.$ext" "$work/npm-$k/dvarapala.node"
   files=$(cd "$work/npm-$k" && npm pack --dry-run --json \
     | python3 -c 'import json, sys; print(" ".join(sorted(f["path"] for f in json.load(sys.stdin)[0]["files"])))')
-  [ "$files" = "dvarapala.node package.json" ] || { echo "::error file=$d::packs '$files'"; fail=1; }
+  [ "$files" = "README.md dvarapala.node package.json" ] || { echo "::error file=$d::packs '$files'"; fail=1; }
   [ "$(json "$d/package.json" 'bool(p.get("os") and p.get("cpu") and (p["os"] != ["linux"] or p.get("libc")))')" = True ] \
     || { echo "::error file=$d::os, cpu or libc missing"; fail=1; }
 done
