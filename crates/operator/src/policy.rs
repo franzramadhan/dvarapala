@@ -375,6 +375,19 @@ mod tests {
         assert_ne!(s1.restart_hash, s2.restart_hash);
     }
 
+    // RFC 0029 case 12
+    #[test]
+    #[ignore = "rfc 0029"]
+    fn model_and_threshold_keep_the_restart_hash() {
+        let a = render("[ml]\nmodel = \"/m/a.json\"\nthreshold = 0.9\n").unwrap();
+        let b = render("[ml]\nmodel = \"/m/b.json\"\nthreshold = 0.5\n").unwrap();
+        let llm = render("[ml.llm]\nmodel = \"x\"\n").unwrap();
+        assert_ne!(a.hash, b.hash);
+        assert_eq!(a.restart_hash, b.restart_hash);
+        assert_eq!(a.restart_hash, render("").unwrap().restart_hash);
+        assert_ne!(llm.restart_hash, a.restart_hash);
+    }
+
     // case 10: the list agrees with the binary's
     #[test]
     fn reloadable_list_matches_the_binary() {

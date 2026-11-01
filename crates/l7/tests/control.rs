@@ -46,6 +46,7 @@ fn reload(limit: Limit, routes: Option<Vec<RouteConfig>>) -> Reload {
         challenge: None,
         fingerprints: Default::default(),
         routes,
+        scoring: None,
     }
 }
 

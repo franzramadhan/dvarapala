@@ -234,6 +234,8 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
         challenge: cfg.challenge.config(cfg.detection.enabled)?,
         fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
         routes: Some(config::routes(&cfg.routes)?),
+        // RFC 0029: the reloader loads the model and fills it in
+        scoring: None,
     })
 }
 

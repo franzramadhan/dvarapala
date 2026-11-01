@@ -10,7 +10,7 @@ use dvarapala_engine::{
 
 use crate::challenge::Challenge;
 use crate::rate_limit::RateLimitLayer;
-use crate::{ChallengeConfig, Fingerprints, RouteConfig, Routes};
+use crate::{ChallengeConfig, Fingerprints, RouteConfig, Routes, Scoring};
 
 /// The parts of the layer a request reads once and a reload swaps whole.
 pub(crate) struct Policy {
@@ -35,6 +35,9 @@ pub struct Reload {
     pub fingerprints: Fingerprints,
     /// `None` keeps the running routes and their buckets.
     pub routes: Option<Vec<RouteConfig>>,
+    /// RFC 0029: `None` keeps the running scorer, `Some(None)` turns
+    /// scoring off. Client features stay either way.
+    pub scoring: Option<Option<Scoring>>,
 }
 
 /// A snapshot for the admin API.

@@ -196,6 +196,7 @@ async fn reload_keeps_passes_while_the_secret_stays() {
         challenge: Some(challenge(secret)),
         fingerprints: Default::default(),
         routes: None,
+        scoring: None,
     };
     l.reload(reload(5)).unwrap();
     assert_eq!(status(&mut svc, &pass).await, StatusCode::OK);
