@@ -80,7 +80,10 @@
         <div class="card"><span class="tag">RFC 0026</span><h3>npm and PyPI</h3><p><code>npm install dvarapala</code> and <code>pip install dvarapala</code> bring the prebuilt library for Linux and macOS: no checkout, no Rust toolchain. Published with provenance by the release workflow.</p></div>
         <div class="card"><span class="tag">RFC 0027</span><h3>Go module</h3><p><code>go get github.com/franzramadhan/dvarapala-go</code> fetches the Go package with a static library per platform, tagged with each release.</p></div>
         <div class="card"><span class="tag">RFC 0029</span><h3>Model reload</h3><p>Retrain, replace the model file, and the gateways swap it in on the next reload or <code>config_watch</code> poll, operator ConfigMaps included. Clients keep their scoring history, a bad model is refused while the old one keeps scoring, and the model in force shows by its SHA-256.</p></div>
-        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store, XDP, the WAF and the LLM labels on a separate listener, so you can watch before you enforce.</p></div>
+        <div class="card"><span class="tag">RFC 0030</span><h3>PROXY protocol</h3><p>Behind a TCP load balancer with TLS passthrough, dvarapala reads the PROXY v1 or v2 header from the balancers you trust, so every per-client limit, rule and block sees the real client, not the balancer. A trusted peer without a valid header is closed.</p></div>
+        <div class="card"><span class="tag">RFC 0031</span><h3>Network intelligence</h3><p>Reputation feeds from files or URLs deny, challenge or tag their clients, start in observe, and refresh in the background while the last good list stays in force. Routes match country and ASN from a MaxMind DB file you bring.</p></div>
+        <div class="card"><span class="tag">RFC 0032</span><h3>Upstream concurrency</h3><p>A wide, low-rate botnet stays under every per-client limit; this caps what reaches the backend instead. The limit is fixed or learned from upstream latency, the excess gets <code>503</code>, and clients with a challenge pass or a low score go first.</p></div>
+        <div class="card"><span class="tag">metrics</span><h3>Prometheus metrics</h3><p>Verdicts, detection state, challenges, connection limits, tunnels, HTTP/2, QUIC, the store, XDP, the WAF, the LLM labels, the PROXY header, the reputation feeds and the upstream concurrency limit on a separate listener, so you can watch before you enforce.</p></div>
       </div>
     </div>
   </section>
@@ -92,12 +95,13 @@
         <p class="sub">One engine decides a verdict for each request. The proxy only carries it out.</p>
         <ul class="checks">
           <li><b>Drop</b> packet floods early: an optional XDP program filters in the NIC driver.</li>
-          <li><b>Bound</b> connections: per-client and total caps, accept rate and timeouts.</li>
-          <li><b>Identify</b> the client: peer address, or <code>X-Forwarded-For</code> from a trusted proxy.</li>
+          <li><b>Bound</b> connections: per-client and total caps, accept rate and timeouts, keyed on the real client from a PROXY header behind a TCP load balancer.</li>
+          <li><b>Identify</b> the client: peer address, the PROXY header or <code>X-Forwarded-For</code> from a trusted proxy, and its reputation feeds, country and ASN.</li>
           <li><b>Limit</b> it: a token bucket per client answers <code>429</code> when empty.</li>
           <li><b>Detect</b> floods: per-window counts against a learned baseline mark anomalies.</li>
           <li><b>Challenge</b> browsers with a proof of work during an attack, and fingerprint TLS clients by JA4.</li>
           <li><b>Inspect</b> what passed with the OWASP Core Rule Set: an optional Coraza sidecar blocks SQL injection, XSS and similar attacks.</li>
+          <li><b>Shed</b> what the upstream cannot take: a concurrency limit learned from its latency answers <code>503</code>, trusted clients first.</li>
           <li><b>Forward</b> what passes to a healthy upstream of the pool, over HTTP/1.1, HTTP/2 or a WebSocket tunnel; clients may also come in over HTTP/3.</li>
           <li><b>Share</b> counts across replicas through Redis or PostgreSQL, so a cluster holds one limit.</li>
           <li><b>Report</b> every verdict as a metric and a structured log line.</li>
@@ -119,7 +123,7 @@ mode = "observe"  <span class="c"># log only; "enforce" later</span>
 
 [metrics]
 listen = "127.0.0.1:9090"</pre>
-        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters, XDP, the WAF and Kubernetes.</p>
+        <p class="hint" style="text-align:left">More in <a href="docs/examples.html">Examples</a>: TLS, gRPC, WebSocket, HTTP/3, connection limits, the forward proxy, clusters, XDP, the WAF, the PROXY protocol, reputation feeds, upstream concurrency and Kubernetes.</p>
       </div>
     </div>
   </section>

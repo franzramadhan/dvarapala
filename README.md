@@ -76,6 +76,9 @@ metric and a structured log line, so you can watch before you enforce.
 | **SDK parity** | Per-route policy, manual blocks, egress shaping and live reload in the Go, Python and JavaScript packages, without the gateway | [RFC 0028](rfc/0028-sdk-parity.md) |
 | **SDK packages** | `npm install dvarapala`, `pip install dvarapala` and `go get github.com/franzramadhan/dvarapala-go` with the prebuilt library inside, no Rust toolchain needed | [RFC 0026](rfc/0026-sdk-registries.md), [RFC 0027](rfc/0027-go-module.md) |
 | **Model reload** | A retrained XGBoost model or a new threshold swaps in on reload or `config_watch`, without a restart; clients keep their features, a bad model is refused, the model in force shows by SHA-256 | [RFC 0029](rfc/0029-ml-model-reload.md) |
+| **PROXY protocol** | Behind a TCP load balancer (TLS passthrough), the real client from a PROXY v1 or v2 header sent by trusted balancers drives every per-client limit, rule and block; a trusted peer without a valid header is closed | [RFC 0030](rfc/0030-proxy-protocol.md) |
+| **Network intelligence** | Reputation feeds from files or URLs (Spamhaus DROP, Tor exits, your own lists) deny, challenge or tag their clients, refreshed in the background with the last good list kept; routes match country and ASN from your MaxMind DB file. Feature `geoip` for the database | [RFC 0031](rfc/0031-network-intel.md) |
+| **Upstream concurrency** | Requests in flight to the upstream capped at a fixed limit or one learned from its latency; the excess gets `503` with `Retry-After`, clients with a challenge pass or a low score are admitted first | [RFC 0032](rfc/0032-adaptive-concurrency.md) |
 
 ## Install
 
@@ -117,9 +120,10 @@ cargo install dvarapala --no-default-features --features tls  # smallest build
 | `postgres` | no | PostgreSQL state backend, persisted traffic history and LLM labels (RFC 0010, RFC 0022, RFC 0024) |
 | `http3` | no | HTTP/3 listener over QUIC (RFC 0006), experimental; turns on `tls` |
 | `xdp` | no | XDP fast path (RFC 0011), Linux only |
+| `geoip` | no | Country and ASN route conditions from a MaxMind DB file (RFC 0031) |
 
 Container image (`linux/amd64`, `linux/arm64`), `FROM scratch` with the
-static binary built with every feature (the stores, `ml`, `http3`, `xdp`),
+static binary built with every feature (the stores, `ml`, `http3`, `xdp`, `geoip`),
 running as UID 10001 on port 8080:
 
 ```sh
@@ -177,6 +181,7 @@ cargo build --release --features http3           # + HTTP/3 over QUIC
 cargo build --release --features ml              # + the XGBoost scorer
 cargo build --release --features redis,postgres  # + shared state backends
 cargo build --release --features xdp             # + the XDP fast path (Linux)
+cargo build --release --features geoip           # + country and ASN routes
 ```
 
 </details>
@@ -214,7 +219,8 @@ flowchart TD
   R --> DT[detection]
   DT --> C[challenge]
   C --> W[WAF]
-  W --> PL[pool]
+  W --> CC[concurrency]
+  CC --> PL[pool]
   PL --> U[upstream]
   L4 -.->|block source| X
   DT -.->|block source| X
@@ -223,13 +229,14 @@ flowchart TD
 | Stage | Checks | Refuses with | |
 |---|---|---|---|
 | XDP | Blocked sources, packet and SYN rates per source, in the driver | drop | RFC 0011 |
-| L4 limits | Connections per client and in total, accept rate, header and idle timeouts | close | RFC 0009 |
+| L4 limits | PROXY header from trusted balancers, then connections per client and in total, accept rate, header and idle timeouts | close | RFC 0009, 0030 |
 | TLS / QUIC | Bounded handshakes, the JA4 fingerprint of each ClientHello | close | RFC 0003, 0006, 0012 |
-| Blocks, JA4 rules, routes | Manual blocks, `fingerprint.deny`, per-route deny and limits | `403` / `429` | RFC 0013, 0014 |
+| Blocks, feeds, JA4 rules, routes | Manual blocks, reputation feeds, `fingerprint.deny`, per-route deny and limits (also by country, ASN or feed) | `403` / `429` / challenge | RFC 0013, 0014, 0031 |
 | Rate limit | A token bucket per client | `429` | RFC 0001 |
 | Detection | Heavy hitters against a learned baseline | `403` | RFC 0002 |
 | Challenge | During an attack, a proof of work earns a pass | proof-of-work page | RFC 0012 |
 | WAF | OWASP Coraza with the CRS over SPOP | `403` | RFC 0017 |
+| Concurrency | Requests in flight to the upstream, by priority class | `503` | RFC 0032 |
 | Pool | A healthy upstream endpoint, health checks and ejection | | RFC 0015 |
 
 Each stage is cheaper than the next, so expensive work only happens for

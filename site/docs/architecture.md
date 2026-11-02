@@ -16,22 +16,26 @@ carry out what it decides.
   xdp        block list, per-source packet and SYN rates -> drop
     |        (optional, Linux, in the NIC driver)
     v
-  l4         connection caps, accept rate, timeouts -> close
-    |
+  l4         total cap, PROXY header from trusted     -> close
+    |        balancers, per-client caps, accept rate, timeouts
     v
   listener   TCP or TLS (ALPN h2, http/1.1), bounded handshakes,
     |        JA4 of the ClientHello; or QUIC (HTTP/3, Retry under load)
     v
-  identity   peer address, or X-Forwarded-For from a trusted proxy
-    |
+  identity   peer address (or the PROXY header's), X-Forwarded-For
+    |        from a trusted proxy; country and ASN from intel.geoip
     v
   blocks     manual blocks from the admin API -> 403, connection closed
     |
     v
+  feeds      reputation feeds in enforce: deny -> 403, challenge ->
+    |        needs a pass, tag -> route condition only
+    v
   ja4 rules  fingerprint deny -> 403, challenge -> needs a pass
     |
     v
-  routes     first match on host, path, method, client: deny -> 403,
+  routes     first match on host, path, method, client, country,
+    |        ASN, feed: deny -> 403,
     |        own bucket -> 429, challenge exemption
     v
   rate limit token bucket per client          -> 429 + Retry-After
@@ -48,6 +52,10 @@ carry out what it decides.
     v
   waf        optional coraza-spoa sidecar over SPOP  -> observe: log only
     |        (OWASP CRS), body up to max_body           enforce: 403
+    v
+  concurrency requests in flight to the upstream over  -> 503 + Retry-After
+    |        the fixed or latency-learned limit, trusted
+    |        clients (pass, low score) admitted first
     v
   pool       round robin or least requests over healthy endpoints,
     |        budgeted retry of an idempotent request on a connect error
@@ -81,6 +89,20 @@ request path, never changing a verdict. See [Learned scoring](ml.html).
 With `[waf]` ([RFC 0017](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0017-waf.md)), the agent is a separate
 process: rules change without a dvarapala build, and its memory and CPU
 stay out of the proxy. See [WAF](waf.html).
+
+With `l4.proxy_protocol` ([RFC 0030](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0030-proxy-protocol.md)),
+the client every later stage keys on is the address in the PROXY header
+from a balancer in `l4.proxy_protocol_from`. While it is on, the rate
+limiter sends no dynamic blocks to XDP: the packets of a carried client
+come from the balancer, and a blocked address cannot be told apart.
+
+Reputation feeds ([RFC 0031](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0031-network-intel.md))
+refresh off the request path; a failed refresh keeps the last good
+list, so an outage of a third-party list changes no verdict.
+
+With `[concurrency]` ([RFC 0032](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0032-adaptive-concurrency.md)),
+a shed request never reaches the pool, so it counts neither for ejection
+nor against the retry budget.
 
 Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 `grpc-status`), so clients see a status code instead of a broken stream.
