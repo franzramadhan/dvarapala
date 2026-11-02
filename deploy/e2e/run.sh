@@ -276,10 +276,17 @@ apiVersion: v1
 kind: Pod
 metadata: {name: geo-fill, namespace: shop}
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
   containers:
     - name: fill
       image: curlimages/curl:8.11.1
       command: [sleep, "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
       volumeMounts: [{name: geo, mountPath: /geo}]
   volumes: [{name: geo, persistentVolumeClaim: {claimName: geo}}]
 EOF
