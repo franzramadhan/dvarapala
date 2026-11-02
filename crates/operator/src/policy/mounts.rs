@@ -16,8 +16,6 @@ pub(super) fn check(
     if m.len() > MAX_MOUNTS {
         return Err(format!("mount name: at most {MAX_MOUNTS} mounts"));
     }
-    // rfc 0033: image prefixes and warnings come with the new sources
-    let _ = (images, &warnings, allowed, PULL_POLICIES);
     let mut seen = std::collections::BTreeSet::new();
     for x in m {
         let n = &x.name;
@@ -30,8 +28,47 @@ pub(super) fn check(
         if !seen.insert(n) {
             return Err(format!("mount name {n:?}: used twice"));
         }
-        if x.config_map.is_some() == x.secret.is_some() {
-            return Err(format!("mount name {n:?}: set one of configMap and secret"));
+        let sources = [
+            x.config_map.is_some(),
+            x.secret.is_some(),
+            x.persistent_volume_claim.is_some(),
+            x.image.is_some(),
+        ];
+        if sources.iter().filter(|s| **s).count() != 1 {
+            return Err(format!(
+                "mount name {n:?}: set one of configMap, secret, persistentVolumeClaim and image"
+            ));
+        }
+        if let Some(c) = &x.persistent_volume_claim
+            && !(dns(&c.claim_name, true) && c.claim_name.len() <= 253)
+        {
+            return Err(format!(
+                "mount name {n:?}: claimName {:?} is not a valid name",
+                c.claim_name
+            ));
+        }
+        if let Some(i) = &x.image {
+            let r = &i.reference;
+            if r.is_empty() || r.contains(char::is_whitespace) {
+                return Err(format!(
+                    "mount name {n:?}: image reference {r:?} is not valid"
+                ));
+            }
+            if !images.iter().any(|p| allowed(r, p)) {
+                return Err(format!("mount name {n:?}: image not allowed: {r}"));
+            }
+            if let Some(p) = i
+                .pull_policy
+                .as_deref()
+                .filter(|p| !PULL_POLICIES.contains(p))
+            {
+                return Err(format!(
+                    "mount name {n:?}: pullPolicy {p:?} is not one of {PULL_POLICIES:?}"
+                ));
+            }
+            if !r.contains("@sha256:") {
+                warnings.push(format!("mount {n}: image {r} is not pinned by digest"));
+            }
         }
     }
     Ok(())

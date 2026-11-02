@@ -319,7 +319,6 @@ const READ_ONLY_GEOIP: &str = "/etc/dvarapala-mounts/geoip";
 
 // RFC 0033 case 1
 #[test]
-#[ignore = "rfc 0033"]
 fn a_claim_mounts_read_only() {
     let got = rendered_mount(crate::crd::Mount {
         name: "geoip".into(),
@@ -338,7 +337,6 @@ fn a_claim_mounts_read_only() {
 
 // RFC 0033 case 2
 #[test]
-#[ignore = "rfc 0033"]
 fn an_image_mounts_read_only() {
     let got = rendered_mount(geo_image("registry.example/geo/lite@sha256:00"));
     let want = serde_json::json!({
@@ -369,7 +367,6 @@ fn config_map_mounts_render_as_before() {
 // RFC 0033 cases 8 and 9: a claim is named, never read, so only an image
 // reference changes the pod template
 #[test]
-#[ignore = "rfc 0033"]
 fn only_an_image_reference_rolls_the_pods() {
     let g = plan(&web(None), "80", "default", false).unwrap();
     let template = |m: crate::crd::Mount| {
