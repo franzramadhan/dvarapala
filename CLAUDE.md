@@ -133,7 +133,8 @@ comma, colon, parentheses or a new sentence.
   every fuzz target for 10 min from the cached corpus, saved back after.
 - `.github/workflows/coverage.yml` runs on pushes to `main` that touch Rust
   code: `cargo llvm-cov`, then writes the test and coverage badge JSON to the
-  orphan branch `badges`. Never merge `badges`.
+  orphan branch `badges`. It fails when line coverage is under 95%, so new
+  code comes with its tests. Never merge `badges`.
 - `.github/workflows/pages.yml` runs on pushes to `main` that touch
   `site/`, `CONFIG.md`, `ROADMAP.md` or `examples/`: `site/build.sh`, then
   Jekyll, then a GitHub Pages deploy.
