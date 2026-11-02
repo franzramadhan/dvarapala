@@ -174,11 +174,21 @@ cron job that rewrites the file is enough. Lists are parsed with the caps
 of attacker input (body size, entries, line length) and a prefix wider
 than `/8` (IPv6 `/16`) is refused, so a broken list cannot deny everyone.
 
-`intel.geoip` points at a MaxMind DB file the operator brings
-(GeoLite2, or an IPinfo or DB-IP file in the same format); dvarapala
-downloads none. Routes then match on `country` and `asn`, for example an
-admin path open to one country. It needs the `geoip` feature, which the
-container image has.
+`intel.geoip` points at one MaxMind DB file the operator brings, with
+the MaxMind schema: GeoLite2 or GeoIP2, or DB-IP Lite. dvarapala
+downloads none, and a file with another schema (IPinfo) loads but
+matches nothing. Routes then match on `country` and `asn`, for example
+an admin path open to one country. One file sets only what it holds: a
+Country or City file gives `country`, an ASN file gives `asn`. It needs
+the `geoip` feature, which the container image has.
+
+To keep the file current, run MaxMind's `geoipupdate` on a schedule (the
+databases change weekly) and let a reload or `config_watch` pick up the
+new bytes. The file is swapped only when it changes, and the log line
+`geoip loaded sha256=<hex>` names each swap. On Kubernetes the file does
+not fit a ConfigMap or Secret (1 MiB at most; GeoLite2-Country is several
+MiB), so operator gateways cannot mount it yet; a hand-written gateway
+can use any volume.
 
 Feeds act at L7 only: they are not pushed to the XDP block list. For a
 list to drop in the driver, put it in `xdp.block`.
