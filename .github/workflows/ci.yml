@@ -125,6 +125,15 @@ jobs:
       - run: rustfmt --check --edition 2024 crates/xdp-ebpf/src/main.rs
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --locked --workspace --all-features
+      # TEMPORARY: repeat the two flaky tests, dropped before merge
+      - name: repeat flaky tests
+        run: |
+          set -e
+          for i in $(seq 50); do
+            echo "round $i"
+            cargo test --locked -q -p dvarapala-proxy --all-features --test l4_tls -- --exact second_connect_closed_before_handshake
+            cargo test --locked -q -p dvarapala --all-features --test llm
+          done
       # RFC 0011 cases 3 to 8 and 12: the XDP program in the kernel, as root.
       # sudo-rs ignores -E, so the variable goes through env; the step fails
       # when the tests skip.
