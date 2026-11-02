@@ -12,3 +12,5 @@ lcov.info
 *.p12
 *.pfx
 /crates/xdp-ebpf/target/
+# personal agent overrides, never committed
+/CLAUDE.local.md

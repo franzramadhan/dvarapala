@@ -154,3 +154,65 @@ fn concurrency_bounds_reload_mode_restarts() {
         Ok(())
     });
 }
+
+/// Answers 200 to anything.
+#[derive(Clone)]
+struct Ok200;
+
+impl tower_service::Service<http::Request<()>> for Ok200 {
+    type Response = http::Response<http_body_util::Full<bytes::Bytes>>;
+    type Error = std::convert::Infallible;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _: http::Request<()>) -> Self::Future {
+        std::future::ready(Ok(http::Response::default()))
+    }
+}
+
+/// The status the layer answers a request from `peer` with.
+fn status(layer: &RateLimitLayer, peer: &str) -> u16 {
+    use tower_layer::Layer;
+    use tower_service::Service;
+    let mut req = http::Request::new(());
+    let addr = format!("{peer}:4000").parse().unwrap();
+    req.extensions_mut().insert(dvarapala_l7::PeerAddr(addr));
+    let fut = layer.layer(Ok200).call(req);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    rt.block_on(fut).unwrap().status().as_u16()
+}
+
+// RFC 0031 case 9: what config_watch runs when a feed file changes
+#[test]
+fn a_changed_path_feed_applies_on_reload() {
+    Jail::expect_with(|j| {
+        j.create_file("drop.txt", "192.0.2.0/24\n")?;
+        let feed = "[[intel.feed]]\nname = \"drop\"\npath = \"drop.txt\"\naction = \"deny\"\nmode = \"enforce\"\n";
+        j.create_file("d.toml", &format!("{BASE}{feed}"))?;
+        let r = reloader("d.toml");
+        r.start_intel()?;
+        let layer = r.layer.clone().unwrap();
+        assert_eq!(status(&layer, "192.0.2.7"), 403);
+        assert_eq!(status(&layer, "198.51.100.7"), 200);
+        j.create_file("drop.txt", "198.51.100.0/24\n")?;
+        assert_eq!(r.reload().result, Ok(vec![]));
+        assert_eq!(status(&layer, "192.0.2.7"), 200);
+        assert_eq!(status(&layer, "198.51.100.7"), 403);
+        // a broken file refuses the reload, the list in force stays
+        j.create_file("drop.txt", "nonsense\n")?;
+        let e = r.reload().result.unwrap_err();
+        assert!(e.contains("intel.feed \"drop\""), "{e}");
+        assert_eq!(status(&layer, "198.51.100.7"), 403);
+        assert_eq!(r.intel_files(), [PathBuf::from("drop.txt")]);
+        assert!(in_place("intel.feed", &r.start));
+        Ok(())
+    });
+}

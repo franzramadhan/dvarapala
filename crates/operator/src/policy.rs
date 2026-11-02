@@ -42,6 +42,8 @@ pub const RELOADABLE: &[&str] = &[
     "concurrency.window",
     "concurrency.reserve",
     "concurrency.trusted_score",
+    // RFC 0031
+    "intel",
 ];
 
 /// RFC 0025: at most this many `gateway.mounts`.

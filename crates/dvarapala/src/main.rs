@@ -1,5 +1,6 @@
 mod admin;
 mod config;
+mod intel;
 mod layer;
 #[cfg(feature = "llm")]
 mod llm;
@@ -115,7 +116,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     // RFC 0012: both run inside the reverse proxy's rate limiter
     let fingerprints = cfg.fingerprint.rules(cfg.challenge.mode)?;
     let challenge = cfg.challenge.config(cfg.detection.enabled)?;
-    let routes = config::routes(&cfg.routes)?;
+    let routes = config::routes(&cfg.routes, &cfg.intel)?;
     let layered = cfg.mode == config::ProxyMode::Reverse && cfg.rate_limit.enabled;
     if !layered && (fingerprints.enabled() || challenge.is_some() || !routes.is_empty()) {
         tracing::warn!(
@@ -309,6 +310,7 @@ async fn control(
         cfg.clone(),
         model.flatten(),
     ));
+    reloader.start_intel()?;
     if let Some(c) = concurrency {
         // the metrics recorder is up by now
         c.publish();

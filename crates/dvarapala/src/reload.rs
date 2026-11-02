@@ -48,6 +48,8 @@ pub struct Reloader {
     pub on_reload: std::sync::OnceLock<OnReload>,
     /// RFC 0032: the upstream limit, when `[concurrency]` is on
     pub concurrency: std::sync::OnceLock<Arc<dvarapala_proxy::Concurrency>>,
+    /// RFC 0031: the feeds and the GeoIP database in force
+    intel: crate::intel::Running,
 }
 
 impl Reloader {
@@ -73,7 +75,27 @@ impl Reloader {
             switches: Switches::default(),
             on_reload: std::sync::OnceLock::new(),
             concurrency: std::sync::OnceLock::new(),
+            intel: Default::default(),
         }
+    }
+
+    /// RFC 0031: loads `[intel]` at start; a `path` feed or a database
+    /// that does not load stops the start. Needs the rate limiter.
+    pub fn start_intel(&self) -> Result<(), String> {
+        let p = self.intel.prepare(&self.start)?;
+        match &self.layer {
+            Some(l) => self.intel.commit(p, l),
+            None if self.start.intel != config::Intel::default() => {
+                tracing::warn!("intel runs inside the reverse proxy's rate limiter, which is off");
+            }
+            None => {}
+        }
+        Ok(())
+    }
+
+    /// RFC 0031: the `path` feeds and the database `config_watch` polls.
+    pub fn intel_files(&self) -> Vec<PathBuf> {
+        crate::intel::Running::files(&lock(&self.current))
     }
 
     /// Reads the file again and applies it, or keeps everything running
@@ -113,6 +135,8 @@ impl Reloader {
         let new = config::load(self.path.as_deref()).map_err(|e| e.to_string())?;
         let mut reload = policy(&new)?;
         let waf = crate::waf::config(&new)?;
+        // RFC 0031: read before anything changes, put in force after
+        let intel = self.intel.prepare(&new)?;
         let mut restart = restart(&self.start, &new);
         // RFC 0032: the mode needs a restart, the rest applies in place
         let limit = new.concurrency.config()?;
@@ -141,6 +165,7 @@ impl Reloader {
         reload.scoring = Some(model::scoring(&new, model.as_ref()));
         if let Some(l) = &self.layer {
             l.reload(reload).map_err(|e| e.to_string())?;
+            self.intel.commit(intel, l);
         }
         model::publish(model.as_ref(), running.as_ref());
         *running = model;
@@ -268,7 +293,7 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
         attack_rate_factor: cfg.detection.attack_rate_factor,
         challenge: cfg.challenge.config(cfg.detection.enabled)?,
         fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
-        routes: Some(config::routes(&cfg.routes)?),
+        routes: Some(config::routes(&cfg.routes, &cfg.intel)?),
         // RFC 0029: the reloader loads the model and fills it in
         scoring: None,
         priority: cfg.concurrency.priority(),
@@ -280,7 +305,7 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
 pub fn in_place(key: &str, cfg: &Config) -> bool {
     let (top, rest) = key.split_once('.').unwrap_or((key, ""));
     match top {
-        "trusted_proxies" | "challenge" | "fingerprint" | "routes" | "waf" => true,
+        "trusted_proxies" | "challenge" | "fingerprint" | "routes" | "waf" | "intel" => true,
         // the cluster budget (RFC 0010) is set at start
         "rate_limit" => {
             matches!(rest, "rate" | "burst") && cfg.store.backend == config::Backend::Memory
