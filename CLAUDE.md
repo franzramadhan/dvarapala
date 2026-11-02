@@ -126,6 +126,10 @@ comma, colon, parentheses or a new sentence.
   commits, no force push or deletion, required checks `secrets`, `test`,
   `deny`, `fuzz`, `footprint`, `go`, `python`, `js`, `ui`, `operator-e2e`, `release-check` and `title`. A new job that must gate
   merges is added to the ruleset in the same PR.
+- `.github/CODEOWNERS` makes the maintainer the owner of every path, so
+  each PR requests their review. The ruleset does not require code owner
+  approval: an author cannot approve their own PR, and `gh stack merge`
+  cannot bypass a review requirement.
 - New dependencies must pass `deny.toml` (permissive licenses, crates.io
   only, no advisories). Prefer `default-features = false` and the smallest
   feature set: binary size is a product goal.
