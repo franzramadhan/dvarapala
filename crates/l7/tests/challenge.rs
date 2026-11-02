@@ -3,13 +3,15 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_engine::{ChallengeMode, Limit, TrustedProxies};
-use dvarapala_l7::{ChallengeConfig, PeerAddr, RateLimitConfig, RateLimitLayer, Reload, unix_now};
+use dvarapala_l7::{
+    ChallengeConfig, Class, PeerAddr, Priority, RateLimitConfig, RateLimitLayer, Reload, unix_now,
+};
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use ring::digest;
@@ -43,6 +45,7 @@ fn layer() -> RateLimitLayer {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 0,
+        priority: Some(0.2),
     })
     .unwrap()
 }
@@ -197,6 +200,7 @@ async fn reload_keeps_passes_while_the_secret_stays() {
         fingerprints: Default::default(),
         routes: None,
         scoring: None,
+        priority: None,
     };
     l.reload(reload(5)).unwrap();
     assert_eq!(status(&mut svc, &pass).await, StatusCode::OK);
@@ -207,4 +211,25 @@ async fn reload_keeps_passes_while_the_secret_stays() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+// RFC 0032 case 7: a valid pass makes the request trusted
+#[tokio::test]
+async fn a_pass_makes_the_request_trusted() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    let inner = service_fn(move |r: Request<Body>| {
+        s.lock()
+            .unwrap()
+            .push(r.extensions().get::<Priority>().copied());
+        async { Ok::<_, Infallible>(Response::new(Body::default())) }
+    });
+    let mut svc = layer().layer(inner);
+    let pass = pass(&mut svc).await;
+    assert_eq!(status(&mut svc, &pass).await, StatusCode::OK);
+    let trusted = Priority {
+        class: Class::Trusted,
+        weight: 1,
+    };
+    assert_eq!(*seen.lock().unwrap(), [Some(trusted)]);
 }

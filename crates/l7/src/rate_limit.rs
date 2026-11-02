@@ -1,16 +1,14 @@
 use std::borrow::Cow;
-use std::future::Future;
 use std::hash::RandomState;
 use std::num::NonZeroUsize;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
-    BlockSink, Blocks, ChallengeMode, ClientKey, ClientStats, Cluster, DetectError, Guard,
-    GuardConfig, GuardDetection, Pass, State, TrustedProxies, Verdict, client_key,
+    BlockSink, Blocks, ChallengeMode, Class, ClientKey, ClientStats, Cluster, DetectError, Guard,
+    GuardConfig, GuardDetection, Pass, Priority, State, TrustedProxies, Verdict, client_key,
 };
 use http::header::{ACCEPT, HeaderMap, SET_COOKIE};
 use http::{Request, Response, StatusCode, Version};
@@ -21,6 +19,7 @@ use crate::challenge::{Challenge, VERIFY_PATH};
 use crate::control::Policy;
 use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
+use crate::limit_future::{ResponseFuture, StatusRecorder};
 use crate::llm::{Llm, Probe, Seen};
 use crate::reply::{Scope, count, reject};
 use crate::{
@@ -51,6 +50,9 @@ pub struct RateLimitConfig {
     pub routes: Vec<RouteConfig>,
     /// RFC 0014: manual blocks at most.
     pub max_blocks: usize,
+    /// RFC 0032: puts a [`Priority`] on every allowed request, trusting
+    /// model scores under this; `None` puts none.
+    pub priority: Option<f64>,
 }
 
 /// Per-client token bucket in front of a service. Over the limit, the
@@ -122,6 +124,7 @@ impl RateLimitLayer {
                     routes: Arc::new(Routes::new(config.routes)),
                     enforce,
                     scoring: config.scoring,
+                    priority: config.priority,
                 })),
                 blocks: RwLock::new(Blocks::new(config.max_blocks)),
                 now: config.now,
@@ -227,7 +230,7 @@ where
             .as_ref()
             .map(|s| (s, ReqInfo::of(&req, &self.shared.paths)));
         let heavy_ttl = self.shared.cooldown.filter(|_| policy.enforce);
-        let (mut verdict, scope, seen) = self.shared.take(key, info, pass, heavy_ttl);
+        let (mut verdict, scope, seen, heavy) = self.shared.take(key, info, pass, heavy_ttl);
         // the route's bucket on top of the global one: both must allow
         if let (Some(r), Verdict::Allow) = (route, verdict) {
             verdict = r.take(&req, key, fp, (self.shared.now)());
@@ -272,6 +275,19 @@ where
                     }
                 }
                 policy.fingerprints.forward(req.headers_mut(), fp);
+                if let Some(trusted) = policy.priority {
+                    let class = if pass == Pass::Valid
+                        || seen.1.is_some_and(|(score, _)| score < trusted)
+                    {
+                        Class::Trusted
+                    } else if heavy {
+                        Class::Suspect
+                    } else {
+                        Class::Normal
+                    };
+                    let weight = route.map_or(1, |r| r.concurrency);
+                    req.extensions_mut().insert(Priority { class, weight });
+                }
                 if let Some(p) = probe {
                     req.extensions_mut().insert(p);
                 }
@@ -323,15 +339,16 @@ impl Shared {
         info: Option<(&Scoring, ReqInfo)>,
         pass: Pass,
         heavy_ttl: Option<Duration>,
-    ) -> (Verdict, Scope, Seen) {
+    ) -> (Verdict, Scope, Seen, bool) {
         let now = (self.now)();
         // the cluster's verdict first: a listed heavy hitter or a client
         // over its cluster count (RFC 0010); never waits on the store
         if let Some(v) = self.cluster().and_then(|c| c.check(key, now)) {
-            return (v, Scope::Cluster, (false, None));
+            return (v, Scope::Cluster, (false, None), false);
         }
         let mut heavy = Vec::new();
         let mut seen: Seen = (false, None);
+        let mut suspect = false;
         let (verdict, clients, evicted) = {
             let mut g = self.lock();
             let Inner { guard, watch } = &mut *g;
@@ -346,6 +363,11 @@ impl Shared {
                 }
             }
             seen.0 = guard.detector().is_some_and(|d| d.state() == State::Attack);
+            // RFC 0032: a heavy hitter during an attack is shed first
+            if let Some(det) = guard.detector().filter(|_| seen.0) {
+                let ip = key.into();
+                suspect = det.heavy().iter().any(|(net, _)| net.contains(ip));
+            }
             if d.would_drop {
                 log_would_drop(key);
             }
@@ -380,7 +402,7 @@ impl Shared {
                 c.publish_heavy(heavy, ttl);
             }
         }
-        (verdict, Scope::Local, seen)
+        (verdict, Scope::Local, seen, suspect)
     }
 }
 
@@ -426,49 +448,6 @@ fn log_would_drop(key: ClientKey) {
         .is_multiple_of(1024)
     {
         tracing::info!(msg = "would_drop", key = %key, mode = "observe");
-    }
-}
-
-/// Feeds the response status back into the client's stats (scoring only).
-pub struct StatusRecorder(Arc<Shared>, ClientKey);
-
-impl StatusRecorder {
-    fn record(self, status: StatusCode) {
-        let mut g = self.0.lock();
-        if let Some(Some(stats)) = g.guard.get_mut(&self.1) {
-            stats.record_status(status.as_u16());
-        }
-    }
-}
-
-pin_project_lite::pin_project! {
-    /// Either the inner service's future or a ready rejection.
-    #[project = Proj]
-    pub enum ResponseFuture<F, R> {
-        Inner { #[pin] fut: F, status: Option<StatusRecorder> },
-        Rejected { res: Option<Response<R>> },
-    }
-}
-
-impl<F, R, E> Future for ResponseFuture<F, R>
-where
-    F: Future<Output = Result<Response<R>, E>>,
-{
-    type Output = Result<Response<R>, E>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            Proj::Inner { fut, status } => {
-                let out = std::task::ready!(fut.poll(cx));
-                if let (Ok(res), Some(s)) = (&out, status.take()) {
-                    s.record(res.status());
-                }
-                Poll::Ready(out)
-            }
-            Proj::Rejected { res } => Poll::Ready(Ok(res
-                .take()
-                .expect("ResponseFuture polled after completion"))),
-        }
     }
 }
 

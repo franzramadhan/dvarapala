@@ -32,6 +32,7 @@ fn route(path: &str) -> RouteConfig {
         challenge: true,
         max_keys: NonZeroUsize::new(100).unwrap(),
         waf: true,
+        concurrency: 1,
     }
 }
 
@@ -57,6 +58,7 @@ fn layer(global: Limit, routes: Vec<RouteConfig>, challenge: bool) -> RateLimitL
         fingerprints: Default::default(),
         routes,
         max_blocks: 0,
+        priority: None,
     })
     .unwrap()
 }

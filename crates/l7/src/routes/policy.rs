@@ -23,6 +23,9 @@ pub struct RouteConfig {
     pub max_keys: NonZeroUsize,
     /// `false` skips the WAF (RFC 0017).
     pub waf: bool,
+    /// Slots a request takes in the upstream concurrency limit (RFC
+    /// 0032); 0 bypasses it.
+    pub concurrency: u32,
 }
 
 /// RFC 0017: set on a request whose route skips the WAF.
@@ -39,6 +42,7 @@ pub(crate) struct Route {
     pub(crate) deny: bool,
     pub(crate) challenge: bool,
     pub(crate) waf: bool,
+    pub(crate) concurrency: u32,
     key: RouteKey,
     limits: Option<RouteLimits>,
 }
@@ -56,6 +60,7 @@ impl Routes {
                     deny: r.deny,
                     challenge: r.challenge,
                     waf: r.waf,
+                    concurrency: r.concurrency,
                 })
                 .collect(),
         )
@@ -154,6 +159,7 @@ pub fn fuzz_route_match(data: &[u8]) {
         challenge: true,
         max_keys: NonZeroUsize::MIN,
         waf: true,
+        concurrency: 1,
     }]);
     let _ = routes.find(
         &req,
@@ -179,6 +185,7 @@ mod tests {
             challenge: true,
             max_keys: NonZeroUsize::new(10).unwrap(),
             waf: true,
+            concurrency: 1,
         }
     }
 

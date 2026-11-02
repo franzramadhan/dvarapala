@@ -48,6 +48,7 @@ fn layer() -> RateLimitLayer {
         fingerprints: rules,
         routes: Vec::new(),
         max_blocks: 0,
+        priority: None,
     })
     .unwrap()
 }

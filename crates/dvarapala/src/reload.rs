@@ -257,6 +257,7 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
         routes: Some(config::routes(&cfg.routes)?),
         // RFC 0029: the reloader loads the model and fills it in
         scoring: None,
+        priority: None,
     })
 }
 
@@ -375,6 +376,7 @@ mod tests {
             fingerprints: Default::default(),
             routes: Vec::new(),
             max_blocks: 4,
+            priority: None,
         })
         .unwrap();
         Reloader::new(

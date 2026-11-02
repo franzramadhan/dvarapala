@@ -89,6 +89,7 @@ async fn rate_limit_applies() {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 0,
+        priority: None,
     })
     .unwrap();
     let p = proxy(|_| {}, Some(limiter)).await;

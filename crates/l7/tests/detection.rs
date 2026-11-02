@@ -72,6 +72,7 @@ fn layer_in(
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 4,
+        priority: None,
     })
     .unwrap()
 }

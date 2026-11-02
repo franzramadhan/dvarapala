@@ -359,6 +359,7 @@ fn limiter(rate: u32, routes: Vec<RouteConfig>) -> RateLimitLayer {
         fingerprints: Default::default(),
         routes,
         max_blocks: 0,
+        priority: None,
     })
     .unwrap()
 }
@@ -381,6 +382,7 @@ async fn route_skips_the_waf() {
         challenge: true,
         max_keys: NonZeroUsize::MIN,
         waf: false,
+        concurrency: 1,
     };
     let waf = WafLayer::new(Some(config(addr, true))).layer(upstream(Got::default()));
     let mut svc = limiter(100, vec![uploads]).layer(waf);

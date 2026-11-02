@@ -33,6 +33,7 @@ fn layer(limit: Limit) -> RateLimitLayer {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 4,
+        priority: None,
     })
     .unwrap()
 }
@@ -47,6 +48,7 @@ fn reload(limit: Limit, routes: Option<Vec<RouteConfig>>) -> Reload {
         fingerprints: Default::default(),
         routes,
         scoring: None,
+        priority: None,
     }
 }
 
@@ -150,6 +152,7 @@ async fn reload_adds_a_deny_route() {
         challenge: true,
         max_keys: NonZeroUsize::new(16).unwrap(),
         waf: true,
+        concurrency: 1,
     };
     l.reload(reload(Limit::new(100, 100).unwrap(), Some(vec![deny])))
         .unwrap();

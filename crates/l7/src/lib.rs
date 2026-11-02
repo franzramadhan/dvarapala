@@ -6,6 +6,7 @@ mod control;
 mod detection;
 mod fingerprint;
 mod grpc;
+mod limit_future;
 mod llm;
 #[cfg(feature = "ui")]
 mod oidc;
@@ -26,6 +27,7 @@ pub use admin::{
 pub use challenge::{ChallengeConfig, PageBody, fuzz_verify, unix_now};
 pub use control::{Block, Reload, Status};
 pub use detection::{Detection, Scoring};
+pub use dvarapala_engine::{Class, Priority};
 pub use fingerprint::{Fingerprints, Ja4};
 pub use grpc::{GrpcStatus, grpc_response, is_grpc};
 #[cfg(feature = "llm")]
