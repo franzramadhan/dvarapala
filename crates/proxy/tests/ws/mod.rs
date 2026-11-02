@@ -155,6 +155,7 @@ pub fn limiter() -> RateLimitLayer {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 0,
+        priority: None,
     })
     .unwrap()
 }

@@ -28,6 +28,7 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 0,
+        priority: None,
     })
     .unwrap()
 }

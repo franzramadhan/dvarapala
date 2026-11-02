@@ -41,6 +41,7 @@ fn layer(scoring: Option<Scoring>) -> RateLimitLayer {
         fingerprints: Default::default(),
         routes: Vec::new(),
         max_blocks: 4,
+        priority: None,
     })
     .unwrap()
 }
@@ -55,6 +56,7 @@ fn reload(scoring: Option<Option<Scoring>>) -> Reload {
         fingerprints: Default::default(),
         routes: None,
         scoring,
+        priority: None,
     }
 }
 

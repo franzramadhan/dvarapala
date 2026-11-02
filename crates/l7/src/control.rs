@@ -22,6 +22,9 @@ pub(crate) struct Policy {
     pub(crate) enforce: bool,
     /// RFC 0002 scorer; RFC 0029 swaps it on a reload
     pub(crate) scoring: Option<Scoring>,
+    /// RFC 0032: model scores under it are trusted; `None` sets no
+    /// priority on requests
+    pub(crate) priority: Option<f64>,
 }
 
 /// The keys a reload applies in place.
@@ -40,6 +43,9 @@ pub struct Reload {
     /// RFC 0029: `None` keeps the running scorer, `Some(None)` turns
     /// scoring off. Client features stay either way.
     pub scoring: Option<Option<Scoring>>,
+    /// RFC 0032: the trusted score of the concurrency limit, `None` when
+    /// the limit is off.
+    pub priority: Option<f64>,
 }
 
 /// A snapshot for the admin API.
@@ -84,6 +90,7 @@ impl RateLimitLayer {
             routes,
             enforce,
             scoring: r.scoring.unwrap_or_else(|| policy.scoring.clone()),
+            priority: r.priority,
         });
         Ok(())
     }

@@ -24,6 +24,7 @@ fn routes() -> Routes {
         challenge: true,
         max_keys: NonZeroUsize::new(100).unwrap(),
         waf: true,
+        concurrency: 1,
     };
     Routes::new((0..32).map(route).collect())
 }

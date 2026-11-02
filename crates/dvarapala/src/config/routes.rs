@@ -97,6 +97,7 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 max_keys: NonZeroUsize::new(r.max_keys)
                     .ok_or_else(|| err("max_keys", "must be above 0".into()))?,
                 waf: r.waf,
+                concurrency: 1,
             })
         })
         .collect()

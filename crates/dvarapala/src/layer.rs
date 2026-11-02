@@ -37,6 +37,8 @@ pub fn config(
         fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
         routes: config::routes(&cfg.routes)?,
         max_blocks: cfg.admin.max_blocks,
+        // RFC 0032: set by the [concurrency] section
+        priority: None,
     })
 }
 
