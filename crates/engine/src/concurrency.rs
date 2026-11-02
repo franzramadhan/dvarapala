@@ -1,6 +1,5 @@
 //! RFC 0032: a cap on requests in flight to the upstream, fixed or learned
 //! from its latency, and the order in which classes of clients are shed.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::fmt;
 use std::sync::Mutex;
@@ -14,6 +13,9 @@ const BUCKETS: usize = 128;
 const NOLOAD_DRIFT: f64 = 0.01;
 /// A failed request counts as this many times the no-load latency, at least.
 const FAILURE_FACTOR: f64 = 10.0;
+/// A window p50 up to this many times the no-load latency reads as flat:
+/// one histogram bucket (19%) or timer jitter must not shrink the limit.
+const TOLERANCE: f64 = 1.2;
 
 /// Who a request comes from, in the order the limit sheds them last.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -30,7 +32,11 @@ impl Class {
     pub const ALL: [Class; 3] = [Class::Trusted, Class::Normal, Class::Suspect];
 
     pub fn name(self) -> &'static str {
-        todo!("rfc 0032")
+        match self {
+            Self::Trusted => "trusted",
+            Self::Normal => "normal",
+            Self::Suspect => "suspect",
+        }
     }
 }
 
@@ -44,7 +50,10 @@ pub struct Priority {
 
 impl Default for Priority {
     fn default() -> Self {
-        todo!("rfc 0032")
+        Self {
+            class: Class::Normal,
+            weight: 1,
+        }
     }
 }
 
@@ -73,7 +82,7 @@ pub struct ConcurrencyError(pub &'static str);
 
 impl fmt::Display for ConcurrencyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("rfc 0032")
+        f.write_str(self.0)
     }
 }
 
@@ -81,11 +90,29 @@ impl std::error::Error for ConcurrencyError {}
 
 impl ConcurrencyConfig {
     pub fn validate(&self) -> Result<(), ConcurrencyError> {
-        todo!("rfc 0032")
+        if !(0.0..=0.5).contains(&self.reserve) {
+            return Err(ConcurrencyError("reserve must be in [0, 0.5]"));
+        }
+        match self.mode {
+            LimitMode::Fixed if self.limit == 0 => {
+                Err(ConcurrencyError("limit must be at least 1 in fixed mode"))
+            }
+            LimitMode::Gradient if self.min == 0 || self.min > self.max => {
+                Err(ConcurrencyError("min must be at least 1 and at most max"))
+            }
+            LimitMode::Gradient if self.window < Duration::from_millis(100) => {
+                Err(ConcurrencyError("window must be at least 100ms"))
+            }
+            _ => Ok(()),
+        }
     }
 
     fn start(&self) -> u32 {
-        todo!("rfc 0032")
+        match self.mode {
+            LimitMode::Fixed => self.limit,
+            LimitMode::Gradient if self.limit == 0 => self.min,
+            LimitMode::Gradient => self.limit.clamp(self.min, self.max),
+        }
     }
 }
 
@@ -137,65 +164,195 @@ struct Window {
 
 impl Concurrency {
     pub fn new(config: ConcurrencyConfig, now: Instant) -> Result<Self, ConcurrencyError> {
-        todo!("rfc 0032")
+        config.validate()?;
+        let start = config.start();
+        Ok(Self {
+            in_flight: AtomicU32::new(0),
+            limit: AtomicU32::new(start),
+            peak: AtomicU32::new(0),
+            reserve_milli: AtomicU32::new(milli(config.reserve)),
+            noload: AtomicU64::new(0),
+            hist: std::array::from_fn(|_| AtomicU32::new(0)),
+            epoch: now,
+            window_end: AtomicU64::new(0),
+            state: Mutex::new(Window {
+                config,
+                estimate: f64::from(start),
+                noload: 0.0,
+            }),
+        })
     }
 
     /// Applies new bounds, reserve and window; the mode stays. A fixed
     /// limit takes the new cap, a gradient one is clamped into `[min, max]`.
     pub fn reconfigure(&self, config: ConcurrencyConfig) -> Result<(), ConcurrencyError> {
-        todo!("rfc 0032")
+        config.validate()?;
+        let mut w = self.lock();
+        if config.mode != w.config.mode {
+            return Err(ConcurrencyError("mode needs a restart"));
+        }
+        let limit = match config.mode {
+            LimitMode::Fixed => config.limit,
+            LimitMode::Gradient => (w.estimate.round() as u32).clamp(config.min, config.max),
+        };
+        w.estimate = f64::from(limit);
+        self.reserve_milli.store(milli(config.reserve), Relaxed);
+        self.limit.store(limit, Relaxed);
+        w.config = config;
+        Ok(())
     }
 
     pub fn limit(&self) -> u32 {
-        todo!("rfc 0032")
+        self.limit.load(Relaxed)
     }
 
     pub fn in_flight(&self) -> u32 {
-        todo!("rfc 0032")
+        self.in_flight.load(Relaxed)
     }
 
     /// The slots taken when `p` fits under its class's share of the limit,
     /// `None` when it is shed. A weight over the share is cut to the share,
     /// so a heavy route still runs alone.
     pub fn admit(&self, p: Priority) -> Option<u32> {
-        todo!("rfc 0032")
+        if p.weight == 0 {
+            return Some(0);
+        }
+        let limit = u64::from(self.limit());
+        let reserve = u64::from(self.reserve_milli.load(Relaxed));
+        let share = match p.class {
+            Class::Trusted => 1000,
+            Class::Normal => 1000 - reserve,
+            Class::Suspect => 1000 - 2 * reserve,
+        };
+        let cap = (limit * share / 1000) as u32;
+        if cap == 0 {
+            return None;
+        }
+        let w = p.weight.min(cap);
+        let mut cur = self.in_flight.load(Relaxed);
+        loop {
+            if cur + w > cap {
+                return None;
+            }
+            match self
+                .in_flight
+                .compare_exchange_weak(cur, cur + w, Relaxed, Relaxed)
+            {
+                Ok(_) => break,
+                Err(now) => cur = now,
+            }
+        }
+        // a load first: most admits do not raise the peak, and a write
+        // on every one would bounce the cache line between threads
+        if self.peak.load(Relaxed) < cur + w {
+            self.peak.fetch_max(cur + w, Relaxed);
+        }
+        Some(w)
     }
 
     /// Gives back `weight` slots and records the latency; returns the new
     /// limit when this closed a window.
     pub fn release(&self, weight: u32, outcome: Outcome, now: Instant) -> Option<Update> {
-        todo!("rfc 0032")
+        if weight == 0 {
+            return None;
+        }
+        self.in_flight.fetch_sub(weight, Relaxed);
+        let latency = match outcome {
+            Outcome::Answered(d) => d.as_secs_f64() * 1e6,
+            Outcome::Failed(d) => {
+                let noload = f64::from_bits(self.noload.load(Relaxed));
+                (d.as_secs_f64() * 1e6).max(noload * FAILURE_FACTOR)
+            }
+            Outcome::Dropped => return self.tick(now),
+        };
+        self.hist[bucket(latency)].fetch_add(1, Relaxed);
+        self.tick(now)
     }
 
     /// Closes the window when it has ended, unless another thread is.
     pub fn tick(&self, now: Instant) -> Option<Update> {
-        todo!("rfc 0032")
+        let at = now.saturating_duration_since(self.epoch).as_nanos() as u64;
+        let end = self.window_end.load(Relaxed);
+        if end != 0 && at < end {
+            return None;
+        }
+        let mut w = self.state.try_lock().ok()?;
+        if w.config.mode == LimitMode::Fixed {
+            return None;
+        }
+        let next = at + w.config.window.as_nanos() as u64;
+        if self
+            .window_end
+            .compare_exchange(end, next.max(1), Relaxed, Relaxed)
+            .is_err()
+        {
+            return None;
+        }
+        let counts: Vec<u32> = self.hist.iter().map(|b| b.swap(0, Relaxed)).collect();
+        let peak = self.peak.swap(self.in_flight(), Relaxed);
+        if end == 0 {
+            return None;
+        }
+        let p50 = median(&counts)?;
+        Some(self.close(&mut w, p50, peak))
     }
 
     fn close(&self, w: &mut Window, p50: f64, peak: u32) -> Update {
-        todo!("rfc 0032")
+        w.noload = if w.noload == 0.0 || p50 < w.noload {
+            p50
+        } else {
+            w.noload + (p50 - w.noload) * NOLOAD_DRIFT
+        };
+        self.noload.store(w.noload.to_bits(), Relaxed);
+        let old = w.estimate;
+        let gradient = (TOLERANCE * w.noload / p50).clamp(0.5, 1.0);
+        // app limited: a limit the traffic never came near does not grow
+        if gradient < 1.0 || f64::from(peak) >= old / 2.0 {
+            w.estimate = (old * gradient + old.sqrt())
+                .clamp(f64::from(w.config.min), f64::from(w.config.max));
+        }
+        let limit = w.estimate.round() as u32;
+        self.limit.store(limit, Relaxed);
+        Update {
+            limit,
+            noload: Duration::from_secs_f64(w.noload / 1e6),
+            window: Duration::from_secs_f64(p50 / 1e6),
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Window> {
-        todo!("rfc 0032")
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
 fn milli(share: f64) -> u32 {
-    todo!("rfc 0032")
+    (share * 1000.0).round() as u32
 }
 
 fn bucket(us: f64) -> usize {
-    todo!("rfc 0032")
+    ((us.max(1.0).log2() * 4.0) as usize).min(BUCKETS - 1)
 }
 
 /// The middle of bucket `i`, in microseconds.
 fn value(i: usize) -> f64 {
-    todo!("rfc 0032")
+    ((i as f64 + 0.5) / 4.0).exp2()
 }
 
 fn median(counts: &[u32]) -> Option<f64> {
-    todo!("rfc 0032")
+    let n: u64 = counts.iter().map(|&c| u64::from(c)).sum();
+    if n == 0 {
+        return None;
+    }
+    let mut seen = 0;
+    for (i, &c) in counts.iter().enumerate() {
+        seen += u64::from(c);
+        if seen * 2 >= n {
+            return Some(value(i));
+        }
+    }
+    None
 }
 
 #[cfg(test)]

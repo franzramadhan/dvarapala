@@ -41,7 +41,6 @@ fn window(c: &Concurrency, at: &mut Instant, n: u32, latency: Duration) -> Optio
 
 // RFC 0032 case 1
 #[test]
-#[ignore = "rfc 0032"]
 fn flat_latency_grows_the_limit_by_its_square_root() {
     let mut at = Instant::now();
     let c = Concurrency::new(gradient(20, 20, 100), at).unwrap();
@@ -62,7 +61,6 @@ fn flat_latency_grows_the_limit_by_its_square_root() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn an_idle_limit_does_not_grow() {
     let mut at = Instant::now();
     let c = Concurrency::new(gradient(40, 20, 100), at).unwrap();
@@ -74,7 +72,6 @@ fn an_idle_limit_does_not_grow() {
 
 // RFC 0032 case 2
 #[test]
-#[ignore = "rfc 0032"]
 fn rising_latency_halves_at_most_once_per_window() {
     let mut at = Instant::now();
     let c = Concurrency::new(gradient(400, 20, 1000), at).unwrap();
@@ -97,7 +94,6 @@ fn rising_latency_halves_at_most_once_per_window() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn failures_count_as_slow() {
     let mut at = Instant::now();
     let c = Concurrency::new(gradient(100, 20, 1000), at).unwrap();
@@ -116,7 +112,6 @@ fn failures_count_as_slow() {
 
 // RFC 0032 case 3
 #[test]
-#[ignore = "rfc 0032"]
 fn fixed_is_a_hard_cap() {
     let c = Concurrency::new(fixed(10, 0.2), Instant::now()).unwrap();
     for _ in 0..8 {
@@ -138,7 +133,6 @@ fn fixed_is_a_hard_cap() {
 
 // RFC 0032 case 4
 #[test]
-#[ignore = "rfc 0032"]
 fn the_reserve_is_for_trusted_requests() {
     let c = Concurrency::new(fixed(100, 0.2), Instant::now()).unwrap();
     for _ in 0..80 {
@@ -149,7 +143,6 @@ fn the_reserve_is_for_trusted_requests() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn suspects_go_first() {
     let c = Concurrency::new(fixed(100, 0.2), Instant::now()).unwrap();
     for _ in 0..60 {
@@ -160,7 +153,6 @@ fn suspects_go_first() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn weights_take_slots_zero_bypasses() {
     let c = Concurrency::new(fixed(20, 0.0), Instant::now()).unwrap();
     let heavy = Priority {
@@ -185,7 +177,6 @@ fn weights_take_slots_zero_bypasses() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn reconfigure_keeps_the_mode() {
     let at = Instant::now();
     let c = Concurrency::new(gradient(500, 20, 1000), at).unwrap();
@@ -198,7 +189,6 @@ fn reconfigure_keeps_the_mode() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn bad_configs_are_refused() {
     let at = Instant::now();
     assert!(Concurrency::new(fixed(0, 0.2), at).is_err());
@@ -213,7 +203,6 @@ fn bad_configs_are_refused() {
 }
 
 #[test]
-#[ignore = "rfc 0032"]
 fn concurrent_admit_and_release_balance() {
     let c = std::sync::Arc::new(Concurrency::new(fixed(64, 0.0), Instant::now()).unwrap());
     let threads: Vec<_> = (0..8)
