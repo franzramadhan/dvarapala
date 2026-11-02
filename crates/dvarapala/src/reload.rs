@@ -46,6 +46,8 @@ pub struct Reloader {
     /// RFC 0023: ends the console's LLM sampling switch; RFC 0024: the
     /// label retention.
     pub on_reload: std::sync::OnceLock<OnReload>,
+    /// RFC 0032: the upstream limit, when `[concurrency]` is on
+    pub concurrency: std::sync::OnceLock<Arc<dvarapala_proxy::Concurrency>>,
 }
 
 impl Reloader {
@@ -70,6 +72,7 @@ impl Reloader {
             model: Mutex::new(model),
             switches: Switches::default(),
             on_reload: std::sync::OnceLock::new(),
+            concurrency: std::sync::OnceLock::new(),
         }
     }
 
@@ -111,6 +114,11 @@ impl Reloader {
         let mut reload = policy(&new)?;
         let waf = crate::waf::config(&new)?;
         let mut restart = restart(&self.start, &new);
+        // RFC 0032: the mode needs a restart, the rest applies in place
+        let limit = new.concurrency.config()?;
+        if new.concurrency.mode != self.start.concurrency.mode {
+            reload.priority = self.start.concurrency.priority();
+        }
         let ja4 = reload.fingerprints.enabled()
             || reload
                 .routes
@@ -138,6 +146,11 @@ impl Reloader {
         *running = model;
         drop(running);
         self.waf.reload(waf);
+        if let (Some(c), Some(l)) = (self.concurrency.get(), limit)
+            && new.concurrency.mode == self.start.concurrency.mode
+        {
+            c.reconfigure(l).map_err(|e| format!("concurrency: {e}"))?;
+        }
         routes.clone_from(&new.routes);
         *lock(&self.current) = new;
         Ok(restart)
@@ -246,6 +259,7 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
     cfg.history.samples(&cfg.store)?;
     // RFC 0024: likewise ml.llm.retention
     cfg.ml.llm.check_store(&cfg.store)?;
+    cfg.concurrency.config()?;
     Ok(Reload {
         limit: Limit::new(cfg.rate_limit.rate, cfg.rate_limit.burst)
             .map_err(|e| format!("rate_limit: {e}"))?,
@@ -257,7 +271,7 @@ pub fn policy(cfg: &Config) -> Result<Reload, String> {
         routes: Some(config::routes(&cfg.routes)?),
         // RFC 0029: the reloader loads the model and fills it in
         scoring: None,
-        priority: None,
+        priority: cfg.concurrency.priority(),
     })
 }
 
@@ -277,6 +291,8 @@ pub fn in_place(key: &str, cfg: &Config) -> bool {
         // RFC 0024: the sweep reads it each hour
         // RFC 0029: the model and its threshold too
         "ml" => matches!(rest, "llm.retention" | "model" | "threshold"),
+        // RFC 0032: the limit and its bounds, not the mode
+        "concurrency" => rest != "mode",
         _ => false,
     }
 }
@@ -329,6 +345,10 @@ pub fn restart(start: &Config, new: &Config) -> Vec<&'static str> {
         ("admin", start.admin != new.admin),
         ("pool", start.pool != new.pool),
         (
+            "concurrency.mode",
+            start.concurrency.mode != new.concurrency.mode,
+        ),
+        (
             "history",
             config::History {
                 retention: new.history.retention,
@@ -347,130 +367,5 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 #[cfg(test)]
-// figment::Jail closures return figment::Error by value; not ours to box
-#[allow(clippy::result_large_err)]
-mod tests {
-    use std::num::NonZeroUsize;
-    use std::path::Path;
-    use std::time::Instant;
-
-    use dvarapala_l7::RateLimitConfig;
-    use figment::Jail;
-
-    use super::*;
-
-    const BASE: &str = "upstream = \"http://127.0.0.1:8081\"\nlisten = \"127.0.0.1:8080\"\n";
-
-    fn reloader(path: &str) -> Reloader {
-        let start = config::load(Some(Path::new(path))).unwrap();
-        let layer = RateLimitLayer::new(RateLimitConfig {
-            limit: Limit::new(10, 10).unwrap(),
-            max_clients: NonZeroUsize::new(16).unwrap(),
-            trusted: TrustedProxies::new(Vec::new()),
-            detection: None,
-            scoring: None,
-            now: Instant::now,
-            cluster: None,
-            block: None,
-            challenge: None,
-            fingerprints: Default::default(),
-            routes: Vec::new(),
-            max_blocks: 4,
-            priority: None,
-        })
-        .unwrap();
-        Reloader::new(
-            Some(path.into()),
-            Some(layer),
-            Default::default(),
-            false,
-            start,
-            None,
-        )
-    }
-
-    // RFC 0014 case 7
-    #[test]
-    fn rate_applied_listen_needs_a_restart() {
-        Jail::expect_with(|j| {
-            j.create_file("d.toml", &format!("{BASE}[rate_limit]\nrate = 10\n"))?;
-            let r = reloader("d.toml");
-            j.create_file(
-                "d.toml",
-                "upstream = \"http://127.0.0.1:8081\"\nlisten = \"127.0.0.1:9000\"\n[rate_limit]\nrate = 1\nburst = 1\n",
-            )?;
-            let out = r.reload();
-            assert_eq!(out.result, Ok(vec!["listen"]));
-            assert_eq!(r.last(), Some(out));
-            Ok(())
-        });
-    }
-
-    // RFC 0014 case 8
-    #[test]
-    fn invalid_route_refused_whole() {
-        Jail::expect_with(|j| {
-            j.create_file("d.toml", BASE)?;
-            let r = reloader("d.toml");
-            j.create_file(
-                "d.toml",
-                &format!("{BASE}[rate_limit]\nrate = 1\n[[routes]]\nname = \"x\"\npath = \"\"\n"),
-            )?;
-            let e = r.reload().result.unwrap_err();
-            assert!(e.contains("routes \"x\""), "{e}");
-            // the routes in force did not move
-            assert!(lock(&r.routes).is_empty());
-            j.create_file("d.toml", "not toml [")?;
-            assert!(r.reload().result.is_err());
-            Ok(())
-        });
-    }
-
-    #[test]
-    fn ja4_needs_a_restart_bad_keys_refuse_the_file() {
-        Jail::expect_with(|j| {
-            j.create_file("d.toml", BASE)?;
-            let r = reloader("d.toml");
-            j.create_file(
-                "d.toml",
-                &format!("{BASE}[fingerprint]\ndeny = [\"t13d*\"]\n"),
-            )?;
-            assert_eq!(
-                r.reload().result,
-                Ok(vec!["fingerprint (JA4 at the TLS listener)"])
-            );
-            j.create_file("d.toml", &format!("{BASE}trusted_proxies = [\"nope\"]\n"))?;
-            let e = r.reload().result.unwrap_err();
-            assert!(e.contains("trusted_proxies"), "{e}");
-            j.create_file(
-                "d.toml",
-                &format!("{BASE}[pool]\nupstreams = [\"http://192.0.2.1\"]\n"),
-            )?;
-            let e = r.reload().result.unwrap_err();
-            assert!(e.contains("pool.upstreams"), "{e}");
-            Ok(())
-        });
-    }
-
-    #[test]
-    fn detection_mode_and_factor_reload_in_place() {
-        // in a jail, so no `DVARAPALA__*` another test sets leaks in
-        let mut defaults = None;
-        Jail::expect_with(|_| {
-            defaults = Some(config::load(None).map_err(|e| e.to_string())?);
-            Ok(())
-        });
-        let start = Config {
-            upstream: Some("http://127.0.0.1:8081".into()),
-            ..defaults.unwrap()
-        };
-        let mut new = start.clone();
-        new.detection.mode = config::Mode::Enforce;
-        new.detection.attack_rate_factor = 0.5;
-        new.rate_limit.rate = 1;
-        assert!(restart(&start, &new).is_empty());
-        new.detection.window = std::time::Duration::from_secs(9);
-        new.store.backend = config::Backend::Redis;
-        assert_eq!(restart(&start, &new), ["detection", "store"]);
-    }
-}
+#[path = "reload_tests.rs"]
+mod tests;

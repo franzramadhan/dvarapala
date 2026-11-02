@@ -36,6 +36,12 @@ pub struct Route {
     /// `false` skips the WAF (RFC 0017).
     #[serde(default = "yes")]
     pub waf: bool,
+    /// `false` bypasses the upstream concurrency limit (RFC 0032).
+    #[serde(default = "yes")]
+    pub concurrency: bool,
+    /// Slots a request takes in that limit, 1 to 100.
+    #[serde(default = "one")]
+    pub concurrency_weight: u32,
 }
 
 fn client() -> String {
@@ -44,6 +50,10 @@ fn client() -> String {
 
 fn yes() -> bool {
     true
+}
+
+fn one() -> u32 {
+    1
 }
 
 fn max_keys() -> usize {
@@ -75,6 +85,9 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 .iter()
                 .map(|c| c.parse::<Cidr>())
                 .collect::<Result<Vec<_>, _>>();
+            if !(1..=100).contains(&r.concurrency_weight) {
+                return Err(err("concurrency_weight", "must be 1 to 100".into()));
+            }
             let limit = match r.rate {
                 0 => None,
                 rate => Some(
@@ -97,7 +110,11 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 max_keys: NonZeroUsize::new(r.max_keys)
                     .ok_or_else(|| err("max_keys", "must be above 0".into()))?,
                 waf: r.waf,
-                concurrency: 1,
+                concurrency: if r.concurrency {
+                    r.concurrency_weight
+                } else {
+                    0
+                },
             })
         })
         .collect()
@@ -121,6 +138,8 @@ mod tests {
             challenge: true,
             max_keys: max_keys(),
             waf: true,
+            concurrency: true,
+            concurrency_weight: 1,
         }
     }
 
@@ -143,6 +162,18 @@ mod tests {
         let e = err(|r| r.max_keys = 0);
         assert!(e.contains("\"api\": max_keys"), "{e}");
         assert!(routes(&[route("")]).unwrap_err().contains("name"));
+        let e = err(|r| r.concurrency_weight = 101);
+        assert!(e.contains("\"api\": concurrency_weight"), "{e}");
+    }
+
+    // RFC 0032 cases 10 and 11
+    #[test]
+    fn concurrency_false_bypasses_the_weight_counts_otherwise() {
+        let mut r = route("export");
+        r.concurrency_weight = 10;
+        assert_eq!(routes(&[r.clone()]).unwrap()[0].concurrency, 10);
+        r.concurrency = false;
+        assert_eq!(routes(&[r]).unwrap()[0].concurrency, 0);
     }
 
     #[test]

@@ -35,6 +35,13 @@ pub const RELOADABLE: &[&str] = &[
     // RFC 0029
     "ml.model",
     "ml.threshold",
+    // RFC 0032: all but concurrency.mode
+    "concurrency.limit",
+    "concurrency.min",
+    "concurrency.max",
+    "concurrency.window",
+    "concurrency.reserve",
+    "concurrency.trusted_score",
 ];
 
 /// RFC 0025: at most this many `gateway.mounts`.

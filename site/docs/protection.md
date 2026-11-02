@@ -157,6 +157,29 @@ See [WAF](waf.html).
 
 Keys: [`[waf]`](configuration.html#waf).
 
+## Upstream concurrency
+
+Rate limits per client do not protect a backend from a flood spread
+over many clients, each under its rate. `[concurrency]` caps the
+requests in flight to the upstream ([RFC 0032](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0032-adaptive-concurrency.md)).
+`fixed` is a hard cap. `gradient` finds the cap from the backend's
+latency: every `window` it compares the median latency with the lowest
+seen, grows the limit by about its square root while latency stays flat,
+and cuts it (by at most half) when latency rises. A connect error or
+timeout counts as a slow answer, so a backend that stops answering
+shrinks the limit.
+
+Over the limit a request is shed at once, `503` with `Retry-After: 1`
+(gRPC: `RESOURCE_EXHAUSTED`), never queued. The last `reserve` of the
+limit is kept for trusted clients (a valid challenge pass, or a low
+`[ml]` score), and heavy hitters during an attack are shed first. Only
+the wait for the response head counts: streaming bodies and WebSocket
+tunnels do not hold a slot. Routes can bypass the limit
+(`concurrency = false`) or weigh more (`concurrency_weight`). Shed
+requests never eject a `[pool]` endpoint or spend a retry.
+
+Keys: [`[concurrency]`](configuration.html#concurrency).
+
 ## LLM labels
 
 With `[ml.llm]` and at least one trigger, requests that hit a WAF rule,
