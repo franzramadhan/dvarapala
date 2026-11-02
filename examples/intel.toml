@@ -9,10 +9,10 @@
 # cron job that rewrites the file is enough. Each feed starts in observe:
 # watch dvarapala_intel_hits_total before switching it to enforce.
 #
-# The GeoIP database is the operator's own MaxMind DB file with the
-# MaxMind schema (GeoLite2, GeoIP2 or DB-IP Lite) under its license;
-# dvarapala downloads none. A Country file gives country only, an ASN
-# file ASN only.
+# The GeoIP databases are the operator's own MaxMind DB files with the
+# MaxMind schema (GeoLite2, GeoIP2 or DB-IP Lite) under their license;
+# dvarapala downloads none. A Country file gives the country, an ASN
+# file the ASN; list both for country and asn routes.
 # Country and ASN routes need a build with --features geoip (the
 # container image has it).
 #
@@ -33,7 +33,10 @@ burst = 40
 mode = "observe"
 
 [intel]
-geoip = "/etc/dvarapala/GeoLite2-Country.mmdb"
+geoip = [
+  "/etc/dvarapala/GeoLite2-Country.mmdb",
+  "/etc/dvarapala/GeoLite2-ASN.mmdb",
+]
 
 # Spamhaus DROP: hijacked netblocks, a few hundred lines.
 [[intel.feed]]

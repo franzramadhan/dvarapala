@@ -252,3 +252,38 @@ async fn routes_match_country_and_asn_from_the_database() {
         }
     }
 }
+
+// regression: GeoLite2 ships Country and ASN as separate files, and a
+// route on each must match the same client
+#[cfg(feature = "geoip")]
+#[tokio::test]
+async fn country_and_asn_come_from_separate_files() {
+    use dvarapala_engine::parse_country;
+    use dvarapala_l7::{GeoIp, test_db_fields};
+
+    let net = "198.51.100.0/24".parse().unwrap();
+    let country = test_db_fields(&[(net, Some("ZZ"), None)]);
+    let asn = test_db_fields(&[(net, None, Some(64500))]);
+    let geo = [country, asn].map(|db| Arc::new(GeoIp::from_bytes(db).unwrap()));
+    let routes = vec![
+        route("country", |m| {
+            m.countries = vec![parse_country("ZZ").unwrap()]
+        }),
+        route("asn", |m| m.asns = vec![64500]),
+    ];
+    for r in routes {
+        let (_, inner) = counting();
+        let intel = Intel::new(Vec::new()).with_geo(geo.clone());
+        let mut svc = layer(vec![r], false, intel).layer(inner);
+        for (peer, second) in [
+            ("198.51.100.1", StatusCode::TOO_MANY_REQUESTS),
+            ("203.0.113.1", StatusCode::OK),
+        ] {
+            assert_eq!(
+                send(&mut svc, "/", peer, &[]).await.status(),
+                StatusCode::OK
+            );
+            assert_eq!(send(&mut svc, "/", peer, &[]).await.status(), second);
+        }
+    }
+}

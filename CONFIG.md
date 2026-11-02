@@ -789,22 +789,30 @@ good fetch) and is logged as `intel feed refresh failed`.
 | `challenge` | the [challenge](#challenge) until the client holds a pass, attack or not (needs `[challenge]` on) | counted, allowed |
 | `tag` | routes with the feed in `feeds` match the client | counted |
 
-`intel.geoip` is one MaxMind DB file with the MaxMind schema
-(`country.iso_code`, `autonomous_system_number`): GeoLite2 or GeoIP2
-from MaxMind, or the DB-IP Lite files. The operator brings it with its
-license; nothing is downloaded. Files with another schema (IPinfo, for
-one) load but match nothing. One file sets what it holds: a Country or
-City file gives `country` only, an ASN file gives `asn` only, so a route
-cannot use both with the free GeoLite2 files. It is read whole
-into memory, at start and on each reload or `config_watch` change, and
-swapped only when its bytes change (`geoip loaded sha256=<hex> type=<db type>`).
+`intel.geoip` is one MaxMind DB file, or a list of up to 4, with the
+MaxMind schema (`country.iso_code`, `autonomous_system_number`):
+GeoLite2 or GeoIP2 from MaxMind, or the DB-IP Lite files. The operator
+brings them with their license; nothing is downloaded. Files with
+another schema (IPinfo, for one) load but match nothing. Each file sets
+what it holds (a Country or City file gives `country`, an ASN file gives
+`asn`), and the files combine: a client's country comes from the first
+file in the list that has one, its ASN likewise. So the free
+GeoLite2-Country and GeoLite2-ASN files together serve both conditions.
+Each file is read whole into memory, at start and on each reload or
+`config_watch` change, and swapped only when its own bytes change
+(`geoip loaded path=<path> sha256=<hex> type=<db type>`, one line per
+file). A file that fails to load refuses the whole reload. An empty
+list, more than 4 files or a path listed twice is a config error.
 It sets each client's country (`country.iso_code`) and ASN
 (`autonomous_system_number`) for `routes[].country` and `asn`. Needs the
 `geoip` feature.
 
 ```toml
 [intel]
-geoip = "/etc/dvarapala/GeoLite2-Country.mmdb"
+geoip = [
+  "/etc/dvarapala/GeoLite2-Country.mmdb",
+  "/etc/dvarapala/GeoLite2-ASN.mmdb",
+]
 
 [[intel.feed]]
 name = "spamhaus_drop"
@@ -814,7 +822,7 @@ action = "deny"
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `geoip` | path | unset | MaxMind DB file; unset turns `routes[].country` and `asn` off. Reload |
+| `geoip` | path or list of paths | unset | MaxMind DB files, at most 4; the first file with a country or an ASN for the client sets it. Unset turns `routes[].country` and `asn` off. Reload |
 | `max_bytes` | size | `"16MiB"` | Largest feed body or file read. Reload |
 | `feed[].name` | string | required | Label in metrics and `routes[].feeds`, unique; at most 64 feeds |
 | `feed[].path` | path | unset | A local file; one of `path` and `url` |

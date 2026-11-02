@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use dvarapala_l7::{Action, MAX_FEEDS};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::waf::size;
 use super::{Mode, duration};
@@ -15,8 +15,10 @@ use super::{Mode, duration};
 #[serde(deny_unknown_fields, default)]
 pub struct Intel {
     pub feed: Vec<Feed>,
-    /// A MaxMind DB file; unset turns `routes[].country` and `asn` off.
-    pub geoip: Option<PathBuf>,
+    /// MaxMind DB files, one path or a list (a Country and an ASN file
+    /// combine); unset turns `routes[].country` and `asn` off.
+    #[serde(deserialize_with = "one_or_many")]
+    pub geoip: Option<Vec<PathBuf>>,
     /// Largest feed body or file read.
     #[serde(deserialize_with = "size")]
     pub max_bytes: usize,
@@ -83,6 +85,23 @@ fn max_entries() -> usize {
     200_000
 }
 
+/// The most `intel.geoip` files.
+const MAX_GEOIP: usize = 4;
+
+/// `geoip = "a.mmdb"` reads as `geoip = ["a.mmdb"]`.
+fn one_or_many<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<PathBuf>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(PathBuf),
+        Many(Vec<PathBuf>),
+    }
+    Ok(Some(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(p) => vec![p],
+        OneOrMany::Many(v) => v,
+    }))
+}
+
 impl Intel {
     /// `challenge` is whether `[challenge]` is on. Errors name the feed
     /// and the key.
@@ -92,6 +111,18 @@ impl Intel {
         }
         if self.max_bytes == 0 {
             return Err("intel.max_bytes must be above 0".into());
+        }
+        if let Some(files) = &self.geoip {
+            if files.is_empty() {
+                return Err("intel.geoip: at least one file, or leave it unset".into());
+            }
+            if files.len() > MAX_GEOIP {
+                return Err(format!("intel.geoip: at most {MAX_GEOIP} files"));
+            }
+            let mut seen = HashSet::new();
+            if let Some(p) = files.iter().find(|p| !seen.insert(*p)) {
+                return Err(format!("intel.geoip {}: listed twice", p.display()));
+            }
         }
         let mut names = HashSet::new();
         for f in &self.feed {
@@ -179,6 +210,31 @@ mod tests {
         assert!(err(|f| f.name.clear()).contains("name"));
         let many = (0..65).map(|i| feed(&i.to_string())).collect();
         assert!(intel(many).check(false).is_err());
+    }
+
+    #[test]
+    fn geoip_is_one_path_or_a_list() {
+        let one: Intel = toml::from_str("geoip = \"Country.mmdb\"").unwrap();
+        assert_eq!(one.geoip, Some(vec!["Country.mmdb".into()]));
+        assert!(one.check(false).is_ok());
+        let two: Intel = toml::from_str("geoip = [\"Country.mmdb\", \"ASN.mmdb\"]").unwrap();
+        assert_eq!(
+            two.geoip,
+            Some(vec!["Country.mmdb".into(), "ASN.mmdb".into()])
+        );
+        assert!(two.check(false).is_ok());
+        let err = |s: &str| {
+            toml::from_str::<Intel>(s)
+                .unwrap()
+                .check(false)
+                .unwrap_err()
+        };
+        let e = err("geoip = []");
+        assert!(e.contains("intel.geoip: at least one file"), "{e}");
+        let e = err("geoip = [\"a.mmdb\", \"b.mmdb\", \"a.mmdb\"]");
+        assert!(e.contains("intel.geoip a.mmdb: listed twice"), "{e}");
+        let e = err("geoip = [\"1\", \"2\", \"3\", \"4\", \"5\"]");
+        assert!(e.contains("intel.geoip: at most 4 files"), "{e}");
     }
 
     #[test]

@@ -67,12 +67,12 @@ pub(crate) enum Effect {
     Deny,
 }
 
-/// The feeds and the GeoIP database in force; a reload swaps it whole.
+/// The feeds and the GeoIP databases in force; a reload swaps it whole.
 #[derive(Debug, Default)]
 pub struct Intel {
     feeds: Vec<Feed>,
     #[cfg(feature = "geoip")]
-    geo: Option<Arc<crate::GeoIp>>,
+    geo: Vec<Arc<crate::GeoIp>>,
 }
 
 impl Intel {
@@ -82,14 +82,15 @@ impl Intel {
         Self {
             feeds,
             #[cfg(feature = "geoip")]
-            geo: None,
+            geo: Vec::new(),
         }
     }
 
-    /// Countries and ASNs for route conditions.
+    /// Countries and ASNs for route conditions. Each comes from the first
+    /// database that has one, so a Country file and an ASN file combine.
     #[cfg(feature = "geoip")]
-    pub fn with_geo(mut self, geo: Option<Arc<crate::GeoIp>>) -> Self {
-        self.geo = geo;
+    pub fn with_geo(mut self, geo: impl IntoIterator<Item = Arc<crate::GeoIp>>) -> Self {
+        self.geo = geo.into_iter().collect();
         self
     }
 
@@ -120,8 +121,13 @@ impl Intel {
             }
         }
         #[cfg(feature = "geoip")]
-        if let Some(g) = &self.geo {
-            (origin.country, origin.asn) = g.lookup(ip);
+        for g in &self.geo {
+            let (country, asn) = g.lookup(ip);
+            origin.country = origin.country.or(country);
+            origin.asn = origin.asn.or(asn);
+            if origin.country.is_some() && origin.asn.is_some() {
+                break;
+            }
         }
         (origin, effect)
     }
