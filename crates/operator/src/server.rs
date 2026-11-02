@@ -16,17 +16,18 @@ use tokio_rustls::TlsAcceptor;
 const MAX_BODY: usize = 3 << 20;
 
 /// Serves `handle(path, body)` on `addr` until the process exits; answers
-/// `413` to a body over 3 MiB.
+/// `413` to a body over 3 MiB. Returns the address bound.
 pub async fn serve<F, Fut>(
     addr: SocketAddr,
     tls: Option<TlsAcceptor>,
     handle: F,
-) -> std::io::Result<()>
+) -> std::io::Result<SocketAddr>
 where
     F: Fn(String, Bytes) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Response<Full<Bytes>>> + Send,
 {
     let listener = TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
     tracing::info!(%addr, tls = tls.is_some(), "listening");
     let handle = Arc::new(handle);
     tokio::spawn(async move {
@@ -58,7 +59,7 @@ where
             });
         }
     });
-    Ok(())
+    Ok(addr)
 }
 
 pub fn status(code: StatusCode) -> Response<Full<Bytes>> {

@@ -132,3 +132,145 @@ async fn mutate(
     let patch = json_patch::diff(&route, &out);
     Ok((!patch.0.is_empty()).then_some(patch))
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::fake::Fake;
+
+    const NS: &str = "/api/v1/namespaces/shop";
+    const POLICY: &str =
+        "/apis/dvarapala.franzramadhan.dev/v1alpha1/namespaces/shop/dvarapalapolicies/default";
+
+    fn cluster() -> Fake {
+        let fake = Fake::default();
+        fake.put(
+            NS,
+            json!({"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "shop"}}),
+        );
+        fake.put(
+            &format!("{NS}/services/web"),
+            json!({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "web", "namespace": "shop"},
+                "spec": {"selector": {"app": "web"}, "ports": [{"name": "http", "port": 80}]}}),
+        );
+        fake.put(
+            POLICY,
+            json!({"apiVersion": "dvarapala.franzramadhan.dev/v1alpha1",
+                "kind": "DvarapalaPolicy",
+                "metadata": {"name": "default", "namespace": "shop"}, "spec": {}}),
+        );
+        fake
+    }
+
+    fn ingress(label: Option<&str>, backend: &str) -> Value {
+        let mut labels = serde_json::Map::new();
+        if let Some(l) = label {
+            labels.insert(LABEL.into(), l.into());
+        }
+        json!({"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+            "metadata": {"name": "shop", "namespace": "shop", "labels": labels},
+            "spec": {"rules": [{"http": {"paths": [{"path": "/", "pathType": "Prefix",
+                "backend": {"service": {"name": backend, "port": {"number": 80}}}}]}}]}})
+    }
+
+    fn body(kind: &str, object: &Value, dry_run: bool) -> Vec<u8> {
+        json!({"apiVersion": "admission.k8s.io/v1", "kind": "AdmissionReview",
+            "request": {"uid": "u1",
+                "kind": {"group": "networking.k8s.io", "version": "v1", "kind": kind},
+                "resource": {"group": "networking.k8s.io", "version": "v1", "resource": "ingresses"},
+                "name": "shop", "namespace": "shop", "operation": "CREATE",
+                "userInfo": {}, "object": object, "dryRun": dry_run}})
+        .to_string()
+        .into_bytes()
+    }
+
+    async fn answer(fake: &Fake, body: &[u8]) -> Value {
+        let out = review(&fake.client(), body).await;
+        serde_json::from_slice::<Value>(&out).unwrap()["response"].clone()
+    }
+
+    fn gateway_path() -> String {
+        format!("{NS}/services/{}", gateway::name("web", "80", "default"))
+    }
+
+    #[tokio::test]
+    async fn labeled_route_gets_its_gateway() {
+        let fake = cluster();
+        let route = ingress(Some("default"), "web");
+        let r = answer(&fake, &body("Ingress", &route, false)).await;
+        assert_eq!(r["uid"], "u1");
+        assert_eq!(r["allowed"], true);
+        assert_eq!(r["patchType"], "JSONPatch");
+        assert!(fake.get(&gateway_path()).is_some());
+        assert_eq!(fake.writes(), [format!("PATCH {}", gateway_path())]);
+        // the gateway is there now: rewritten again, nothing created
+        let r = answer(&fake, &body("Ingress", &route, false)).await;
+        assert_eq!(r["patchType"], "JSONPatch");
+        assert_eq!(fake.writes().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn dry_run_creates_nothing() {
+        let fake = cluster();
+        let r = answer(
+            &fake,
+            &body("Ingress", &ingress(Some("default"), "web"), true),
+        )
+        .await;
+        assert_eq!(r["allowed"], true);
+        assert_eq!(r["patchType"], "JSONPatch");
+        assert!(fake.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn routes_left_alone() {
+        // no label, a missing policy, a missing backend, a kind not handled
+        let fake = cluster();
+        for b in [
+            body("Ingress", &ingress(None, "web"), false),
+            body("Ingress", &ingress(Some("other"), "web"), false),
+            body("Ingress", &ingress(Some("default"), "gone"), false),
+            body("Service", &ingress(Some("default"), "web"), false),
+        ] {
+            let r = answer(&fake, &b).await;
+            assert_eq!(r["allowed"], true, "{r}");
+            assert!(r.get("patch").is_none(), "{r}");
+        }
+        assert!(fake.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn refuses_when_a_lookup_fails() {
+        let route = ingress(Some("default"), "web");
+        let services = format!("{NS}/services");
+        let gw = gateway_path();
+        for (method, path) in [
+            (http::Method::GET, NS),
+            (http::Method::GET, services.as_str()),
+            (http::Method::GET, POLICY),
+            (http::Method::PATCH, gw.as_str()),
+        ] {
+            let fake = cluster();
+            fake.fail(method, path, 500);
+            let r = answer(&fake, &body("Ingress", &route, false)).await;
+            assert_eq!(r["allowed"], false, "{path}");
+            assert!(
+                r["status"]["message"]
+                    .as_str()
+                    .is_some_and(|m| !m.is_empty())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_review_is_refused() {
+        let fake = cluster();
+        let r = answer(&fake, b"{").await;
+        assert_eq!(r["allowed"], false);
+        let no_request = br#"{"apiVersion": "admission.k8s.io/v1", "kind": "AdmissionReview"}"#;
+        let r = answer(&fake, no_request).await;
+        assert_eq!(r["allowed"], false);
+    }
+}
