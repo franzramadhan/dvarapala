@@ -10,6 +10,7 @@ mod conns;
 mod detect;
 mod guard;
 mod history;
+mod intel;
 mod key;
 mod routes;
 mod sample;
@@ -29,8 +30,12 @@ pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use guard::{ChallengeMode, Decision, Guard, GuardConfig, GuardDetection, Pass};
 pub use history::{Minute, Ring, Sample, Sampler, VERDICTS};
+pub use intel::{FeedError, MAX_LINE, PrefixSet, parse_feed};
 pub use key::{ClientKey, client_ip, client_key};
-pub use routes::{Host, Matcher, PathMatch, RouteKey, RouteLimits, parse_method, strip_port};
+pub use routes::{
+    Host, Matcher, Origin, PathMatch, RouteKey, RouteLimits, parse_country, parse_method,
+    strip_port,
+};
 pub use sample::{Admit, Gate};
 pub use schedule::{Schedule, ScheduleConfig, ScheduleError, Slot};
 pub use score::{ClientStats, FEATURE_NAMES, FEATURES, Features, Scorer};

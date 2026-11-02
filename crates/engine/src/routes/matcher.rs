@@ -103,6 +103,27 @@ pub struct Matcher {
     /// Networks of the client key (after `trusted_proxies`); any client
     /// when empty. An IPv6 key is its /64, so a longer prefix never matches.
     pub clients: Vec<Cidr>,
+    /// ISO 3166-1 alpha-2 codes, upper case (RFC 0031); any when empty.
+    pub countries: Vec<[u8; 2]>,
+    /// Autonomous system numbers; any when empty.
+    pub asns: Vec<u32>,
+    /// Feed bits ([`Origin::feeds`]): any of them; any client when 0.
+    pub feeds: u64,
+}
+
+/// Where a client comes from (RFC 0031): its country and ASN from the
+/// GeoIP database, and the enforced feeds that list it, one bit each.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Origin {
+    pub country: Option<[u8; 2]>,
+    pub asn: Option<u32>,
+    pub feeds: u64,
+}
+
+/// A country code for [`Matcher::countries`]: two ASCII letters.
+pub fn parse_country(s: &str) -> Result<[u8; 2], String> {
+    let _ = s;
+    todo!("rfc 0031")
 }
 
 impl Matcher {
@@ -124,6 +145,13 @@ impl Matcher {
             return false;
         }
         self.clients.is_empty() || self.clients.iter().any(|c| c.contains(client))
+    }
+
+    /// The RFC 0031 conditions. A client with no country or ASN never
+    /// matches a condition on it.
+    pub fn matches_origin(&self, o: &Origin) -> bool {
+        let _ = o;
+        todo!("rfc 0031")
     }
 }
 
@@ -208,6 +236,34 @@ mod tests {
         assert!(!hit(&m, "GET", "/", None, "192.0.2.9"));
         assert!(!hit(&m, "POST", "/", None, "198.51.100.9"));
         assert!(hit(&m, "POST", "/", None, "192.0.2.9"));
+    }
+
+    // RFC 0031 cases 7 and 10, on the matcher
+    #[test]
+    #[ignore = "rfc 0031"]
+    fn country_asn_and_feed_conditions() {
+        let zz = Origin {
+            country: Some(*b"ZZ"),
+            asn: Some(64500),
+            feeds: 0b10,
+        };
+        let none = Origin::default();
+        let m = |f: fn(&mut Matcher)| {
+            let mut m = Matcher::default();
+            f(&mut m);
+            m
+        };
+        let country = m(|m| m.countries = vec![parse_country("zz").unwrap()]);
+        let asn = m(|m| m.asns = vec![64500]);
+        let feed = m(|m| m.feeds = 0b110);
+        for c in [&country, &asn, &feed] {
+            assert!(c.matches_origin(&zz));
+            assert!(!c.matches_origin(&none));
+        }
+        assert!(Matcher::default().matches_origin(&none));
+        assert!(!m(|m| m.feeds = 0b1).matches_origin(&zz));
+        assert!(parse_country("ZZZ").is_err());
+        assert!(parse_country("1Z").is_err());
     }
 
     #[test]
