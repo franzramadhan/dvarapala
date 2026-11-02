@@ -18,6 +18,7 @@ declare -A crate=(
   [pem]=dvarapala-proxy [upgrade_headers]=dvarapala-proxy
   [quic_datagram]=dvarapala-proxy
   [store_reply]=dvarapala-store
+  [proxy_protocol]=dvarapala-l4
   [xdp_parse]=dvarapala-xdp-common
   [route_rewrite]=dvarapala-operator
 )

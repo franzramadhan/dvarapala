@@ -1,12 +1,16 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use dvarapala_engine::{BlockSink, Cidr};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::conn::Conn;
 use crate::limits::{Guard, Limits};
+use crate::proxy_protocol::{self, MAX_V2, Parsed, Source};
 use crate::{L4Config, L4Error, ProxyProtocol};
 
 /// A TCP listener that closes connections over the limits before any TLS
@@ -145,9 +149,63 @@ impl Accepted {
                 proxy,
             } => (io, guard, limits, proxy),
         };
-        let _ = (&mut io, &mut guard, limits, proxy);
-        todo!("rfc 0030")
+        let read = tokio::time::timeout(proxy.timeout, header(&mut io, &proxy)).await;
+        let source = match read {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return refused("invalid", self.peer, &e),
+            Err(_) => return refused("timeout", self.peer, &"no header in time"),
+        };
+        let client = match source {
+            Source::Client(a) => {
+                counted("ok");
+                a
+            }
+            Source::Local => {
+                counted("local");
+                self.peer
+            }
+        };
+        if let (Some(l), Some(g)) = (&limits, &mut guard) {
+            l.client(g, client.ip()).ok()?;
+        }
+        Some((Conn::new(io, guard), client))
     }
+}
+
+/// Reads exactly the header, never a byte of what follows it.
+async fn header(io: &mut TcpStream, p: &ProxyProtocol) -> io::Result<Source> {
+    let mut buf = Vec::with_capacity(MAX_V2);
+    loop {
+        match proxy_protocol::parse(&buf, p.version).map_err(io::Error::other)? {
+            Parsed::Done { source, .. } => return Ok(source),
+            Parsed::Incomplete(n) => {
+                let at = buf.len();
+                buf.resize(at + n, 0);
+                io.read_exact(&mut buf[at..]).await?;
+            }
+        }
+    }
+}
+
+fn counted(result: &'static str) {
+    metrics::counter!("dvarapala_proxy_protocol_total", "result" => result).increment(1);
+}
+
+/// unix second of the last "header refused" log, and refusals since
+static LOGGED: AtomicU64 = AtomicU64::new(0);
+static SINCE: AtomicU64 = AtomicU64::new(0);
+
+fn refused<T>(result: &'static str, peer: SocketAddr, reason: &dyn std::fmt::Display) -> Option<T> {
+    counted(result);
+    let count = SINCE.fetch_add(1, Ordering::Relaxed) + 1;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    if LOGGED.swap(now, Ordering::Relaxed) != now {
+        SINCE.fetch_sub(count, Ordering::Relaxed);
+        tracing::warn!(%peer, %reason, count, "proxy protocol header refused");
+    }
+    None
 }
 
 impl From<TcpListener> for Listener {
