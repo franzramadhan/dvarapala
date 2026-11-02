@@ -27,3 +27,7 @@ harness = false
 [[bench]]
 name = "blocks"
 harness = false
+
+[[bench]]
+name = "concurrency"
+harness = false

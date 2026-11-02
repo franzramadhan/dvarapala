@@ -5,6 +5,7 @@ mod blocks;
 mod bucket;
 mod cidr;
 mod cluster;
+mod concurrency;
 mod conns;
 mod detect;
 mod guard;
@@ -21,6 +22,9 @@ pub use blocks::{Blocks, BlocksFull};
 pub use bucket::{Bucket, Limit, LimitError};
 pub use cidr::{BlockSink, Cidr, CidrError, TrustedProxies};
 pub use cluster::{Batch, Cluster, ClusterConfig, Reply, overshoot, split};
+pub use concurrency::{
+    Class, Concurrency, ConcurrencyConfig, ConcurrencyError, LimitMode, Outcome, Priority, Update,
+};
 pub use conns::{ConnKey, Conns, ConnsConfig, ConnsError, Refused};
 pub use detect::{DetectConfig, DetectError, Detector, State, WindowReport};
 pub use guard::{ChallengeMode, Decision, Guard, GuardConfig, GuardDetection, Pass};
