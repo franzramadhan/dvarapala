@@ -148,3 +148,26 @@ private ASN; no third-party database is checked in.
   is empty by default, so image mounts stay refused until enabled.
 - **Off switch:** remove the mount from the policy; the gateway rolls
   back to ConfigMap and Secret mounts only.
+
+## Implementation notes
+
+- The policy status has no conditions: a refused mount shows as
+  `ready: false` with a `message` that starts with `mount name "<name>":`
+  and names the field, as the RFC 0025 mount errors do, in place of a
+  `Ready` condition with reason `InvalidMount`.
+- Also refused: a `claimName` that is not a DNS subdomain, an empty image
+  reference or one with blanks, and a `pullPolicy` other than `Always`,
+  `IfNotPresent` or `Never`.
+- The validation moved to `crates/operator/src/policy/mounts.rs` (the
+  file-size limit); `policy::check` takes the `--mount-images` prefixes
+  as a third argument.
+- Case 7 compares the rendered ConfigMap volume and mount with the JSON
+  the RFC 0025 code wrote, next to the unchanged gateway golden file,
+  rather than a second golden file.
+- Image mounts are unit-tested only (cases 2 to 4, 9). The `kind` node
+  image in CI does not turn the `ImageVolume` gate on, so the e2e covers
+  the PVC (cases 10 to 12).
+- The e2e database comes from `deploy/e2e/geoip-db.py`, a Python port of
+  the l7 `test_db` writer: `192.0.2.0/24` maps to the user-assigned
+  country codes `XA`, then `XB`, and ASN 64512. Case 12 is a server-side
+  dry run of the example with strict field validation.
