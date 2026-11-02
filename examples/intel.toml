@@ -1,0 +1,71 @@
+# Known-bad networks and where clients come from (RFC 0031).
+#
+# Use case: a public site that wants hijacked netblocks gone before they
+# reach any bucket, Tor exits held to a low rate on the login, and an
+# admin path open only to one country. Feeds are lists of networks the
+# operator picks; nothing is fetched unless a feed names it. A url feed
+# is fetched at start and every refresh; a failed fetch keeps the last
+# good list. A path feed is reread on reload and by config_watch, so a
+# cron job that rewrites the file is enough. Each feed starts in observe:
+# watch dvarapala_intel_hits_total before switching it to enforce.
+#
+# The GeoIP database is the operator's own MaxMind DB file
+# (GeoLite2-Country, GeoLite2-ASN, a City file, or an IPinfo or DB-IP
+# file in the same format) under its license; dvarapala downloads none.
+# Country and ASN routes need a build with --features geoip (the
+# container image has it).
+#
+# Placeholders: app.example, <feed host>, /etc/dvarapala/*.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+config_watch = "10s"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[intel]
+geoip = "/etc/dvarapala/GeoLite2-Country.mmdb"
+
+# Spamhaus DROP: hijacked netblocks, a few hundred lines.
+[[intel.feed]]
+name = "spamhaus_drop"
+url = "https://www.spamhaus.org/drop/drop.txt"
+action = "deny"
+mode = "observe"
+refresh = "12h"
+
+# Tor exits, refreshed by a cron job into a local file; the route below
+# matches it once it is in enforce.
+[[intel.feed]]
+name = "tor"
+path = "/etc/dvarapala/tor-exits.txt"
+action = "tag"
+mode = "enforce"
+
+[[routes]]
+name = "login-tor"
+path = "=/login"
+feeds = ["tor"]
+rate = 1
+burst = 3
+
+# /admin/ from one country only: the first route that matches applies,
+# so clients from it take this one, everyone else the deny below. ZZ
+# stands for your ISO 3166-1 code.
+[[routes]]
+name = "admin"
+path = "/admin/"
+country = ["ZZ"]
+
+[[routes]]
+name = "admin-elsewhere"
+path = "/admin/"
+deny = true

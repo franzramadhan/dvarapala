@@ -1,10 +1,10 @@
 //! RFC 0019 `config_watch`: reload when the `--config` file changes on
 //! disk, as kubelet does to a mounted ConfigMap. RFC 0029: the `ml.model`
-//! file too.
+//! file too; RFC 0031: the `path` feeds and `intel.geoip`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::time::MissedTickBehavior;
 
@@ -31,6 +31,7 @@ pub fn start(path: Option<&Path>, every: Option<Duration>, r: Arc<Reloader>) -> 
 async fn watch(path: PathBuf, every: Duration, r: Arc<Reloader>) {
     let mut last = std::fs::read(&path).ok();
     let mut model = model_file(&r);
+    let mut intel = intel_files(&r);
     let mut tick = tokio::time::interval(every);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
@@ -44,8 +45,20 @@ async fn watch(path: PathBuf, every: Duration, r: Arc<Reloader>) {
             r.reload();
             last = Some(now);
             model = model_file(&r);
+            intel = intel_files(&r);
             continue;
         }
+        // RFC 0031: by size and time, a database is tens of MB
+        let i = intel_files(&r);
+        if i.len() == intel.len()
+            && i.iter()
+                .zip(&intel)
+                .any(|(a, b)| a.0 == b.0 && a.1.is_some() && a.1 != b.1)
+        {
+            tracing::info!(msg = "intel file changed on disk");
+            r.reload();
+        }
+        intel = i;
         // RFC 0029: the model file too, under the path in force; a file
         // missing mid-swap is skipped as above
         let m = model_file(&r);
@@ -55,6 +68,18 @@ async fn watch(path: PathBuf, every: Duration, r: Arc<Reloader>) {
         }
         model = m;
     }
+}
+
+/// The intel files in force, with their size and modification time.
+fn intel_files(r: &Reloader) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
+    r.intel_files()
+        .into_iter()
+        .map(|p| {
+            let m = std::fs::metadata(&p).ok();
+            let stamp = m.and_then(|m| Some((m.len(), m.modified().ok()?)));
+            (p, stamp)
+        })
+        .collect()
 }
 
 /// The `ml.model` path in force and its bytes, if it reads.

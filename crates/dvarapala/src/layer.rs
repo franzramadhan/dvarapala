@@ -35,7 +35,7 @@ pub fn config(
         block: None,
         challenge: cfg.challenge.config(cfg.detection.enabled)?,
         fingerprints: cfg.fingerprint.rules(cfg.challenge.mode)?,
-        routes: config::routes(&cfg.routes)?,
+        routes: config::routes(&cfg.routes, &cfg.intel)?,
         max_blocks: cfg.admin.max_blocks,
         priority: cfg.concurrency.priority(),
     })

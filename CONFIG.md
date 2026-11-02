@@ -29,6 +29,7 @@ that is silently ignored.
 | `http3` | `[quic]` | no | yes | `--features http3` |
 | `ml` | `[ml]` | no | yes | `--features ml` |
 | `xdp` | `[xdp]` (Linux) | no | yes | `--features xdp` |
+| `geoip` | `intel.geoip`, `routes[].country` and `asn` | no | yes | `--features geoip` |
 
 The operator's gateways (RFC 0019) run the container image. With
 `gateway.admin` and `gateway.waf` in the policy (RFC 0025) the operator
@@ -549,6 +550,9 @@ challenge = false
 | `waf` | bool | `true` | `false` sends the route's requests on without asking the `[waf]` agent, for example a gRPC or upload endpoint the rules do not fit |
 | `concurrency` | bool | `true` | `false` bypasses the [`[concurrency]`](#concurrency) limit, for example a health endpoint |
 | `concurrency_weight` | integer | `1` | Slots of the concurrency limit a request of the route takes, 1 to 100; a weight above a class's share is cut to it |
+| `country` | list of strings | `[]` | ISO 3166-1 alpha-2 codes from [`intel.geoip`](#intel); any client when empty. A client the database does not hold never matches. Needs `intel.geoip` |
+| `asn` | list of integers | `[]` | Autonomous system numbers from `intel.geoip`, as `country` |
+| `feeds` | list of strings | `[]` | [`[[intel.feed]]`](#intel) names; matches a client listed by any of them while that feed is in `enforce` |
 
 ## `[admin]`
 
@@ -652,7 +656,8 @@ the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
 `trusted_proxies`, `history.retention`, `detection.mode`, `detection.attack_rate_factor`,
 `[challenge]` (passes stay valid while `secret` is unchanged),
 `[fingerprint]`, `[[routes]]` (route tables start empty when the list
-changes), `ml.model` and `ml.threshold` (the model file is reread, client
+changes), `[intel]` (`path` feeds and `geoip` are reread; a `url` feed
+whose keys are unchanged keeps its list and refresh task), `ml.model` and `ml.threshold` (the model file is reread, client
 features stay), `[concurrency]` but `mode` (the requests in flight stay) and `[waf]` (the agent connections stay while `endpoint`,
 `max_body` and `max_concurrent` do). Every other key keeps its running value and is named in the
 log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
@@ -758,6 +763,68 @@ While shedding, `concurrency shedding` is logged at most once a second
 with the limit and the requests shed per class since the last line.
 Routes can bypass the limit or weigh more: `concurrency` and
 `concurrency_weight` under [`[[routes]]`](#routes).
+
+## `[intel]`
+
+Reputation feeds and a GeoIP database ([RFC 0031](rfc/0031-network-intel.md)),
+in the reverse proxy's rate limiter (`rate_limit.enabled`). Nothing is
+fetched or read unless configured. Each request is checked once, on the
+client address after `trusted_proxies` and the PROXY protocol (the full
+address, not the /64 an IPv6 key uses), right after manual blocks.
+
+A feed is a list of networks, one CIDR or address per line; `#` and `;`
+start a comment (so Spamhaus DROP, FireHOL and the Tor bulk exit list
+load as they are). Lines are at most 128 bytes; a prefix shorter than
+`/8` (IPv6 `/16`) is an error, so a broken list cannot cover everyone. A
+`path` feed is read at start (a file that does not load stops the start)
+and on every reload and `config_watch` change (one that does not load
+refuses the reload). A `url` feed is fetched at start and every `refresh`,
+`https://` only, 30 s per fetch, the body capped at `max_bytes`; a failed,
+invalid or too large fetch keeps the list in force (empty until the first
+good fetch) and is logged as `intel feed refresh failed`.
+
+| Action | `enforce` | `observe` |
+|---|---|---|
+| `deny` | `403` and the connection closed, before any bucket | counted, allowed |
+| `challenge` | the [challenge](#challenge) until the client holds a pass, attack or not (needs `[challenge]` on) | counted, allowed |
+| `tag` | routes with the feed in `feeds` match the client | counted |
+
+`intel.geoip` is a MaxMind DB file (GeoLite2-Country, GeoLite2-ASN, a
+City file, or an IPinfo or DB-IP file in the same format) that the
+operator brings with its license; nothing is downloaded. It is read whole
+into memory, at start and on each reload or `config_watch` change, and
+swapped only when its bytes change (`geoip loaded sha256=<hex> type=<db type>`).
+It sets each client's country (`country.iso_code`) and ASN
+(`autonomous_system_number`) for `routes[].country` and `asn`. Needs the
+`geoip` feature.
+
+```toml
+[intel]
+geoip = "/etc/dvarapala/GeoLite2-Country.mmdb"
+
+[[intel.feed]]
+name = "spamhaus_drop"
+url = "https://www.spamhaus.org/drop/drop.txt"
+action = "deny"
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `geoip` | path | unset | MaxMind DB file; unset turns `routes[].country` and `asn` off. Reload |
+| `max_bytes` | size | `"16MiB"` | Largest feed body or file read. Reload |
+| `feed[].name` | string | required | Label in metrics and `routes[].feeds`, unique; at most 64 feeds |
+| `feed[].path` | path | unset | A local file; one of `path` and `url` |
+| `feed[].url` | string | unset | An `https://` URL (needs the `tls` feature) |
+| `feed[].action` | string | required | `"deny"`, `"challenge"` or `"tag"` |
+| `feed[].mode` | string | `"observe"` | `"enforce"` applies the action |
+| `feed[].refresh` | duration | `"1h"` | Fetch interval of a `url` feed, at least `"5m"` |
+| `feed[].max_entries` | integer | `200000` | A list with more lines is refused, the previous one kept |
+
+A list costs about 8 bytes per IPv4 range and 32 per IPv6 range after
+adjacent networks merge, and a refresh holds two copies at most. Every
+key reloads; adding or removing a `url` feed starts or stops its task.
+Deny feeds stay in the rate limiter: they are not pushed to the
+[`[xdp]`](#xdp) block list.
 
 ## `[waf]`
 
@@ -877,6 +944,10 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_upstream_ejections_total{upstream}` | Passive ejections |
 | `dvarapala_upstream_retries_total{result}` | Retries `sent`, or refused by the `budget` |
 | `dvarapala_upstream_degraded_total` | Picks made with no endpoint up |
+| `dvarapala_intel_hits_total{feed,action,mode}` | Requests from clients a feed lists ([RFC 0031](rfc/0031-network-intel.md)), `mode` `enforce` or `observe` |
+| `dvarapala_intel_feed_entries{feed}` | Ranges in the list in force, after merging |
+| `dvarapala_intel_feed_refresh_total{feed,result}` | Feed reads and fetches: `ok`, `unchanged`, `fetch_error`, `invalid`, `too_large` (over `max_bytes` or `max_entries`) |
+| `dvarapala_intel_feed_last_success_timestamp_seconds{feed}` | Unix time of the last good read or fetch; alert when a feed goes stale |
 | `dvarapala_concurrency_limit` | The upstream concurrency limit in force ([RFC 0032](rfc/0032-adaptive-concurrency.md)); absent when `[concurrency]` is off |
 | `dvarapala_concurrency_in_flight` | Weighted requests in flight under the limit |
 | `dvarapala_concurrency_shed_total{class}` | Requests shed by the limit, by `trusted`, `normal`, `suspect` |

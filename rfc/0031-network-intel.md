@@ -172,3 +172,51 @@ private-use ASN; no third-party database is checked in.
 - **Off switch:** remove the feed (or set `mode = "observe"`) and
   reload. Removing `intel.geoip` needs the `country` and `asn`
   conditions removed in the same reload.
+
+## Implementation notes
+
+- Deny feeds are not pushed to the XDP block list (case 12 dropped). The
+  XDP map only has the dynamic `BlockSink` that heavy hitters use, with
+  an expiry and no removal, and no static entries that a refresh could
+  take out again. Deny feeds stay in the rate limiter, which also keeps
+  them working behind a TCP load balancer (RFC 0030). A later RFC can add
+  static XDP entries.
+- The `[ml]` feature, the LLM sample tag, the access log fields
+  (`intel=`, `country=`, `asn=`) and the console page with feed stats and
+  the country and ASN of top talkers are not in this release; the hits,
+  entries, refresh and last success metrics are. The rest waits for a
+  later RFC.
+- The MaxMind DB reader and the test database writer live in
+  `crates/l7/src/intel/geoip.rs` (feature `geoip`) instead of the binary,
+  so the fuzz crate and the layer tests reach them; the binary's
+  `intel/geoip.rs` only reads the file and reuses it when the SHA-256 is
+  unchanged. `crates/l7/src/intel.rs` became `intel/feeds.rs`.
+- The `geoip` feature is in the container image only (`--all-features`),
+  as `ml` and `xdp`, not in the release tarballs, to keep their size. A
+  key that needs it is an error naming the feature.
+- Lookups use the full client address (after `trusted_proxies` and the
+  PROXY protocol), not the client key: an IPv6 key is its /64, which
+  would make a feed listing one address deny its whole /64.
+- A feed in `observe` sets no route bit: `routes[].feeds` matches only
+  feeds in `enforce`, so a `tag` feed is also switched on by its mode.
+- A feed refresh over `max_entries` is counted as `too_large` (with a
+  body over `max_bytes`); `invalid` is a line that does not parse or a
+  body that is not UTF-8. `dvarapala_intel_feed_entries` counts ranges
+  after adjacent networks merge.
+- A `path` feed that does not load at reload refuses the reload, as any
+  other invalid key, and the list in force stays.
+- `routes[].country` without `intel.geoip` is refused as
+  `routes "<name>": country: needs intel.geoip` (case 11), the format of
+  the other route errors.
+- Case 8 is tested on the refresh step the fetch task runs (the result
+  labels, the list in force and the counters), not against a live HTTPS
+  server: the fetch is the `hyper-util` client the LLM and OIDC code
+  already use. Case 9 is tested on the reload that `config_watch` runs
+  when a feed file's size or modification time changes (the database is
+  tens of MB, so the watch compares metadata, not bytes).
+- Case 13 is a unit test of the set's memory (100 000 ranges, under 40
+  bytes each; the set uses 8 bytes per IPv4 range and 32 per IPv6
+  range), not a `footprint` run with a feed: the footprint job has no
+  feed file.
+- At most 64 feeds, one route bit each.
+- `dvarapala replay` ignores `[intel]`.

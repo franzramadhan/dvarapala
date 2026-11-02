@@ -143,7 +143,36 @@ Routes only tighten: the global bucket, detection and `fingerprint.deny`
 still apply to every request. Each route's table holds at most
 `max_keys` keys.
 
+A route can also match where a client comes from: `country` and `asn`
+from the GeoIP database, and `feeds` from the reputation feeds below.
+
 Keys: [`[[routes]]`](configuration.html#routes).
+
+## Reputation feeds and GeoIP
+
+`[[intel.feed]]` loads a list of networks from a file or an `https://`
+URL, such as Spamhaus DROP, FireHOL level 1, the Tor exit list or an
+operator's own ([RFC 0031](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0031-network-intel.md)).
+Each feed has an action: `deny` (`403` and the connection closed, before
+any bucket), `challenge` (the proof of work until the client holds a
+pass, attack or not) or `tag` (routes match it with `feeds`). Feeds start
+in `observe`, which counts what the action would do in
+`dvarapala_intel_hits_total` and lets the request through.
+
+A `url` feed is fetched again every `refresh`; a failed or invalid fetch
+keeps the last good list, so an outage of a third-party list blocks no
+one new. A `path` feed is reread on reload and by `config_watch`, so a
+cron job that rewrites the file is enough. Lists are parsed with the caps
+of attacker input (body size, entries, line length) and a prefix wider
+than `/8` (IPv6 `/16`) is refused, so a broken list cannot deny everyone.
+
+`intel.geoip` points at a MaxMind DB file the operator brings
+(GeoLite2, or an IPinfo or DB-IP file in the same format); dvarapala
+downloads none. Routes then match on `country` and `asn`, for example an
+admin path open to one country. It needs the `geoip` feature, which the
+container image has.
+
+Keys: [`[intel]`](configuration.html#intel).
 
 ## WAF
 

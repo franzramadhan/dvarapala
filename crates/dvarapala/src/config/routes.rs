@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
-use dvarapala_engine::{Cidr, Limit, parse_method};
+use dvarapala_engine::{Cidr, Limit, parse_country, parse_method};
 use dvarapala_l7::{Host, Matcher, PathMatch, RouteConfig, RouteKey};
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,14 @@ pub struct Route {
     /// Slots a request takes in that limit, 1 to 100.
     #[serde(default = "one")]
     pub concurrency_weight: u32,
+    /// RFC 0031: ISO 3166-1 alpha-2 codes, from `intel.geoip`.
+    #[serde(default)]
+    pub country: Vec<String>,
+    #[serde(default)]
+    pub asn: Vec<u32>,
+    /// `[[intel.feed]]` names, in enforce mode.
+    #[serde(default)]
+    pub feeds: Vec<String>,
 }
 
 fn client() -> String {
@@ -61,7 +69,7 @@ fn max_keys() -> usize {
 }
 
 /// The layer's routes, in order. Errors name the route and the key.
-pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
+pub fn routes(routes: &[Route], intel: &super::Intel) -> Result<Vec<RouteConfig>, String> {
     let mut names = HashSet::new();
     routes
         .iter()
@@ -85,6 +93,26 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                 .iter()
                 .map(|c| c.parse::<Cidr>())
                 .collect::<Result<Vec<_>, _>>();
+            let countries = r
+                .country
+                .iter()
+                .map(|c| parse_country(c))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| err("country", e))?;
+            if intel.geoip.is_none() {
+                if !r.country.is_empty() {
+                    return Err(err("country", "needs intel.geoip".into()));
+                }
+                if !r.asn.is_empty() {
+                    return Err(err("asn", "needs intel.geoip".into()));
+                }
+            }
+            let feeds = r.feeds.iter().try_fold(0u64, |bits, name| {
+                let bit = intel
+                    .bit(name)
+                    .ok_or_else(|| err("feeds", format!("no [[intel.feed]] named {name:?}")))?;
+                Ok::<_, String>(bits | 1 << bit)
+            })?;
             if !(1..=100).contains(&r.concurrency_weight) {
                 return Err(err("concurrency_weight", "must be 1 to 100".into()));
             }
@@ -102,7 +130,9 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                     path: path.map_err(|e| err("path", e))?,
                     methods: methods.map_err(|e| err("methods", e))?,
                     clients: clients.map_err(|e| err("clients", e.0))?,
-                    ..Matcher::default()
+                    countries,
+                    asns: r.asn.clone(),
+                    feeds,
                 },
                 deny: r.deny,
                 limit,
@@ -141,7 +171,14 @@ mod tests {
             waf: true,
             concurrency: true,
             concurrency_weight: 1,
+            country: Vec::new(),
+            asn: Vec::new(),
+            feeds: Vec::new(),
         }
+    }
+
+    fn none() -> super::super::Intel {
+        super::super::Intel::default()
     }
 
     // RFC 0013 case 11
@@ -150,9 +187,9 @@ mod tests {
         let err = |f: fn(&mut Route)| {
             let mut r = route("api");
             f(&mut r);
-            routes(&[r]).unwrap_err()
+            routes(&[r], &none()).unwrap_err()
         };
-        let dup = routes(&[route("api"), route("api")]).unwrap_err();
+        let dup = routes(&[route("api"), route("api")], &none()).unwrap_err();
         assert!(dup.contains("\"api\": name"), "{dup}");
         let e = err(|r| r.clients = vec!["192.0.2.0/33".into()]);
         assert!(e.contains("\"api\": clients"), "{e}");
@@ -162,7 +199,7 @@ mod tests {
         assert!(e.contains("\"api\": path"), "{e}");
         let e = err(|r| r.max_keys = 0);
         assert!(e.contains("\"api\": max_keys"), "{e}");
-        assert!(routes(&[route("")]).unwrap_err().contains("name"));
+        assert!(routes(&[route("")], &none()).unwrap_err().contains("name"));
         let e = err(|r| r.concurrency_weight = 101);
         assert!(e.contains("\"api\": concurrency_weight"), "{e}");
     }
@@ -172,9 +209,9 @@ mod tests {
     fn concurrency_false_bypasses_the_weight_counts_otherwise() {
         let mut r = route("export");
         r.concurrency_weight = 10;
-        assert_eq!(routes(&[r.clone()]).unwrap()[0].concurrency, 10);
+        assert_eq!(routes(&[r.clone()], &none()).unwrap()[0].concurrency, 10);
         r.concurrency = false;
-        assert_eq!(routes(&[r]).unwrap()[0].concurrency, 0);
+        assert_eq!(routes(&[r], &none()).unwrap()[0].concurrency, 0);
     }
 
     #[test]
@@ -182,8 +219,35 @@ mod tests {
         let mut r = route("login");
         r.rate = 5;
         r.methods = vec!["post".into()];
-        let c = routes(&[r]).unwrap();
+        let c = routes(&[r], &none()).unwrap();
         assert_eq!(c[0].limit, Some(Limit::new(5, 5).unwrap()));
         assert_eq!(c[0].matcher.methods, vec!["POST"]);
+    }
+
+    // RFC 0031 case 11
+    #[test]
+    fn country_and_asn_need_the_database_feeds_a_known_name() {
+        let mut r = route("eu");
+        r.country = vec!["zz".into()];
+        let e = routes(&[r.clone()], &none()).unwrap_err();
+        assert!(e.contains("\"eu\": country: needs intel.geoip"), "{e}");
+        let geo = super::super::Intel {
+            geoip: Some("geo.mmdb".into()),
+            feed: vec![
+                toml::from_str("name = \"tor\"\npath = \"tor.txt\"\naction = \"tag\"").unwrap(),
+            ],
+            ..none()
+        };
+        r.feeds = vec!["tor".into()];
+        let c = routes(&[r.clone()], &geo).unwrap();
+        assert_eq!(c[0].matcher.countries, vec![*b"ZZ"]);
+        assert_eq!(c[0].matcher.feeds, 1);
+        r.country.clear();
+        r.asn = vec![64500];
+        let e = routes(&[r.clone()], &none()).unwrap_err();
+        assert!(e.contains("\"eu\": asn"), "{e}");
+        r.feeds = vec!["nope".into()];
+        let e = routes(&[r], &geo).unwrap_err();
+        assert!(e.contains("\"eu\": feeds"), "{e}");
     }
 }

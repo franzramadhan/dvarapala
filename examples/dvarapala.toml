@@ -157,6 +157,10 @@ prefix_v6 = 64
 # max_keys = 10000
 # concurrency = true
 # concurrency_weight = 1
+# RFC 0031: country codes and ASNs from intel.geoip, enforced feed names.
+# country = []
+# asn = []
+# feeds = []
 
 # Admin API and config reload (RFC 0014). SIGHUP reloads the config
 # file without the admin API. Set the token with DVARAPALA__ADMIN__TOKEN.
@@ -207,6 +211,18 @@ prefix_v6 = 64
 # eject_time = "30s"
 # retries = 1
 # retry_budget = 0.2
+
+# Reputation feeds and a GeoIP database (RFC 0031). See intel.toml.
+# [intel]
+# geoip = "<path to a MaxMind DB file>"
+# max_bytes = "16MiB"
+# [[intel.feed]]
+# name = "drop"
+# url = "https://<feed host>/drop.txt"
+# action = "deny"
+# mode = "observe"
+# refresh = "1h"
+# max_entries = 200000
 
 # Adaptive limit on requests in flight to the upstream (RFC 0032). Over
 # it: 503 with Retry-After: 1. See concurrency.toml.

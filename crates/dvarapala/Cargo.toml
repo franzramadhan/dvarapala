@@ -28,6 +28,8 @@ waf = ["dvarapala-l7/waf"]
 llm = ["tls", "dvarapala-l7/llm"]
 # XDP fast path (RFC 0011), Linux only.
 xdp = ["dvarapala-xdp/load"]
+# Country and ASN route conditions from a MaxMind DB file (RFC 0031).
+geoip = ["dvarapala-l7/geoip"]
 
 [dependencies]
 dvarapala-engine.workspace = true

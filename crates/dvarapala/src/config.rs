@@ -15,6 +15,7 @@ mod challenge;
 mod concurrency;
 mod forward;
 mod history;
+mod intel;
 mod l4;
 mod ml;
 mod pool;
@@ -31,6 +32,7 @@ pub use challenge::{Challenge, Fingerprint};
 pub use concurrency::Concurrency;
 pub use forward::{Forward, ProxyMode};
 pub use history::History;
+pub use intel::{Feed, FeedAction, Intel};
 pub use l4::{L4, ProxyProtocolMode};
 pub use ml::Ml;
 #[cfg(feature = "llm")]
@@ -103,6 +105,8 @@ pub struct Config {
     pub history: History,
     #[serde(default)]
     pub concurrency: Concurrency,
+    #[serde(default)]
+    pub intel: Intel,
     /// RFC 0019: poll the `--config` file and reload on a change; `None` is off.
     #[serde(
         default,
