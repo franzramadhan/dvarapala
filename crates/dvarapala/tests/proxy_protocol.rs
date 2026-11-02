@@ -28,7 +28,6 @@ fn get_as(listen: u16, client: &str) -> u16 {
 }
 
 #[test]
-#[ignore = "rfc 0030"]
 fn rate_limit_keys_on_the_carried_client() {
     let listen = port();
     let toml = format!(

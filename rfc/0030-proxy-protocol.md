@@ -155,3 +155,41 @@ All three need a restart, as the other `[l4]` connection keys.
   HAProxy.
 - **Off switch:** `l4.proxy_protocol = "off"` and a restart, then turn
   the header off at the balancer.
+
+## Implementation notes
+
+- `Listener::accept` returns an `Accepted`. For a trusted balancer it
+  holds only the `max_connections` place; `Accepted::ready` reads the
+  header and applies the per-client limits in the connection's task, so
+  a slow balancer never holds up the accept loop. Other peers are fully
+  checked at accept, as before, and `ready` returns at once. The client
+  address comes back from `ready` next to the `Conn`; `conn.rs` is
+  unchanged and `crates/proxy/src/server.rs` sets `PeerAddr` from it.
+- The reader asks the parser how many more bytes it needs and reads
+  exactly that, so it never reads past the header (v1 one byte at a time,
+  at most 107 reads from a trusted peer).
+- v2: the `UNSPEC` and `UNIX` families with the `PROXY` command count as
+  `local` (no address to key on); UDP families and unknown commands are
+  `invalid`.
+- XDP: accept-rate refusals of carried clients are refused, never
+  reported to a block sink (there is no engine block list for L4
+  refusals). While `proxy_protocol` is on, the rate limiter sends no
+  dynamic blocks to XDP at all, also for peers outside
+  `proxy_protocol_from`, because a client key cannot tell a carried
+  client from a direct one. Static `xdp.block` and the XDP rates are
+  unchanged.
+- The refusal log line carries `peer`, `reason` and `count` (refusals
+  since the last line).
+- Forward mode needed no code: it serves on the same listener.
+- Operator: `[l4]` keys already pass through the policy's `config`
+  (restart keys), so no CRD change and no operator test.
+- Docs: `CONFIG.md` has a "PROXY protocol" subsection under `[l4]`, the
+  site's protection page a "Behind a TCP load balancer" section with the
+  NLB and HAProxy settings, and `examples/proxy-protocol.toml` the order
+  to switch.
+- Where the cases live: 1 to 3 in `crates/l4/src/proxy_protocol.rs`, 4 in
+  `fuzz/fuzz_targets/proxy_protocol.rs`, 5 and 6 in
+  `crates/proxy/tests/proxy_protocol.rs`, 7 to 10 and 12 in
+  `crates/l4/tests/proxy_protocol.rs`, 11 in
+  `crates/dvarapala/tests/proxy_protocol.rs`, 13 in
+  `crates/dvarapala/src/config/l4.rs`, 14 in `example_configs_load`.

@@ -318,7 +318,9 @@ on every accepted connection before TLS or HTTP: total cap, then the
 per-client cap and accept bucket, then the TLS handshake, then HTTP. A
 refused connection is closed at once, with no response and nothing read.
 A client is the peer address grouped by `prefix_v4` / `prefix_v6`;
-`X-Forwarded-For` does not apply, so put a load balancer in front in
+`X-Forwarded-For` does not apply. Behind a TCP load balancer, turn on
+`proxy_protocol` so the client is the one the balancer's header carries
+(see below); behind an HTTP load balancer without it, put the balancer in
 `exempt` (or turn the limits off). Applies in reverse and forward mode,
 cleartext and TLS. WebSocket and `CONNECT` tunnels count as connections
 until they close.
@@ -337,11 +339,37 @@ until they close.
 | `header_timeout` | duration | `"30s"` | Time to receive each request head on a connection, the first and every keep-alive one. Above 0 |
 | `idle_timeout` | duration | `"60s"` | Close a connection with no bytes either way and no request in flight for this long; `"0s"` off. A request is in flight until its response body ends |
 | `min_body_rate` | integer | `0` (off) | Bytes per second a request body must keep up, measured over 10 s windows; slower bodies are cut with `408` |
+| `proxy_protocol` | string | `"off"` | `"v1"`, `"v2"` or `"any"` (either, told apart by the first byte): peers in `proxy_protocol_from` must start each connection with a PROXY protocol header ([RFC 0030](rfc/0030-proxy-protocol.md)) |
+| `proxy_protocol_from` | list of CIDRs | `[]` | The load balancers that send the header; required when `proxy_protocol` is on |
+| `proxy_protocol_timeout` | duration | `"5s"` | Time to receive the whole header. Above 0 |
 
 Between requests on a keep-alive HTTP/1.1 connection, `header_timeout`
 also bounds the wait for the next head, so the lower of the two timeouts
 closes an idle connection. The per-client table costs about 106 bytes per
 client, so the default `max_clients` holds about 11 MB.
+
+### PROXY protocol
+
+With `proxy_protocol` on, a connection from an address in
+`proxy_protocol_from` must start with a PROXY protocol header (v1 text,
+at most 107 bytes, or v2 binary, at most 232 bytes; TLVs are skipped).
+The header is read in the connection's task, before TLS and the JA4
+fingerprint, under `proxy_protocol_timeout`. A missing, malformed or late
+header closes the connection with nothing written. The client it carries
+is the client everywhere: the per-client cap and accept rate, the rate
+limiter, detection, routes, challenges, blocks, `X-Forwarded-For` to the
+upstream (`trusted_proxies` still applies on top) and the logs. A v2
+`LOCAL` header or a v1 `UNKNOWN` one (balancer health checks) keeps the
+balancer as the client. `max_connections` counts the connection when it
+is accepted; the per-client limits apply once the header is read.
+
+Connections from other addresses are handled as without it, keyed by
+their own address; a header they send is not read, so the request fails.
+Clients a balancer speaks for are never sent to the XDP block list (their
+packets come from the balancer): accept-rate refusals of carried clients
+are only refused, and the rate limiter sends no dynamic blocks to XDP
+while `proxy_protocol` is on. HTTP/3 is not affected. All three keys need
+a restart.
 
 ## `[store]`
 
@@ -818,6 +846,7 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_l4_rejected_total{reason}` | Connections closed on accept: `total`, `per_client`, `rate`; logged as `connection limit` at most once a second |
 | `dvarapala_l4_timeouts_total{kind}` | Connections or requests cut by a timeout: `header`, `idle`, `body` (`408`) |
 | `dvarapala_l4_clients` | Clients in the per-client connection table |
+| `dvarapala_proxy_protocol_total{result}` | PROXY protocol headers read ([RFC 0030](rfc/0030-proxy-protocol.md)): `ok`, `local` (the balancer speaks for itself), `invalid`, `timeout`; refusals logged as `proxy protocol header refused` at most once a second, with the `count` since the last line |
 | `dvarapala_challenges_total{result}` | Challenges ([RFC 0012](rfc/0012-challenges.md)): `issued` (pages), `passed`, `failed` (stale or foreign seed, too little work), `invalid_pass` (a cookie that does not verify); `verdict="challenge"` in `dvarapala_requests_total` counts pages and `429`s for clients without a pass |
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
 | `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |

@@ -11,7 +11,7 @@ C ABI). The design and the milestones are in
 | Path | Contents |
 |---|---|
 | `crates/engine` | verdict engine, rules, limiters. No I/O, no async runtime |
-| `crates/l4` | listener wrapper, connection limits, timeouts |
+| `crates/l4` | listener wrapper, connection limits, timeouts, PROXY protocol |
 | `crates/l7` | `tower` layers: rate limit, rules, challenges |
 | `crates/proxy` | reverse and forward proxy core |
 | `crates/store` | memory and Redis state backends |

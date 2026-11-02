@@ -29,7 +29,7 @@ pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
 pub use forward::{Forward, ProxyMode};
 pub use history::History;
-pub use l4::L4;
+pub use l4::{L4, ProxyProtocolMode};
 pub use ml::Ml;
 #[cfg(feature = "llm")]
 pub use ml::{Llm, Protocol};

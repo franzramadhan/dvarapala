@@ -1,0 +1,38 @@
+# TLS passthrough behind a TCP load balancer (RFC 0030).
+#
+# Use case: an AWS NLB, a GCP passthrough load balancer or HAProxy in
+# `mode tcp` in front of dvarapala, which terminates TLS itself. The
+# balancer cannot add `X-Forwarded-For`, so without the PROXY protocol
+# every connection looks like it comes from the balancer and all clients
+# share one budget.
+#
+# Why these values: the balancer sends a PROXY protocol v2 header on each
+# connection (on an NLB: the target group attribute
+# `proxy_protocol_v2.enabled`; on HAProxy: `send-proxy-v2`). Only its
+# subnet may send one, and a connection from that subnet without a header
+# is closed, so a balancer that stops sending it shows up in
+# `dvarapala_proxy_protocol_total{result="invalid"}` at once. The
+# per-client limits then key on the real client. Turn the header on at the
+# balancer right after restarting dvarapala with this config.
+
+listen = "0.0.0.0:8443"
+upstream = "http://127.0.0.1:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[tls]
+cert = "<cert dir>/fullchain.pem"
+key = "<cert dir>/privkey.pem"
+
+[detection]
+mode = "observe"
+
+[l4]
+proxy_protocol = "v2"
+# the balancer's subnet, never the clients'
+proxy_protocol_from = ["192.0.2.0/24"]
+proxy_protocol_timeout = "5s"
+max_per_client = 64
+accept_rate = 20
+accept_burst = 40
