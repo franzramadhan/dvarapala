@@ -31,8 +31,8 @@ struct Load {
     hits: AtomicUsize,
 }
 
-/// `/hold/<ms>` answers after `ms`; `/slow` after 10 ms, times the load
-/// over 50 in flight; `/stream` sends the head at once and the body after
+/// `/hold/<ms>` answers after `ms`; `/slow` after 20 ms, times the square
+/// of the load over 50 in flight (far from timer jitter on a busy runner); `/stream` sends the head at once and the body after
 /// 2 s; anything else at once.
 async fn upstream() -> (SocketAddr, Arc<Load>) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -53,7 +53,7 @@ async fn upstream() -> (SocketAddr, Arc<Load>) {
                         let path = req.uri().path().to_owned();
                         let wait = match path.strip_prefix("/hold/") {
                             Some(ms) => ms.parse().unwrap(),
-                            None if path == "/slow" => 10 * (n as u64).max(50) / 50,
+                            None if path == "/slow" => 20 * (n as u64).max(50).pow(2) / 2500,
                             None => 0,
                         };
                         tokio::time::sleep(Duration::from_millis(wait)).await;
@@ -244,7 +244,7 @@ async fn gradient_settles_under_the_knee() {
                     let s = res.status();
                     let _ = res.into_body().collect().await;
                     if s != StatusCode::OK {
-                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
                     }
                 }
             })
