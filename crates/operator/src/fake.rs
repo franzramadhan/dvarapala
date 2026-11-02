@@ -156,11 +156,7 @@ fn collection(path: &str) -> bool {
         Some(&"apis") => &parts[3.min(parts.len())..],
         _ => return false,
     };
-    match rest {
-        ["namespaces", _, _] => true,
-        [_] => true,
-        _ => false,
-    }
+    matches!(rest, ["namespaces", _, _] | [_])
 }
 
 /// The `labelSelector` of `query` as `key=value` pairs.
