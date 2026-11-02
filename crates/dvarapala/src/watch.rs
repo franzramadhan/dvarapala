@@ -147,4 +147,61 @@ mod tests {
                 .contains("100ms")
         );
     }
+
+    /// Waits up to 5 s for `n` reloads.
+    async fn reloads(count: &std::sync::atomic::AtomicUsize, n: usize) {
+        use std::sync::atomic::Ordering;
+        for _ in 0..100 {
+            if count.load(Ordering::Relaxed) >= n {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(count.load(Ordering::Relaxed), n);
+    }
+
+    #[tokio::test]
+    async fn reloads_on_a_config_or_feed_change() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let dir = std::env::temp_dir().join(format!("watch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, feed) = (dir.join("d.toml"), dir.join("feed.txt"));
+        std::fs::write(&feed, "192.0.2.0/24\n").unwrap();
+        let toml = format!(
+            "upstream = \"http://127.0.0.1:1\"\n\
+             [[intel.feed]]\nname = \"f\"\npath = \"{}\"\naction = \"deny\"\n",
+            feed.display()
+        );
+        std::fs::write(&file, &toml).unwrap();
+        let cfg = config::load(Some(&file)).unwrap();
+        let r = Arc::new(Reloader::new(
+            Some(file.clone()),
+            None,
+            Default::default(),
+            false,
+            cfg,
+            None,
+        ));
+        let count = Arc::new(AtomicUsize::new(0));
+        let c = count.clone();
+        let _ = r.on_reload.set(Box::new(move |_| {
+            c.fetch_add(1, Ordering::Relaxed);
+        }));
+        start(Some(&file), Some(MIN), r.clone()).unwrap();
+        tokio::time::sleep(MIN * 3).await;
+
+        std::fs::write(&file, toml.clone() + "# changed\n").unwrap();
+        reloads(&count, 1).await;
+        // a file missing mid-swap is not a change
+        std::fs::remove_file(&file).unwrap();
+        tokio::time::sleep(MIN * 3).await;
+        std::fs::write(&file, toml + "# changed\n").unwrap();
+        tokio::time::sleep(MIN * 3).await;
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+
+        std::fs::write(&feed, "192.0.2.0/24\n198.51.100.0/24\n").unwrap();
+        reloads(&count, 2).await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

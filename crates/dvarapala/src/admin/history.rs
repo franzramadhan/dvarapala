@@ -252,3 +252,135 @@ fn sample_json(s: &Sample) -> serde_json::Value {
     );
     serde_json::Value::Object(o)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn history() -> History {
+        History {
+            ring: Mutex::new(Ring::new(8)),
+            interval_ms: 1000,
+            window_ms: 60_000,
+            #[cfg(feature = "postgres")]
+            db: None,
+            down: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn states_by_name() {
+        for st in [
+            State::Normal,
+            State::Suspect,
+            State::Attack,
+            State::Cooldown,
+        ] {
+            assert_eq!(state(st.name()), Some(st));
+        }
+        assert_eq!(state("nope"), None);
+    }
+
+    #[tokio::test]
+    async fn answers_from_the_ring() {
+        let h = history();
+        let t = now_ms();
+        lock(&h.ring).push(Sample {
+            t_ms: t - 120_000,
+            rates: [9.0; VERDICTS],
+            state: None,
+        });
+        lock(&h.ring).push(Sample {
+            t_ms: t,
+            rates: [1.234, 0.0, 0.0, 0.5, 0.0],
+            state: Some(State::Attack),
+        });
+        let v: serde_json::Value = serde_json::from_str(&h.answer(60).await).unwrap();
+        assert_eq!(v["source"], "memory");
+        assert_eq!(v["interval_ms"], 1000);
+        let s = v["samples"].as_array().unwrap();
+        assert_eq!(s.len(), 1, "the older sample is out of range: {v}");
+        assert_eq!(s[0]["allow"], 1.23);
+        assert_eq!(s[0]["drop"], 0.5);
+        assert_eq!(s[0]["detection"], "attack");
+        // past the window without a store: still the ring
+        let v: serde_json::Value = serde_json::from_str(&h.answer(3600).await).unwrap();
+        assert_eq!(v["source"], "memory");
+        assert_eq!(v["samples"].as_array().unwrap().len(), 2);
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn minutes(h: &History, since: u64) -> Vec<u64> {
+        let m = h.read(since).await.unwrap_or_default();
+        m.iter().map(|m| m.minute_ms).collect()
+    }
+
+    /// Waits up to 5 s for the store to hold exactly `want` since `since`.
+    #[cfg(feature = "postgres")]
+    async fn settle(h: &History, since: u64, want: &[u64]) {
+        for _ in 0..100 {
+            if minutes(h, since).await == want {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(minutes(h, since).await, want);
+    }
+
+    // RFC 0022: minute rows written, read back past the ring, and expired
+    #[cfg(feature = "postgres")]
+    #[tokio::test]
+    async fn minutes_go_to_the_store_and_back() {
+        let Ok(url) = std::env::var("DVARAPALA_TEST_POSTGRES") else {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "DVARAPALA_TEST_POSTGRES is not set in CI"
+            );
+            return;
+        };
+        let pg = dvarapala_store::Postgres::new(&url, None, true, Duration::from_secs(5)).unwrap();
+        let h = Arc::new(History {
+            db: Some((
+                Arc::new(tokio::sync::Mutex::new(pg)),
+                format!("history{}", std::process::id()),
+                Duration::from_secs(30),
+            )),
+            // a store that was down logs its recovery
+            down: AtomicBool::new(true),
+            ..history()
+        });
+        let minute = (now_ms() / 60_000 - 10) * 60_000;
+        let old = minute - 3 * 3_600_000;
+        let counts = [60, 0, 0, 0, 0];
+        h.persist(
+            Minute {
+                minute_ms: old,
+                counts,
+            },
+            None,
+        );
+        settle(&h, old, &[old]).await;
+        assert!(!h.down.load(Ordering::Relaxed));
+
+        // one hour of retention drops the old row
+        let counts = [120, 60, 0, 0, 0];
+        let keep = Some(Duration::from_secs(3600));
+        h.persist(
+            Minute {
+                minute_ms: minute,
+                counts,
+            },
+            keep,
+        );
+        settle(&h, old, &[minute]).await;
+
+        let v: serde_json::Value = serde_json::from_str(&h.answer(6 * 3600).await).unwrap();
+        assert_eq!(v["source"], "store");
+        assert_eq!(v["interval_ms"], 60_000);
+        let s = &v["samples"][0];
+        assert_eq!(s["t"], minute + 60_000);
+        assert_eq!(s["allow"], 2.0);
+        assert_eq!(s["throttle"], 1.0);
+        assert!(s["detection"].is_null());
+    }
+}
