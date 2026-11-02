@@ -1,4 +1,5 @@
 use std::fmt;
+use std::net::IpAddr;
 
 use crate::Cidr;
 
@@ -28,8 +29,32 @@ impl std::error::Error for FeedError {}
 /// comment, blank lines are skipped. Prefixes shorter than /8 (IPv4) or
 /// /16 (IPv6) are refused, so a broken list cannot cover everyone.
 pub fn parse_feed(body: &str, max_entries: usize) -> Result<Vec<Cidr>, FeedError> {
-    let _ = (body, max_entries);
-    todo!("rfc 0031")
+    let mut out = Vec::new();
+    for (i, line) in body.lines().enumerate() {
+        let err = |e: &str| FeedError::Line(i + 1, e.into());
+        if line.len() > MAX_LINE {
+            return Err(err("longer than 128 bytes"));
+        }
+        let entry = line.split(['#', ';']).next().unwrap_or("").trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let net: Cidr = entry.parse().map_err(|_| err("not a CIDR or an address"))?;
+        // a mapped IPv4 network is looked up as IPv4: /8 in its last 32 bits
+        let min = match net.addr() {
+            IpAddr::V4(_) => 8,
+            IpAddr::V6(a) if a.to_ipv4_mapped().is_some() => 104,
+            IpAddr::V6(_) => 16,
+        };
+        if net.prefix() < min {
+            return Err(err("prefix shorter than /8 (IPv4) or /16 (IPv6)"));
+        }
+        if out.len() == max_entries {
+            return Err(FeedError::TooMany);
+        }
+        out.push(net);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -38,7 +63,6 @@ mod tests {
 
     // RFC 0031 case 1
     #[test]
-    #[ignore = "rfc 0031"]
     fn cidrs_addresses_comments_and_blank_lines() {
         let body = "; Spamhaus DROP List\n\
                     # generated\n\
@@ -62,7 +86,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0031"]
     fn a_malformed_line_names_its_number() {
         let e = parse_feed("192.0.2.0/24\n# x\nexample.com\n", 10).unwrap_err();
         assert!(matches!(e, FeedError::Line(3, _)), "{e:?}");
@@ -72,9 +95,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rfc 0031"]
     fn too_wide_prefixes_and_too_many_entries_are_refused() {
-        for wide in ["0.0.0.0/0", "10.0.0.0/7", "::/0", "2001::/15"] {
+        for wide in [
+            "0.0.0.0/0",
+            "10.0.0.0/7",
+            "::/0",
+            "2001::/15",
+            "::ffff:0.0.0.0/96",
+        ] {
             assert!(parse_feed(wide, 10).is_err(), "{wide}");
         }
         assert!(parse_feed("10.0.0.0/8\n2001:db8::/16", 10).is_ok());

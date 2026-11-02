@@ -182,3 +182,10 @@ path = "fuzz_targets/proxy_protocol.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "intel_feed"
+path = "fuzz_targets/intel_feed.rs"
+test = false
+doc = false
+bench = false
