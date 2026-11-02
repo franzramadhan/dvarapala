@@ -18,6 +18,7 @@ fn ctx(fake: &Fake) -> Arc<Ctx> {
         image: "dvarapala:test".into(),
         kinds: vec![(Kind::Ingress, ApiResource::erase::<Ingress>(&()))],
         waf_images: vec!["ghcr.io/corazawaf/coraza-spoa".into()],
+        mount_images: Vec::new(),
     })
 }
 

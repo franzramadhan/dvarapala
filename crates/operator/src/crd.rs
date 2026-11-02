@@ -57,8 +57,9 @@ pub struct GatewaySpec {
     /// RFC 0025: `coraza-spoa` as a sidecar over a Unix socket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waf: Option<Waf>,
-    /// RFC 0025: ConfigMaps and Secrets of this namespace, read-only at
-    /// `/etc/dvarapala-mounts/<name>/`. At most 16.
+    /// RFC 0025, 0033: ConfigMaps, Secrets, PersistentVolumeClaims and image
+    /// volumes of this namespace, read-only at `/etc/dvarapala-mounts/<name>/`.
+    /// At most 16.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mounts: Vec<Mount>,
     /// Added to the gateway pods; the operator's own keys are refused.
@@ -88,7 +89,7 @@ pub struct Waf {
     pub resources: Option<ResourceRequirements>,
 }
 
-/// One of `configMap` or `secret`.
+/// One of `configMap`, `secret`, `persistentVolumeClaim` or `image`.
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Mount {
@@ -98,6 +99,29 @@ pub struct Mount {
     pub config_map: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
+    /// RFC 0033: an existing claim of this namespace, mounted read-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_volume_claim: Option<ClaimMount>,
+    /// RFC 0033: an image volume; the reference must start with a prefix
+    /// of the operator's `--mount-images`. Pin it by digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageMount>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimMount {
+    pub claim_name: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageMount {
+    /// An OCI image or artifact.
+    pub reference: String,
+    /// `Always`, `IfNotPresent` (when unset) or `Never`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_policy: Option<String>,
 }
 
 /// An HPA on CPU per gateway.
