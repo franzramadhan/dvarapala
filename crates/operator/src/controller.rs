@@ -41,6 +41,8 @@ pub struct Ctx {
     pub kinds: Vec<(Kind, ApiResource)>,
     /// RFC 0025: `--waf-images`, the prefixes a WAF sidecar image needs.
     pub waf_images: Vec<String>,
+    /// RFC 0033: `--mount-images`, the prefixes an image mount needs.
+    pub mount_images: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -189,7 +191,7 @@ async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Ctx>) -> Result<Action, Error> {
         routes: BTreeMap::new(),
     };
     for p in policies {
-        let checked = policy::check(&p.spec, &ctx.waf_images).map(|(r, w)| {
+        let checked = policy::check(&p.spec, &ctx.waf_images, &ctx.mount_images).map(|(r, w)| {
             plan.warnings.insert(p.name_any(), w);
             r
         });

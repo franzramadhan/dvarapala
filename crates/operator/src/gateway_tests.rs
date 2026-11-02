@@ -259,12 +259,12 @@ fn mounts_are_read_only_in_the_proxy_only() {
         crate::crd::Mount {
             name: "pg-ca".into(),
             config_map: Some("lab-root-ca".into()),
-            secret: None,
+            ..crate::crd::Mount::default()
         },
         crate::crd::Mount {
             name: "llm-key".into(),
-            config_map: None,
             secret: Some("shop-llm".into()),
+            ..crate::crd::Mount::default()
         },
     ];
     p.gateway.pod_labels = [("team".into(), "shop".into())].into();
@@ -291,5 +291,102 @@ fn mounts_are_read_only_in_the_proxy_only() {
     assert_eq!(
         key.secret.as_ref().unwrap().secret_name.as_deref(),
         Some("shop-llm")
+    );
+}
+
+fn rendered_mount(m: crate::crd::Mount) -> serde_json::Value {
+    let g = plan(&web(None), "80", "default", false).unwrap();
+    let mut p = PolicySpec::default();
+    p.gateway.mounts = vec![m];
+    let pod = pod(&deployment(&g, &p, "img:1", "abc"));
+    let vm = pod.containers[0].volume_mounts.clone().unwrap();
+    let v = pod.volumes.unwrap();
+    serde_json::json!({"mount": vm.last(), "volume": v.last()})
+}
+
+fn geo_image(reference: &str) -> crate::crd::Mount {
+    crate::crd::Mount {
+        name: "geoip".into(),
+        image: Some(crate::crd::ImageMount {
+            reference: reference.into(),
+            pull_policy: None,
+        }),
+        ..crate::crd::Mount::default()
+    }
+}
+
+const READ_ONLY_GEOIP: &str = "/etc/dvarapala-mounts/geoip";
+
+// RFC 0033 case 1
+#[test]
+#[ignore = "rfc 0033"]
+fn a_claim_mounts_read_only() {
+    let got = rendered_mount(crate::crd::Mount {
+        name: "geoip".into(),
+        persistent_volume_claim: Some(crate::crd::ClaimMount {
+            claim_name: "geo".into(),
+        }),
+        ..crate::crd::Mount::default()
+    });
+    let want = serde_json::json!({
+        "mount": {"name": "mount-geoip", "mountPath": READ_ONLY_GEOIP, "readOnly": true},
+        "volume": {"name": "mount-geoip",
+            "persistentVolumeClaim": {"claimName": "geo", "readOnly": true}},
+    });
+    assert_eq!(got, want);
+}
+
+// RFC 0033 case 2
+#[test]
+#[ignore = "rfc 0033"]
+fn an_image_mounts_read_only() {
+    let got = rendered_mount(geo_image("registry.example/geo/lite@sha256:00"));
+    let want = serde_json::json!({
+        "mount": {"name": "mount-geoip", "mountPath": READ_ONLY_GEOIP, "readOnly": true},
+        "volume": {"name": "mount-geoip", "image": {
+            "reference": "registry.example/geo/lite@sha256:00",
+            "pullPolicy": "IfNotPresent"}},
+    });
+    assert_eq!(got, want);
+}
+
+// RFC 0033 case 7: a ConfigMap mount renders as before the new sources
+#[test]
+fn config_map_mounts_render_as_before() {
+    let got = rendered_mount(crate::crd::Mount {
+        name: "pg-ca".into(),
+        config_map: Some("lab-root-ca".into()),
+        ..crate::crd::Mount::default()
+    });
+    let want = serde_json::json!({
+        "mount": {"name": "mount-pg-ca", "mountPath": "/etc/dvarapala-mounts/pg-ca",
+            "readOnly": true},
+        "volume": {"name": "mount-pg-ca", "configMap": {"name": "lab-root-ca"}},
+    });
+    assert_eq!(got, want);
+}
+
+// RFC 0033 cases 8 and 9: a claim is named, never read, so only an image
+// reference changes the pod template
+#[test]
+#[ignore = "rfc 0033"]
+fn only_an_image_reference_rolls_the_pods() {
+    let g = plan(&web(None), "80", "default", false).unwrap();
+    let template = |m: crate::crd::Mount| {
+        let mut p = PolicySpec::default();
+        p.gateway.mounts = vec![m];
+        serde_json::to_value(deployment(&g, &p, "img:1", "abc").spec.unwrap().template).unwrap()
+    };
+    let claim = crate::crd::Mount {
+        name: "geoip".into(),
+        persistent_volume_claim: Some(crate::crd::ClaimMount {
+            claim_name: "geo".into(),
+        }),
+        ..crate::crd::Mount::default()
+    };
+    assert_eq!(template(claim.clone()), template(claim));
+    assert_ne!(
+        template(geo_image("registry.example/geo/lite@sha256:01")),
+        template(geo_image("registry.example/geo/lite@sha256:02"))
     );
 }

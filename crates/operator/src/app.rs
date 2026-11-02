@@ -22,6 +22,8 @@ pub struct Options {
     pub metrics: SocketAddr,
     /// RFC 0025: the prefixes a WAF sidecar image needs.
     pub waf_images: Vec<String>,
+    /// RFC 0033: the prefixes an image mount needs; empty refuses them.
+    pub mount_images: Vec<String>,
 }
 
 pub struct Started {
@@ -78,6 +80,7 @@ pub async fn start(
         image: o.image,
         kinds,
         waf_images: o.waf_images,
+        mount_images: o.mount_images,
     });
     Ok(Started {
         ctx,

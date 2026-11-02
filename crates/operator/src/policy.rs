@@ -6,6 +6,8 @@ use toml::{Table, Value};
 use crate::crd::PolicySpec;
 use crate::gateway::{APP, GATEWAY, MANAGED_BY, RESTART_HASH};
 
+mod mounts;
+
 /// Keys the operator sets per gateway; a policy may not.
 pub const OWNED: &[&str] = &[
     "mode",
@@ -80,9 +82,13 @@ pub fn render(config: &str) -> Result<Rendered, String> {
 }
 
 /// RFC 0025: [`render`], then the `gateway` fields against the config and
-/// the operator's `--waf-images` prefixes. `Ok` carries the warnings:
-/// accepted, but probably not meant.
-pub fn check(spec: &PolicySpec, waf_images: &[String]) -> Result<(Rendered, Vec<String>), String> {
+/// the operator's `--waf-images` and `--mount-images` (RFC 0033) prefixes.
+/// `Ok` carries the warnings: accepted, but probably not meant.
+pub fn check(
+    spec: &PolicySpec,
+    waf_images: &[String],
+    mount_images: &[String],
+) -> Result<(Rendered, Vec<String>), String> {
     let r = render(&spec.config)?;
     let table: Table = r.toml.parse().map_err(|e: toml::de::Error| e.to_string())?;
     let g = &spec.gateway;
@@ -112,7 +118,7 @@ pub fn check(spec: &PolicySpec, waf_images: &[String]) -> Result<(Rendered, Vec<
             warnings.push("gateway.waf without [waf] enabled = true: an idle sidecar".into());
         }
     }
-    mounts(spec)?;
+    mounts::check(&g.mounts, mount_images, &mut warnings)?;
     let reserved = [APP.0, MANAGED_BY.0, GATEWAY];
     if let Some(k) = g.pod_labels.keys().find(|k| reserved.contains(&k.as_str())) {
         return Err(format!("reserved pod label: {k}"));
@@ -131,36 +137,6 @@ fn allowed(image: &str, prefix: &str) -> bool {
         && image.strip_prefix(prefix).is_some_and(|rest| {
             prefix.ends_with('/') || rest.is_empty() || rest.starts_with([':', '@'])
         })
-}
-
-fn mounts(spec: &PolicySpec) -> Result<(), String> {
-    let m = &spec.gateway.mounts;
-    if m.len() > MAX_MOUNTS {
-        return Err(format!("mount name: at most {MAX_MOUNTS} mounts"));
-    }
-    let mut seen = std::collections::BTreeSet::new();
-    for x in m {
-        let n = &x.name;
-        // a volume `mount-<name>` is a DNS label too
-        let label = !n.is_empty()
-            && n.len() <= 57
-            && n.bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            && !n.starts_with('-')
-            && !n.ends_with('-');
-        if !label {
-            return Err(format!(
-                "mount name {n:?}: not a DNS label of at most 57 characters"
-            ));
-        }
-        if !seen.insert(n) {
-            return Err(format!("mount name {n:?}: used twice"));
-        }
-        if x.config_map.is_some() == x.secret.is_some() {
-            return Err(format!("mount name {n:?}: set one of configMap and secret"));
-        }
-    }
-    Ok(())
 }
 
 /// The ConfigMap of the policy named `policy`.
@@ -262,24 +238,25 @@ mod tests {
     // RFC 0025 case 3
     #[test]
     fn admin_needs_a_secret_ref() {
-        let e = check(&with_admin(spec(""), false), &images()).unwrap_err();
+        let e = check(&with_admin(spec(""), false), &images(), &[]).unwrap_err();
         assert_eq!(e, "admin needs secretRef");
-        assert!(check(&with_admin(spec(""), true), &images()).is_ok());
+        assert!(check(&with_admin(spec(""), true), &images(), &[]).is_ok());
     }
 
     // RFC 0025 case 4
     #[test]
     fn admin_keys_but_listen_are_the_policys() {
         let ui = "[admin]\nui_enabled = true\n";
-        assert!(check(&with_admin(spec(ui), true), &images()).is_ok());
+        assert!(check(&with_admin(spec(ui), true), &images(), &[]).is_ok());
         let e = check(
             &with_admin(spec("[admin]\nlisten = \"0.0.0.0:1\"\n"), true),
             &images(),
+            &[],
         )
         .unwrap_err();
         assert!(e.contains("admin.listen"), "{e}");
         // without gateway.admin the gateway would not start
-        let e = check(&spec(ui), &images()).unwrap_err();
+        let e = check(&spec(ui), &images(), &[]).unwrap_err();
         assert!(e.contains("gateway.admin"), "{e}");
     }
 
@@ -292,59 +269,31 @@ mod tests {
             "ghcr.io/corazawaf/coraza-spoa-evil:1",
             "ghcr.io/corazawaf",
         ] {
-            let e = check(&with_waf(spec(on), bad), &images()).unwrap_err();
+            let e = check(&with_waf(spec(on), bad), &images(), &[]).unwrap_err();
             assert!(e.starts_with("waf image not allowed"), "{bad}: {e}");
         }
         let pinned = "ghcr.io/corazawaf/coraza-spoa:0.9.1@sha256:00";
-        let (_, w) = check(&with_waf(spec(on), pinned), &images()).unwrap();
+        let (_, w) = check(&with_waf(spec(on), pinned), &images(), &[]).unwrap();
         assert!(w.is_empty(), "{w:?}");
         let (_, w) = check(
             &with_waf(spec(""), "ghcr.io/corazawaf/coraza-spoa"),
             &images(),
+            &[],
         )
         .unwrap();
         assert_eq!(w.len(), 2, "unpinned and idle: {w:?}");
         // an empty allowlist refuses every sidecar
-        assert!(check(&with_waf(spec(on), pinned), &[]).is_err());
+        assert!(check(&with_waf(spec(on), pinned), &[], &[]).is_err());
     }
 
     // RFC 0025 case 7
     #[test]
     fn waf_endpoint_is_owned_with_the_sidecar() {
         let c = "[waf]\nenabled = true\nendpoint = \"127.0.0.1:1\"\n";
-        assert!(check(&spec(c), &images()).is_ok());
+        assert!(check(&spec(c), &images(), &[]).is_ok());
         let pinned = "ghcr.io/corazawaf/coraza-spoa@sha256:00";
-        let e = check(&with_waf(spec(c), pinned), &images()).unwrap_err();
+        let e = check(&with_waf(spec(c), pinned), &images(), &[]).unwrap_err();
         assert!(e.contains("waf.endpoint"), "{e}");
-    }
-
-    // RFC 0025 case 9
-    #[test]
-    fn bad_mounts_are_named() {
-        let m = |name: &str| crate::crd::Mount {
-            name: name.into(),
-            config_map: Some("c".into()),
-            secret: None,
-        };
-        let mut p = spec("");
-        for (mounts, want) in [
-            (vec![m("../x")], "\"../x\""),
-            (vec![m("a"), m("a")], "used twice"),
-            ((0..17).map(|i| m(&format!("m{i}"))).collect(), "at most 16"),
-            (
-                vec![crate::crd::Mount {
-                    secret: Some("s".into()),
-                    ..m("both")
-                }],
-                "one of",
-            ),
-        ] {
-            p.gateway.mounts = mounts;
-            let e = check(&p, &images()).unwrap_err();
-            assert!(e.starts_with("mount name") && e.contains(want), "{e}");
-        }
-        p.gateway.mounts = vec![m("pg-ca"), m("llm-key")];
-        assert!(check(&p, &images()).is_ok());
     }
 
     // RFC 0025 case 10
@@ -353,11 +302,11 @@ mod tests {
         let mut p = spec("");
         p.gateway.pod_labels = [("app.kubernetes.io/name".into(), "x".into())].into();
         assert_eq!(
-            check(&p, &images()).unwrap_err(),
+            check(&p, &images(), &[]).unwrap_err(),
             "reserved pod label: app.kubernetes.io/name"
         );
         p.gateway.pod_labels = [("team".into(), "shop".into())].into();
-        assert!(check(&p, &images()).is_ok());
+        assert!(check(&p, &images(), &[]).is_ok());
     }
 
     // case 11

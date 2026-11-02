@@ -12,6 +12,7 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use tracing_subscriber::EnvFilter;
 
 const USAGE: &str = "usage: dvarapala-operator run --gateway-image <image> [--webhook-listen <addr>] [--metrics-listen <addr>] [--waf-images <prefix,...>]
+       [--mount-images <prefix,...>]
        dvarapala-operator crd
        dvarapala-operator --version
 The namespace comes from POD_NAMESPACE. Log level comes from RUST_LOG (default info).";
@@ -33,6 +34,7 @@ fn args(mut a: impl Iterator<Item = String>) -> Option<Options> {
     let mut webhook = SocketAddr::from(([0, 0, 0, 0], 9443));
     let mut metrics = SocketAddr::from(([0, 0, 0, 0], 9090));
     let mut waf_images = prefixes(WAF_IMAGES);
+    let mut mount_images = Vec::new();
     while let Some(k) = a.next() {
         let v = a.next()?;
         match k.as_str() {
@@ -40,6 +42,7 @@ fn args(mut a: impl Iterator<Item = String>) -> Option<Options> {
             "--webhook-listen" => webhook = v.parse().ok()?,
             "--metrics-listen" => metrics = v.parse().ok()?,
             "--waf-images" => waf_images = prefixes(&v),
+            "--mount-images" => mount_images = prefixes(&v),
             _ => return None,
         }
     }
@@ -48,6 +51,7 @@ fn args(mut a: impl Iterator<Item = String>) -> Option<Options> {
         webhook,
         metrics,
         waf_images,
+        mount_images,
     })
 }
 
@@ -130,5 +134,9 @@ mod tests {
         )
         .unwrap();
         assert!(a.waf_images.is_empty());
+        // RFC 0033: image mounts are refused until a prefix is named
+        assert!(a.mount_images.is_empty());
+        let a = parse("--gateway-image x --mount-images registry.example/geo/,b").unwrap();
+        assert_eq!(a.mount_images, ["registry.example/geo/", "b"]);
     }
 }

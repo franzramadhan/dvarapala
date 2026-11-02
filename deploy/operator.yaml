@@ -83,17 +83,49 @@
                         "type": "object"
                       },
                       "mounts": {
-                        "description": "RFC 0025: ConfigMaps and Secrets of this namespace, read-only at\n`/etc/dvarapala-mounts/<name>/`. At most 16.",
+                        "description": "RFC 0025, 0033: ConfigMaps, Secrets, PersistentVolumeClaims and image\nvolumes of this namespace, read-only at `/etc/dvarapala-mounts/<name>/`.\nAt most 16.",
                         "items": {
-                          "description": "One of `configMap` or `secret`.",
+                          "description": "One of `configMap`, `secret`, `persistentVolumeClaim` or `image`.",
                           "properties": {
                             "configMap": {
                               "nullable": true,
                               "type": "string"
                             },
+                            "image": {
+                              "description": "RFC 0033: an image volume; the reference must start with a prefix\nof the operator's `--mount-images`. Pin it by digest.",
+                              "nullable": true,
+                              "properties": {
+                                "pullPolicy": {
+                                  "description": "`Always`, `IfNotPresent` (when unset) or `Never`.",
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                "reference": {
+                                  "description": "An OCI image or artifact.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "reference"
+                              ],
+                              "type": "object"
+                            },
                             "name": {
                               "description": "A DNS label, unique in the list: the directory name.",
                               "type": "string"
+                            },
+                            "persistentVolumeClaim": {
+                              "description": "RFC 0033: an existing claim of this namespace, mounted read-only.",
+                              "nullable": true,
+                              "properties": {
+                                "claimName": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "claimName"
+                              ],
+                              "type": "object"
                             },
                             "secret": {
                               "nullable": true,
@@ -483,7 +515,7 @@ spec:
       containers:
         - name: operator
           image: ghcr.io/franzramadhan/dvarapala-operator:__VERSION__
-          args: [run, --gateway-image, "ghcr.io/franzramadhan/dvarapala:__VERSION__", --waf-images, ghcr.io/corazawaf/coraza-spoa]
+          args: [run, --gateway-image, "ghcr.io/franzramadhan/dvarapala:__VERSION__", --waf-images, ghcr.io/corazawaf/coraza-spoa, --mount-images, ""]
           env:
             - name: POD_NAMESPACE
               valueFrom:
