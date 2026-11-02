@@ -1,7 +1,9 @@
 use std::fmt;
 use std::time::Duration;
 
-use dvarapala_engine::ConnsConfig;
+use dvarapala_engine::{Cidr, ConnsConfig};
+
+use crate::proxy_protocol::Version;
 
 /// The `[l4]` section (RFC 0009).
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +20,24 @@ pub struct L4Config {
     pub idle_timeout: Option<Duration>,
     /// Bytes per second over a 10 s window; 0 off.
     pub min_body_rate: u64,
+    /// PROXY protocol from trusted balancers (RFC 0030); `None` off.
+    pub proxy_protocol: Option<ProxyProtocol>,
+}
+
+/// The `l4.proxy_protocol*` keys (RFC 0030).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProxyProtocol {
+    pub version: Version,
+    /// Peers that must send a header; never empty.
+    pub from: Vec<Cidr>,
+    /// Time to receive the whole header.
+    pub timeout: Duration,
+}
+
+impl ProxyProtocol {
+    pub(crate) fn trusts(&self, ip: std::net::IpAddr) -> bool {
+        self.from.iter().any(|c| c.contains(ip))
+    }
 }
 
 impl Default for L4Config {
@@ -29,6 +49,7 @@ impl Default for L4Config {
             header_timeout: Duration::from_secs(30),
             idle_timeout: Some(Duration::from_secs(60)),
             min_body_rate: 0,
+            proxy_protocol: None,
         }
     }
 }

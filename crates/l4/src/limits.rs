@@ -49,33 +49,48 @@ impl Limits {
     /// A place for a connection from `ip`, or the refusal, counted and
     /// logged at most once a second.
     pub(crate) fn admit(self: &Arc<Self>, ip: IpAddr) -> Result<Guard, &'static str> {
-        self.try_admit(ip).inspect_err(|&reason| {
-            metrics::counter!("dvarapala_l4_rejected_total", "reason" => reason).increment(1);
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            if self.logged.swap(now, Ordering::Relaxed) != now {
-                tracing::warn!(reason, client = %ip, "connection limit");
-            }
-        })
+        let mut guard = self.total(ip)?;
+        self.client(&mut guard, ip)?;
+        Ok(guard)
     }
 
-    fn try_admit(self: &Arc<Self>, ip: IpAddr) -> Result<Guard, &'static str> {
+    /// A place against `max_connections` only, for a connection whose
+    /// client is not known yet (RFC 0030); `peer` is for the log.
+    pub(crate) fn total(self: &Arc<Self>, peer: IpAddr) -> Result<Guard, &'static str> {
         let open = self.open.fetch_add(1, Ordering::AcqRel);
         // from here the guard gives the place back, also on refusal
-        let mut guard = Guard {
+        let guard = Guard {
             limits: self.clone(),
             key: None,
         };
         metrics::gauge!("dvarapala_l4_connections_open").increment(1.0);
         if self.max_connections > 0 && open >= self.max_connections {
-            return Err("total");
+            return Err(self.refused("total", peer));
         }
+        Ok(guard)
+    }
+
+    /// Counts the connection holding `guard` against client `ip`.
+    pub(crate) fn client(&self, guard: &mut Guard, ip: IpAddr) -> Result<(), &'static str> {
         let mut conns = self.lock();
-        let key = conns.open(ip, Instant::now()).map_err(|r| r.as_str())?;
+        let key = conns
+            .open(ip, Instant::now())
+            .map_err(|r| self.refused(r.as_str(), ip))?;
         metrics::gauge!("dvarapala_l4_clients").set(conns.clients() as f64);
         guard.key = Some(key);
-        Ok(guard)
+        Ok(())
+    }
+
+    /// Counts and logs a refusal, the log at most once a second.
+    fn refused(&self, reason: &'static str, ip: IpAddr) -> &'static str {
+        metrics::counter!("dvarapala_l4_rejected_total", "reason" => reason).increment(1);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        if self.logged.swap(now, Ordering::Relaxed) != now {
+            tracing::warn!(reason, client = %ip, "connection limit");
+        }
+        reason
     }
 
     fn lock(&self) -> MutexGuard<'_, Conns> {

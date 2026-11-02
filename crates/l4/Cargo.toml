@@ -13,7 +13,7 @@ bytes.workspace = true
 # the Body trait only
 hyper.workspace = true
 metrics.workspace = true
-tokio = { workspace = true, features = ["net", "time"] }
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
 tracing.workspace = true
 
 [dev-dependencies]

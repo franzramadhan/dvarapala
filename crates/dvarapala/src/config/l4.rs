@@ -32,6 +32,25 @@ pub struct L4 {
     )]
     pub idle_timeout: Duration,
     pub min_body_rate: u64,
+    /// RFC 0030
+    pub proxy_protocol: ProxyProtocolMode,
+    pub proxy_protocol_from: Vec<String>,
+    #[serde(
+        deserialize_with = "duration",
+        serialize_with = "crate::config::view::ser_duration"
+    )]
+    pub proxy_protocol_timeout: Duration,
+}
+
+/// `l4.proxy_protocol` (RFC 0030).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyProtocolMode {
+    #[default]
+    Off,
+    V1,
+    V2,
+    Any,
 }
 
 impl Default for L4 {
@@ -49,6 +68,9 @@ impl Default for L4 {
             header_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(60),
             min_body_rate: 0,
+            proxy_protocol: ProxyProtocolMode::Off,
+            proxy_protocol_from: Vec::new(),
+            proxy_protocol_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -85,6 +107,7 @@ impl L4 {
             header_timeout: self.header_timeout,
             idle_timeout: (!self.idle_timeout.is_zero()).then_some(self.idle_timeout),
             min_body_rate: self.min_body_rate,
+            proxy_protocol: None,
         })
     }
 }
@@ -98,6 +121,7 @@ mod tests {
     use figment::Jail;
 
     use super::*;
+    use dvarapala_l4::proxy_protocol::Version;
 
     /// RFC 0009 configuration table.
     #[test]
@@ -150,5 +174,50 @@ mod tests {
             })
             .contains("header_timeout")
         );
+    }
+
+    /// RFC 0030 case 13 and the configuration table
+    #[test]
+    #[ignore = "rfc 0030"]
+    fn proxy_protocol_keys() {
+        assert_eq!(L4::default().config().unwrap().proxy_protocol, None);
+        let on = |from: Vec<&str>| L4 {
+            proxy_protocol: ProxyProtocolMode::V1,
+            proxy_protocol_from: from.into_iter().map(String::from).collect(),
+            ..L4::default()
+        };
+        assert!(
+            on(vec![])
+                .config()
+                .unwrap_err()
+                .contains("l4.proxy_protocol_from")
+        );
+        assert!(
+            on(vec!["nope"])
+                .config()
+                .unwrap_err()
+                .contains("l4.proxy_protocol_from")
+        );
+        let zero = L4 {
+            proxy_protocol_timeout: Duration::ZERO,
+            ..on(vec!["192.0.2.0/24"])
+        };
+        assert!(
+            zero.config()
+                .unwrap_err()
+                .contains("proxy_protocol_timeout")
+        );
+        Jail::expect_with(|j| {
+            j.create_file(
+                "d.toml",
+                "upstream = \"http://127.0.0.1:8081\"\n[l4]\nproxy_protocol = \"any\"\nproxy_protocol_from = [\"192.0.2.0/24\"]\nproxy_protocol_timeout = \"2s\"\n",
+            )?;
+            let c = crate::config::load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
+            let p = c.l4.config()?.proxy_protocol.unwrap();
+            assert_eq!(p.version, Version::Any);
+            assert_eq!(p.from, vec!["192.0.2.0/24".parse::<Cidr>().unwrap()]);
+            assert_eq!(p.timeout, Duration::from_secs(2));
+            Ok(())
+        });
     }
 }

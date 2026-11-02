@@ -23,7 +23,10 @@ async fn listen(config: L4Config) -> (SocketAddr, mpsc::UnboundedReceiver<Conn>)
     let l = Listener::new(tcp, config).unwrap();
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        while let Ok((conn, _)) = l.accept().await {
+        while let Ok(a) = l.accept().await {
+            let Some((conn, _)) = a.ready().await else {
+                continue;
+            };
             if tx.send(conn).is_err() {
                 return;
             }
@@ -127,7 +130,10 @@ async fn accept_rate_refusals_reach_the_block_sink() {
         .with_block(BlockSink::new(move |c| s.lock().unwrap().push(c)));
     let (tx, mut rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        while let Ok((conn, _)) = l.accept().await {
+        while let Ok(a) = l.accept().await {
+            let Some((conn, _)) = a.ready().await else {
+                continue;
+            };
             let _ = tx.send(conn);
         }
     });
