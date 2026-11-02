@@ -1,0 +1,50 @@
+# A slow backend kept at the concurrency it serves well (RFC 0032).
+#
+# Use case: a database-backed app answers in 20 ms at low load and falls
+# over past about a hundred requests at once. Rate limits per client do
+# not help when the flood comes from many clients, each under its rate.
+# The gradient limit watches the backend's latency: while it stays flat
+# the limit grows, when it rises the limit shrinks, and requests over it
+# get 503 with Retry-After: 1 at once instead of piling up in the
+# backend. The last fifth of the limit is kept for clients that solved
+# the challenge, so they still get through while the rest is shed.
+# /export is expensive and counts as five requests; /healthz bypasses
+# the limit so the load balancer does not take the gateway out.
+#
+# Placeholders: app.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+# Passes need detection in enforce mode; set challenge.secret with
+# DVARAPALA__CHALLENGE__SECRET when there is more than one replica.
+[challenge]
+mode = "attack"
+
+[concurrency]
+mode = "gradient"
+min = 20
+max = 200
+window = "1s"
+reserve = 0.2
+
+[[routes]]
+name = "health"
+path = "=/healthz"
+challenge = false
+concurrency = false
+
+[[routes]]
+name = "export"
+path = "/export"
+concurrency_weight = 5

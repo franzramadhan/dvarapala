@@ -155,6 +155,8 @@ prefix_v6 = 64
 # key = "client"
 # challenge = true
 # max_keys = 10000
+# concurrency = true
+# concurrency_weight = 1
 
 # Admin API and config reload (RFC 0014). SIGHUP reloads the config
 # file without the admin API. Set the token with DVARAPALA__ADMIN__TOKEN.
@@ -205,6 +207,17 @@ prefix_v6 = 64
 # eject_time = "30s"
 # retries = 1
 # retry_budget = 0.2
+
+# Adaptive limit on requests in flight to the upstream (RFC 0032). Over
+# it: 503 with Retry-After: 1. See concurrency.toml.
+# [concurrency]
+# mode = "off"
+# limit = 0
+# min = 20
+# max = 1000
+# window = "1s"
+# reserve = 0.2
+# trusted_score = 0.2
 
 # WAF in a coraza-spoa agent (RFC 0017), after the rate limiter. Watch
 # dvarapala_waf_requests_total{verdict="would_block"} before enforce.

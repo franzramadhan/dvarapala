@@ -86,6 +86,43 @@ impl Default for Upgrade {
     }
 }
 
+impl Http2 {
+    /// As listener limits; a zero keepalive interval turns it off.
+    pub fn limits(&self) -> Result<Http2Limits, String> {
+        if self.max_concurrent_streams == 0 {
+            return Err("http2.max_concurrent_streams must be at least 1".into());
+        }
+        Ok(Http2Limits {
+            max_concurrent_streams: self.max_concurrent_streams,
+            max_pending_reset_streams: self.max_pending_reset_streams,
+            max_local_error_resets: self.max_local_error_resets,
+            max_header_list_size: self.max_header_list_size,
+            keepalive_interval: (!self.keepalive_interval.is_zero())
+                .then_some(self.keepalive_interval),
+            keepalive_timeout: self.keepalive_timeout,
+        })
+    }
+}
+
+impl Upgrade {
+    /// As tunnel limits; a zero lifetime turns that limit off.
+    pub fn config(&self) -> Result<UpgradeConfig, String> {
+        if self.max_tunnels == 0 || self.idle_timeout.is_zero() {
+            return Err("upgrade.max_tunnels and upgrade.idle_timeout must be above 0; protocols = [] turns upgrades off".into());
+        }
+        Ok(UpgradeConfig {
+            protocols: self
+                .protocols
+                .iter()
+                .map(|p| p.to_ascii_lowercase())
+                .collect(),
+            max_tunnels: self.max_tunnels,
+            idle_timeout: self.idle_timeout,
+            max_lifetime: (!self.max_lifetime.is_zero()).then_some(self.max_lifetime),
+        })
+    }
+}
+
 #[cfg(test)]
 // figment::Jail closures return figment::Error by value; not ours to box
 #[allow(clippy::result_large_err)]

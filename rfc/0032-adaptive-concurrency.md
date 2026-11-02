@@ -167,3 +167,47 @@ who is asking, and a choice of whom to turn away when it is reached.
   stable.
 - **Off switch:** `concurrency.mode = "off"` and a restart, or set
   `fixed` with a high `limit` and reload.
+
+## Implementation notes
+
+- The limit is not a separate `tower` layer: `ReverseProxy::call` admits
+  first, before an upgrade, the pool pick or the retry budget, so a shed
+  request never reaches the pool and cannot eject an endpoint or spend a
+  retry (case 9). The pool carries the limit (`Pool::with_concurrency`),
+  which makes the TCP and HTTP/3 listeners share it.
+- The engine's latency histogram has 128 buckets (4 per octave of
+  microseconds, 1 us to about 70 min) instead of 64, so the p50 stays
+  within 19% at both ends.
+- The gradient does not grow while fewer than half of the old limit were
+  in flight during the window (the app-limited rule): an idle limit would
+  otherwise climb to `max` with no evidence the backend can take it.
+- There is no upstream timeout key, so a connect error or timeout counts
+  as a sample of ten times the no-load latency (at least the time it
+  took) instead of "the upstream timeout".
+- Class shares: trusted requests may use the whole limit, normal
+  `limit * (1 - reserve)`, suspects `limit * (1 - 2 * reserve)`, each
+  rounded down. A weight above the class's share is cut to it, so a
+  heavy route still runs alone instead of being shed forever.
+- `concurrency.mode` changes need a restart; the other keys reload in
+  place, and the operator's reloadable list has them, so a gateway does
+  not roll for a new limit.
+- Case 12 is tested with a slow streaming response body (the slot is free
+  once the head arrives) rather than a WebSocket: the upgrade path takes
+  its slot the same way and releases it on the `101`.
+- Case 15 (replay) is not implemented: `dvarapala replay` drives the rate
+  limiter and detection from a log, with no upstream and so no latency
+  for the gradient to learn from. Shed counts in replay need a latency
+  model first; left for a follow-up RFC if wanted.
+- Case 11 at the binary is covered with `reserve = 0`; the weighted
+  arithmetic itself is in the engine and proxy tests.
+- Case 14: an admit and release pair takes about 27 ns on one thread.
+  On 8 threads that do nothing else it takes about 2.3 us on the
+  development machine (Apple silicon), where one shared counter taken and
+  given back already costs about 440 ns: the cost is the cache line of
+  the in-flight count moving between cores, which any exact cap shares.
+  The bench reports all three. There is no lock on the hot path; real
+  requests spend far longer between admit and release, so the line is
+  rarely contended.
+- The console's Concurrency health page lists the series (limit, in
+  flight, shed per class, latencies) as the other health pages do, with
+  no chart; it reads degraded while shedding or at the limit.

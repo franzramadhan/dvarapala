@@ -101,3 +101,44 @@ fn keys_without_the_rate_limiter_warn() {
     // no limiter, so no challenge page: the request goes to the upstream
     assert_eq!(get(listen, "GET", "/", &[]).0, 502);
 }
+
+// RFC 0032 cases 3 and 11: a fixed limit sheds past it, a route bypasses it
+#[test]
+fn a_fixed_concurrency_limit_sheds() {
+    // an upstream that takes connections and never answers
+    let up = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let upstream = up.local_addr().unwrap().port();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for c in up.incoming() {
+            let _ = tx.send(c.is_ok());
+            held.push(c);
+        }
+    });
+    let (listen, metrics) = (port(), port());
+    let toml = format!(
+        "listen = \"127.0.0.1:{listen}\"\nupstream = \"http://127.0.0.1:{upstream}\"\n\
+         [metrics]\nlisten = \"127.0.0.1:{metrics}\"\n\
+         [concurrency]\nmode = \"fixed\"\nlimit = 1\nreserve = 0.0\n\
+         [[routes]]\nname = \"health\"\npath = \"/healthz\"\nconcurrency = false\n"
+    );
+    let p = serve("concurrency", Some(&toml), &[]);
+    wait_port(listen);
+    std::thread::spawn(move || get(listen, "GET", "/slow", &[]));
+    assert!(rx.recv().unwrap(), "the first request reached the upstream");
+    assert_eq!(get(listen, "GET", "/", &[]).0, 503);
+    // the bypassing route still reaches the (silent) upstream
+    std::thread::spawn(move || get(listen, "GET", "/healthz", &[]));
+    assert!(
+        rx.recv().unwrap(),
+        "the bypassing route reached the upstream"
+    );
+    let (_, body) = get(metrics, "GET", "/metrics", &[]);
+    assert!(
+        body.contains("dvarapala_concurrency_shed_total{class=\"normal\"} 1"),
+        "{body}"
+    );
+    assert!(body.contains("dvarapala_concurrency_limit 1"), "{body}");
+    p.logged(&["WARN", "concurrency shedding"]);
+}

@@ -547,6 +547,8 @@ challenge = false
 | `challenge` | bool | `true` | `false` never shows the challenge; during an attack these requests get the attack limit, as a request without a pass |
 | `max_keys` | integer | `10000` | Keys in the route's table, least recently seen evicted |
 | `waf` | bool | `true` | `false` sends the route's requests on without asking the `[waf]` agent, for example a gRPC or upload endpoint the rules do not fit |
+| `concurrency` | bool | `true` | `false` bypasses the [`[concurrency]`](#concurrency) limit, for example a health endpoint |
+| `concurrency_weight` | integer | `1` | Slots of the concurrency limit a request of the route takes, 1 to 100; a weight above a class's share is cut to it |
 
 ## `[admin]`
 
@@ -651,7 +653,7 @@ the detector its baseline: `rate_limit.rate`, `rate_limit.burst`,
 `[challenge]` (passes stay valid while `secret` is unchanged),
 `[fingerprint]`, `[[routes]]` (route tables start empty when the list
 changes), `ml.model` and `ml.threshold` (the model file is reread, client
-features stay) and `[waf]` (the agent connections stay while `endpoint`,
+features stay), `[concurrency]` but `mode` (the requests in flight stay) and `[waf]` (the agent connections stay while `endpoint`,
 `max_body` and `max_concurrent` do). Every other key keeps its running value and is named in the
 log line `config reloaded` (`restart=`) until a restart, as are JA4 turned
 on after a start without it, and a new rate with a shared `[store]` (the
@@ -704,6 +706,57 @@ its default.
 With no endpoint up, the pool picks among all of them (fail open), logs
 `pool degraded` at most once a second and counts it. Health and ejection
 state is per process.
+
+## `[concurrency]`
+
+An adaptive limit on the requests in flight to the upstream ([RFC 0032](rfc/0032-adaptive-concurrency.md)),
+in reverse mode: the single `upstream` or the `[pool]` as a whole, shared
+by the TCP and HTTP/3 listeners. Off by default. A request is in flight
+from the moment it is admitted until its response head arrives or it
+fails; streaming bodies, WebSocket tunnels and gRPC streams after the head
+do not count. Over the limit, a request is shed at once: `503` with
+`Retry-After: 1` (gRPC: `RESOURCE_EXHAUSTED`, status 8), the connection
+kept open. There is no queue. A shed request is never sent, so it is not
+a failure for `[pool]` ejection and spends no retry.
+
+`fixed` is a hard cap of `limit`. `gradient` moves the limit between
+`min` and `max` once per `window`: `new = old * clamp(noload / p50, 0.5, 1)
++ sqrt(old)`, where `p50` is the window's median latency and `noload` a
+slowly rising minimum of window medians. Flat latency grows the limit by
+about its square root per window (not while fewer than half of it are in
+use); rising latency shrinks it, by at most half per window. A connect
+error or timeout counts as a sample of ten times `noload`, so a backend
+that stops answering shrinks the limit.
+
+The rate limiter (`rate_limit.enabled`) puts a class on each request it
+allows. `trusted`: a valid challenge pass, or an `[ml]` score under
+`trusted_score`. `suspect`: a heavy hitter while detection sees an
+attack. `normal`: everything else. Once in flight reaches
+`limit * (1 - reserve)` only trusted requests are admitted, and suspects
+stop at `limit * (1 - 2 * reserve)`. Without the rate limiter every
+request is normal.
+
+```toml
+[concurrency]
+mode = "gradient"
+min = 20
+max = 500
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"off"` | `"fixed"` or `"gradient"`. Restart |
+| `limit` | integer | `0` | The cap in `fixed` mode (at least 1), and the start value in `gradient` (`0`: `min`). Reload |
+| `min` | integer | `20` | Lower bound of the gradient limit, at least 1. Reload |
+| `max` | integer | `1000` | Upper bound of the gradient limit, at least `min`. Reload |
+| `window` | duration | `"1s"` | Recompute interval, at least `"100ms"`. Reload |
+| `reserve` | float | `0.2` | Share of the limit kept for trusted requests, in `[0, 0.5]`. Reload |
+| `trusted_score` | float | `0.2` | `[ml]` scores under it count as trusted, in `[0, 1]`; unused without a model. Reload |
+
+While shedding, `concurrency shedding` is logged at most once a second
+with the limit and the requests shed per class since the last line.
+Routes can bypass the limit or weigh more: `concurrency` and
+`concurrency_weight` under [`[[routes]]`](#routes).
 
 ## `[waf]`
 
@@ -823,6 +876,10 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_upstream_ejections_total{upstream}` | Passive ejections |
 | `dvarapala_upstream_retries_total{result}` | Retries `sent`, or refused by the `budget` |
 | `dvarapala_upstream_degraded_total` | Picks made with no endpoint up |
+| `dvarapala_concurrency_limit` | The upstream concurrency limit in force ([RFC 0032](rfc/0032-adaptive-concurrency.md)); absent when `[concurrency]` is off |
+| `dvarapala_concurrency_in_flight` | Weighted requests in flight under the limit |
+| `dvarapala_concurrency_shed_total{class}` | Requests shed by the limit, by `trusted`, `normal`, `suspect` |
+| `dvarapala_concurrency_rtt_seconds{kind}` | The `noload` and `window` latencies the gradient last used |
 | `dvarapala_grpc_local_responses_total{status}` | gRPC errors answered locally: `resource_exhausted`, `permission_denied`, `unavailable` |
 | `dvarapala_tunnels_open{protocol}` | Open tunnels (`protocol="connect"` for forward mode `CONNECT`); compare with `upgrade.max_tunnels` |
 | `dvarapala_tunnels_total{protocol,end}` | Closed tunnels by `end`: `client` or `upstream` (that side closed first), `idle`, `lifetime`, `shutdown` |

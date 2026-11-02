@@ -28,8 +28,8 @@ use dvarapala_l7::{RateLimitLayer, RouteKey};
 #[cfg(feature = "tls")]
 use dvarapala_proxy::tls::{Tls, TlsConfig, UpstreamTls};
 use dvarapala_proxy::{
-    AltSvc, ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpgradeConfig,
-    UpstreamConfig, UpstreamProtocol, serve, spawn_health,
+    AltSvc, ForwardConfig, ForwardProxy, Http2Limits, ProxyBody, ReverseProxy, UpstreamConfig,
+    UpstreamProtocol, serve, spawn_health,
 };
 use hyper::body::Incoming;
 use hyper::{Request, Response};
@@ -111,7 +111,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let admin = cfg.admin.addr()?;
     // first: a fast path that was asked for and cannot attach stops here
     let block = xdp::start(&cfg)?;
-    let h2 = http2(&cfg.http2)?;
+    let h2 = cfg.http2.limits()?;
     // RFC 0012: both run inside the reverse proxy's rate limiter
     let fingerprints = cfg.fingerprint.rules(cfg.challenge.mode)?;
     let challenge = cfg.challenge.config(cfg.detection.enabled)?;
@@ -130,7 +130,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     }
     let ja4 = fingerprints.enabled() || routes.iter().any(|r| r.key == RouteKey::Ja4);
     let tls = listener_tls(&cfg.tls, layered && ja4)?;
-    let tunnels = upgrade(&cfg.upgrade)?;
+    let tunnels = cfg.upgrade.config()?;
     #[cfg(feature = "tls")]
     let upstream_tls = UpstreamTls {
         ca_file: cfg.upstream_tls.ca_file.clone(),
@@ -155,13 +155,17 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         })?;
         let listener = bind(&cfg, block).await?;
         let waf = waf::Layer::new(waf::config(&cfg)?);
-        control(&cfg, config, admin, None, waf, false, None).await?;
+        control(&cfg, config, admin, (None, None), waf, false, None).await?;
         tracing::info!(listen = %cfg.listen, destinations = ?names, connect = cfg.forward.connect, tls = tls.is_some(), "forward proxy listening");
         listen(listener, tls, h2, proxy).await;
         tracing::info!("stopped");
         return Ok(());
     }
-    let pool = Arc::new(cfg.pool.build(cfg.upstream.as_deref())?);
+    // RFC 0032: every listener's requests share the pool's limit
+    let (pool, concurrency) = cfg
+        .concurrency
+        .attach(cfg.pool.build(cfg.upstream.as_deref())?)?;
+    let pool = Arc::new(pool);
     let targets = cfg
         .upstream
         .iter()
@@ -223,7 +227,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         &cfg,
         config,
         admin,
-        limiter.clone().map(|l| (l, model)),
+        (limiter.clone().map(|l| (l, model)), concurrency),
         waf.clone(),
         layered && ja4,
         labels,
@@ -278,14 +282,20 @@ async fn bind(cfg: &config::Config, block: Option<BlockSink>) -> Result<Listener
     })
 }
 
+/// The rate limiter with the model it started with (RFC 0029), and the
+/// upstream concurrency limit (RFC 0032).
+type Limits = (
+    Option<(RateLimitLayer, Option<model::Model>)>,
+    Option<Arc<dvarapala_proxy::Concurrency>>,
+);
+
 /// RFC 0014: `SIGHUP` and the admin API reload the config; the admin API
 /// also reads the state and blocks networks.
 async fn control(
     cfg: &config::Config,
     path: Option<PathBuf>,
     admin: Option<std::net::SocketAddr>,
-    // RFC 0029: with the model it started with
-    limiter: Option<(RateLimitLayer, Option<model::Model>)>,
+    (limiter, concurrency): Limits,
     waf: waf::Layer,
     ja4: bool,
     labels: Labels,
@@ -299,6 +309,11 @@ async fn control(
         cfg.clone(),
         model.flatten(),
     ));
+    if let Some(c) = concurrency {
+        // the metrics recorder is up by now
+        c.publish();
+        let _ = reloader.concurrency.set(c);
+    }
     #[cfg(feature = "llm")]
     if let Some(l) = labels.clone() {
         let _ = reloader
@@ -332,34 +347,6 @@ async fn control(
         admin::serve(addr, a).await?;
     }
     Ok(())
-}
-
-/// `[upgrade]` as tunnel limits; a zero lifetime turns that limit off.
-fn upgrade(u: &config::Upgrade) -> Result<UpgradeConfig, String> {
-    if u.max_tunnels == 0 || u.idle_timeout.is_zero() {
-        return Err("upgrade.max_tunnels and upgrade.idle_timeout must be above 0; protocols = [] turns upgrades off".into());
-    }
-    Ok(UpgradeConfig {
-        protocols: u.protocols.iter().map(|p| p.to_ascii_lowercase()).collect(),
-        max_tunnels: u.max_tunnels,
-        idle_timeout: u.idle_timeout,
-        max_lifetime: (!u.max_lifetime.is_zero()).then_some(u.max_lifetime),
-    })
-}
-
-/// `[http2]` as listener limits; a zero keepalive interval turns it off.
-fn http2(h: &config::Http2) -> Result<Http2Limits, String> {
-    if h.max_concurrent_streams == 0 {
-        return Err("http2.max_concurrent_streams must be at least 1".into());
-    }
-    Ok(Http2Limits {
-        max_concurrent_streams: h.max_concurrent_streams,
-        max_pending_reset_streams: h.max_pending_reset_streams,
-        max_local_error_resets: h.max_local_error_resets,
-        max_header_list_size: h.max_header_list_size,
-        keepalive_interval: (!h.keepalive_interval.is_zero()).then_some(h.keepalive_interval),
-        keepalive_timeout: h.keepalive_timeout,
-    })
 }
 
 /// A build without the `tls` feature refuses `[tls]` and `https://`
