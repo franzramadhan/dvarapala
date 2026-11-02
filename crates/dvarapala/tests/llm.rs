@@ -64,10 +64,13 @@ fn fake(reply: Reply) -> Fake {
                         return;
                     }
                 };
+                // one request per connection: say so, or the client's pool
+                // reuses a socket this thread is about to close and the
+                // next call fails with an incomplete message
                 let mut c = c;
                 let _ = write!(
                     c,
-                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                    "HTTP/1.1 {status} X\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
                     body.len()
                 );
             });
