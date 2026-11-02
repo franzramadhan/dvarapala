@@ -1,7 +1,9 @@
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-use dvarapala_engine::{ClientKey, Limit, Matcher, RouteKey, RouteLimits, Verdict, strip_port};
+use dvarapala_engine::{
+    ClientKey, Limit, Matcher, Origin, RouteKey, RouteLimits, Verdict, strip_port,
+};
 use http::Request;
 use http::header::HOST;
 
@@ -68,11 +70,18 @@ impl Routes {
 
     /// The name of the route `req` from `client` gets, if any.
     pub fn matching<B>(&self, req: &Request<B>, client: ClientKey) -> Option<&str> {
-        self.find(req, client).map(|r| r.name.as_str())
+        self.find(req, client, &Origin::default())
+            .map(|r| r.name.as_str())
     }
 
-    /// The first route matching `req` from `client`.
-    pub(crate) fn find<B>(&self, req: &Request<B>, client: ClientKey) -> Option<&Route> {
+    /// The first route matching `req` from `client`, which comes from
+    /// `origin` (RFC 0031).
+    pub(crate) fn find<B>(
+        &self,
+        req: &Request<B>,
+        client: ClientKey,
+        origin: &Origin,
+    ) -> Option<&Route> {
         let ip = client.into();
         // the URI's authority (HTTP/2, absolute form), else the Host header
         let host = match req.uri().host() {
@@ -85,7 +94,7 @@ impl Routes {
         // path prefix if configs grow to hundreds of routes
         self.0
             .iter()
-            .find(|r| r.matcher.matches(method, host, path, ip))
+            .find(|r| r.matcher.matches(method, host, path, ip) && r.matcher.matches_origin(origin))
     }
 }
 
@@ -164,6 +173,7 @@ pub fn fuzz_route_match(data: &[u8]) {
     let _ = routes.find(
         &req,
         ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1])),
+        &Origin::default(),
     );
 }
 

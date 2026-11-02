@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use dvarapala_engine::{
     BlockSink, Blocks, ChallengeMode, Class, ClientKey, ClientStats, Cluster, DetectError, Guard,
-    GuardConfig, GuardDetection, Pass, Priority, State, TrustedProxies, Verdict, client_key,
+    GuardConfig, GuardDetection, Pass, Priority, State, TrustedProxies, Verdict, client_ip,
 };
 use http::header::{ACCEPT, HeaderMap, SET_COOKIE};
 use http::{Request, Response, StatusCode, Version};
@@ -19,6 +19,7 @@ use crate::challenge::{Challenge, VERIFY_PATH};
 use crate::control::Policy;
 use crate::detection::{ReqInfo, Watch};
 use crate::fingerprint::Rule;
+use crate::intel::{Effect, Intel};
 use crate::limit_future::{ResponseFuture, StatusRecorder};
 use crate::llm::{Llm, Probe, Seen};
 use crate::reply::{Scope, count, reject};
@@ -81,6 +82,8 @@ pub(crate) struct Shared {
     pub(crate) block: Option<BlockSink>,
     /// RFC 0023, set once at start
     llm: OnceLock<Arc<Llm>>,
+    /// RFC 0031 feeds and GeoIP database; a reload swaps it
+    pub(crate) intel: RwLock<Arc<Intel>>,
 }
 
 pub(crate) struct Inner {
@@ -133,6 +136,7 @@ impl RateLimitLayer {
                 cooldown,
                 block: config.block,
                 llm: OnceLock::new(),
+                intel: RwLock::default(),
             }),
         })
     }
@@ -193,15 +197,22 @@ where
             return ResponseFuture::Rejected { res: Some(res) };
         };
         let policy = self.shared.policy();
-        let key = client_key(
+        let ip = client_ip(
             peer.ip(),
             forwarded_for(req.headers()).as_deref(),
             &policy.trusted,
         );
+        let key = ClientKey::from(ip);
         let grpc = is_grpc(req.headers());
         // RFC 0014: a manual block before anything else
         if self.shared.blocked(key) {
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Block);
+            return ResponseFuture::Rejected { res: Some(res) };
+        }
+        // RFC 0031: feeds and GeoIP on the full address, not the /64 key
+        let (origin, effect) = self.shared.intel().check(ip);
+        if effect == Effect::Deny {
+            let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
         // RFC 0012: fingerprint rules, then the pass cookie
@@ -212,16 +223,15 @@ where
             return ResponseFuture::Rejected { res: Some(res) };
         }
         // RFC 0013: a denied route costs one match, no token
-        let route = policy.routes.find(&req, key);
+        let route = policy.routes.find(&req, key, &origin);
         if let Some(r) = route.filter(|r| r.deny) {
             r.count("deny");
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
         let challenge = policy.challenge.as_ref();
-        let mut pass = challenge.map_or(Pass::Missing, |c| {
-            c.pass(req.headers(), key, rule == Rule::Challenge)
-        });
+        let required = rule == Rule::Challenge || effect == Effect::Challenge;
+        let mut pass = challenge.map_or(Pass::Missing, |c| c.pass(req.headers(), key, required));
         if route.is_some_and(|r| !r.challenge) && pass != Pass::Valid {
             pass = Pass::Exempt;
         }

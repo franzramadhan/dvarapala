@@ -6,6 +6,7 @@ mod control;
 mod detection;
 mod fingerprint;
 mod grpc;
+mod intel;
 mod limit_future;
 mod llm;
 #[cfg(feature = "ui")]
@@ -30,6 +31,9 @@ pub use detection::{Detection, Scoring};
 pub use dvarapala_engine::{Class, Priority};
 pub use fingerprint::{Fingerprints, Ja4};
 pub use grpc::{GrpcStatus, grpc_response, is_grpc};
+pub use intel::{Action, Feed, FeedList, Intel, MAX_FEEDS};
+#[cfg(feature = "geoip")]
+pub use intel::{GeoIp, fuzz_geoip, test_db};
 #[cfg(feature = "llm")]
 pub use llm::{
     Answer, MAX_REPLY, Protocol, features, fuzz_llm_reply, parse_reply, request_body, sample_json,

@@ -27,6 +27,8 @@ serde_json = { workspace = true, optional = true }
 # RFC 0017: the SPOP client to the WAF agent; both already in the tree
 http-body = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["io-util", "net", "sync", "time"] }
+# RFC 0031: the country and ASN of a client
+maxminddb = { workspace = true, optional = true }
 
 [features]
 replay = ["dep:serde", "dep:serde_json"]
@@ -34,6 +36,7 @@ replay = ["dep:serde", "dep:serde_json"]
 ui = ["dep:serde_json"]
 llm = ["dep:serde_json"]
 waf = ["dep:http-body", "dep:tokio"]
+geoip = ["dep:maxminddb", "dep:serde"]
 
 [dev-dependencies]
 criterion.workspace = true
