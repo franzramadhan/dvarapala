@@ -29,7 +29,7 @@ fn check(c: &mut Criterion) {
         now,
         0,
     );
-    // a miss scans every entry: the worst case
+    // a miss: no prefix length matches
     let key = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7)).into();
     c.bench_function("cluster_check_10000", |b| {
         b.iter(|| black_box(cl.check(black_box(key), now)))

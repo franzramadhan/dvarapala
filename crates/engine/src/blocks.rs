@@ -5,8 +5,8 @@ use std::time::Instant;
 
 use crate::Cidr;
 
-/// Networks blocked by hand (RFC 0014), each until its expiry, at most
-/// `max` at once. Not thread-safe; callers wrap it in a lock.
+/// Networks blocked until an expiry, at most `max` at once: by hand
+/// (RFC 0014) and the cluster heavy hitters (RFC 0010). Not thread-safe; callers wrap it in a lock.
 #[derive(Debug)]
 pub struct Blocks {
     max: usize,
