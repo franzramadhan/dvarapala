@@ -116,6 +116,7 @@ pub(crate) fn routes(json: &str) -> Result<Vec<RouteSpec>, String> {
                     .map(|c| c.parse::<Cidr>())
                     .collect::<Result<_, _>>())
                 .map_err(|e: dvarapala_engine::CidrError| err("clients", e.to_string()))?,
+                ..Matcher::default()
             };
             Ok(RouteSpec {
                 matcher,

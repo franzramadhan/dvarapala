@@ -6,4 +6,4 @@ mod limits;
 mod matcher;
 
 pub use limits::{RouteKey, RouteLimits};
-pub use matcher::{Host, Matcher, PathMatch, parse_method, strip_port};
+pub use matcher::{Host, Matcher, Origin, PathMatch, parse_country, parse_method, strip_port};

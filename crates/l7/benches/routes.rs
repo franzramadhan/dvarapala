@@ -17,6 +17,7 @@ fn routes() -> Routes {
             path: Some(PathMatch::parse(&format!("/api/v{i}/")).unwrap()),
             methods: vec!["GET".into(), "POST".into()],
             clients: vec!["192.0.2.0/24".parse().unwrap()],
+            ..Matcher::default()
         },
         deny: false,
         limit: None,

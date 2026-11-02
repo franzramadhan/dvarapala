@@ -102,6 +102,7 @@ pub fn routes(routes: &[Route]) -> Result<Vec<RouteConfig>, String> {
                     path: path.map_err(|e| err("path", e))?,
                     methods: methods.map_err(|e| err("methods", e))?,
                     clients: clients.map_err(|e| err("clients", e.0))?,
+                    ..Matcher::default()
                 },
                 deny: r.deny,
                 limit,
