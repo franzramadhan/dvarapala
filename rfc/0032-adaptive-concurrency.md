@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-11-02 | #269 | |
+| implemented | 2026-11-02 | #269 | v0.22.0 |
 
 > Cap the requests in flight to the upstream at a limit learned from its
 > latency, and shed the excess with `503` and `Retry-After` before it
@@ -161,7 +161,7 @@ who is asking, and a choice of whom to turn away when it is reached.
 
 ## Rollout
 
-- **Rollout:** a minor release. Default `"off"`: nothing changes on
+- **Rollout:** v0.22.0. Default `"off"`: nothing changes on
   upgrade. The docs recommend `fixed` at the backend's known capacity
   first, then `gradient` once the metrics show the no-load latency is
   stable.

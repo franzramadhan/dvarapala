@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-11-02 | #270 | |
+| implemented | 2026-11-02 | #270 | v0.22.0 |
 
 > Load lists of networks from files or URLs (reputation feeds such as
 > Spamhaus DROP, Tor exits or an operator's own list), refresh them in
@@ -164,11 +164,11 @@ private-use ASN; no third-party database is checked in.
 
 ## Rollout
 
-- **Rollout:** a minor release. No feed and no database by default:
-  nothing changes on upgrade. The `geoip` feature joins the release
-  binaries and the image (the `maxminddb` crate is pure Rust, ISC; `cargo deny check` before
-  the implementation PR).
-  New feeds start in `observe`.
+- **Rollout:** v0.22.0. No feed and no database by default:
+  nothing changes on upgrade. The `geoip` feature ships in the
+  container image (built with every feature); the release tarballs
+  stay without it, as `ml` and `xdp` (see Implementation notes). The
+  `maxminddb` crate is pure Rust, ISC. New feeds start in `observe`.
 - **Off switch:** remove the feed (or set `mode = "observe"`) and
   reload. Removing `intel.geoip` needs the `country` and `asn`
   conditions removed in the same reload.

@@ -68,7 +68,7 @@ Or from crates.io, which builds the default features:
 
 ```sh
 cargo install dvarapala
-# optional: --features http3,ml,redis,postgres,xdp
+# optional: --features http3,ml,redis,postgres,xdp,geoip
 ```
 
 Or build from source with the toolchain pinned in `rust-toolchain.toml`:
@@ -77,7 +77,7 @@ Or build from source with the toolchain pinned in `rust-toolchain.toml`:
 git clone https://github.com/franzramadhan/dvarapala
 cd dvarapala
 cargo build --release
-# optional: --features http3,ml,redis,postgres,xdp (or use the container image)
+# optional: --features http3,ml,redis,postgres,xdp,geoip (or use the container image)
 ```
 
 ## First run

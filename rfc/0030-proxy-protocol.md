@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-11-02 | #268 | |
+| implemented | 2026-11-02 | #268 | v0.22.0 |
 
 > Read a PROXY protocol v1 or v2 header from trusted load balancers on the
 > TCP listener, before TLS, and use the address it carries as the client
@@ -146,7 +146,7 @@ All three need a restart, as the other `[l4]` connection keys.
 
 ## Rollout
 
-- **Rollout:** a minor release. Default `"off"`: nothing changes on
+- **Rollout:** v0.22.0. Default `"off"`: nothing changes on
   upgrade. A trusted peer must send the header, so the balancer and
   dvarapala switch together: restart dvarapala with the header on, then
   turn the header on at the balancer (most balancers apply it to new
