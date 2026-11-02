@@ -26,6 +26,7 @@ the values differ from the defaults. Every key is described in
 | [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 | [kubernetes.yaml](kubernetes.yaml) | Kubernetes: a policy, an `HTTPRoute` and an `Ingress` labeled to go through gateways the operator runs, and network policies so nothing bypasses them ([RFC 0019](../rfc/0019-operator.md)) |
 | [kubernetes-console-waf.yaml](kubernetes-console-waf.yaml) | Kubernetes: an operator gateway with the console, the WAF agent as a sidecar, a CA mount for the store and a network policy for the admin port ([RFC 0025](../rfc/0025-operator-gateway-parity.md)) |
+| [kubernetes-geoip.yaml](kubernetes-geoip.yaml) | Kubernetes: GeoLite2 Country and ASN files for an operator gateway from a PersistentVolumeClaim that a `geoipupdate` CronJob refreshes, country and ASN routes without a rollout ([RFC 0033](../rfc/0033-operator-large-mounts.md)) |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and
 addresses are placeholders (`app.example`, `<cert dir>`, `192.0.2.0/24`).

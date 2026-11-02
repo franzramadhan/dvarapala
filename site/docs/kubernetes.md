@@ -78,6 +78,8 @@ The gateway pods can run what a hand-written dvarapala Deployment has
       resources: {requests: {cpu: 100m, memory: 96Mi}}
     mounts:
       - {name: pg-ca, configMap: lab-root-ca}   # or secret: <name>
+      - {name: geoip, persistentVolumeClaim: {claimName: geoip}}
+      - {name: lists, image: {reference: "<registry>/<lists>@sha256:<digest>"}}
     podLabels: {team: shop}
     podAnnotations: {}
 ```
@@ -95,13 +97,31 @@ The gateway pods can run what a hand-written dvarapala Deployment has
   the agent's `bind` must be `unix:///run/waf/waf.sock`. The image must
   start with a prefix in `--waf-images`; an image without a digest and a
   sidecar while `[waf]` is off are warnings in `status.warnings`.
-- `mounts`: up to 16 ConfigMaps or Secrets, read-only at
-  `/etc/dvarapala-mounts/<name>/`, for a store CA or rule files.
+- `mounts`: up to 16, read-only at `/etc/dvarapala-mounts/<name>/`, each
+  from one of a ConfigMap, a Secret, a PersistentVolumeClaim or an image
+  volume (RFC 0033). ConfigMaps and Secrets suit a store CA or rule
+  files; they hold 1 MiB at most. A claim (`persistentVolumeClaim:
+  {claimName}`) carries larger files, such as GeoIP databases, path
+  feeds or an `ml.model`: something else fills it (a CronJob), the
+  operator never creates or deletes it, and files changed in place reach
+  the gateways through `config_watch` with no rollout. Replicas on
+  several nodes need a `ReadOnlyMany` or `ReadWriteMany` claim. An image
+  mount (`image: {reference, pullPolicy}`, `IfNotPresent` when unset)
+  mounts the files of an OCI image or artifact; a new reference rolls
+  the pods. Its reference must start with a prefix in the operator's
+  `--mount-images` flag, empty by default, so image mounts are refused
+  until the cluster admin names a registry; a reference without a digest
+  is a warning. Image volumes need the Kubernetes `ImageVolume` feature
+  gate and a runtime that supports it (beta and off by default in 1.33;
+  check the gate on your version). The operator does not detect it: a
+  pod that cannot start says why in its events.
 - `podLabels` and `podAnnotations`: for network policies and scrapers.
   The operator's own labels and its restart annotation are refused.
 
-A refused policy is `Ready=False` with the reason. The full example is
-[`kubernetes-console-waf.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-console-waf.yaml).
+A refused policy is `Ready=False` with the reason. The full examples are
+[`kubernetes-console-waf.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-console-waf.yaml)
+and, for GeoIP from a claim,
+[`kubernetes-geoip.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-geoip.yaml).
 
 ## What happens
 

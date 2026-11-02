@@ -187,10 +187,12 @@ which the container image has.
 To keep the files current, run MaxMind's `geoipupdate` on a schedule
 (the databases change weekly) and let a reload or `config_watch` pick up
 the new bytes. Each file is swapped only when it changes, and the log
-line `geoip loaded path=<path> sha256=<hex>` names each swap. On Kubernetes the file does
-not fit a ConfigMap or Secret (1 MiB at most; GeoLite2-Country is several
-MiB), so operator gateways cannot mount it yet; a hand-written gateway
-can use any volume.
+line `geoip loaded path=<path> sha256=<hex>` names each swap. On
+Kubernetes the files do not fit a ConfigMap or Secret (1 MiB at most;
+GeoLite2-Country is several MiB): operator gateways mount them from a
+PersistentVolumeClaim that a `geoipupdate` CronJob fills (RFC 0033,
+[example](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-geoip.yaml)).
+Each file is read whole, so every gateway pod holds its size in memory.
 
 Feeds act at L7 only: they are not pushed to the XDP block list. For a
 list to drop in the driver, put it in `xdp.block`.
