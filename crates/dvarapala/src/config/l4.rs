@@ -4,7 +4,8 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use dvarapala_engine::{Cidr, ConnsConfig, Limit};
-use dvarapala_l4::L4Config;
+use dvarapala_l4::proxy_protocol::Version;
+use dvarapala_l4::{L4Config, ProxyProtocol};
 use serde::{Deserialize, Serialize};
 
 use super::duration;
@@ -92,6 +93,7 @@ impl L4 {
         if self.header_timeout.is_zero() {
             return Err("l4.header_timeout must be more than 0s".into());
         }
+        let proxy_protocol = self.proxy_protocol()?;
         Ok(L4Config {
             enabled: self.enabled,
             max_connections: self.max_connections,
@@ -107,8 +109,39 @@ impl L4 {
             header_timeout: self.header_timeout,
             idle_timeout: (!self.idle_timeout.is_zero()).then_some(self.idle_timeout),
             min_body_rate: self.min_body_rate,
-            proxy_protocol: None,
+            proxy_protocol,
         })
+    }
+
+    fn proxy_protocol(&self) -> Result<Option<ProxyProtocol>, String> {
+        let version = match self.proxy_protocol {
+            ProxyProtocolMode::Off => return Ok(None),
+            ProxyProtocolMode::V1 => Version::V1,
+            ProxyProtocolMode::V2 => Version::V2,
+            ProxyProtocolMode::Any => Version::Any,
+        };
+        let from: Vec<Cidr> = self
+            .proxy_protocol_from
+            .iter()
+            .map(|c| {
+                c.parse()
+                    .map_err(|e| format!("l4.proxy_protocol_from: {e}"))
+            })
+            .collect::<Result<_, _>>()?;
+        if from.is_empty() {
+            return Err(
+                "l4.proxy_protocol_from must list the balancers when l4.proxy_protocol is on"
+                    .into(),
+            );
+        }
+        if self.proxy_protocol_timeout.is_zero() {
+            return Err("l4.proxy_protocol_timeout must be more than 0s".into());
+        }
+        Ok(Some(ProxyProtocol {
+            version,
+            from,
+            timeout: self.proxy_protocol_timeout,
+        }))
     }
 }
 
@@ -121,7 +154,6 @@ mod tests {
     use figment::Jail;
 
     use super::*;
-    use dvarapala_l4::proxy_protocol::Version;
 
     /// RFC 0009 configuration table.
     #[test]
@@ -178,7 +210,6 @@ mod tests {
 
     /// RFC 0030 case 13 and the configuration table
     #[test]
-    #[ignore = "rfc 0030"]
     fn proxy_protocol_keys() {
         assert_eq!(L4::default().config().unwrap().proxy_protocol, None);
         let on = |from: Vec<&str>| L4 {

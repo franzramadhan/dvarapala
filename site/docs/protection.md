@@ -33,10 +33,24 @@ sending anything useful: `header_timeout` for each request head,
 trickle in (`408`).
 
 A client here is the peer address, grouped by `prefix_v4` / `prefix_v6`;
-`X-Forwarded-For` does not apply. Behind a load balancer, list it in
+`X-Forwarded-For` does not apply. Behind an HTTP load balancer, list it in
 `exempt`.
 
-Keys: [`[l4]`](configuration.html#l4).
+### Behind a TCP load balancer
+
+A balancer that passes TLS through (an AWS NLB, a GCP passthrough load
+balancer, HAProxy in `mode tcp`) cannot add `X-Forwarded-For`, so every
+client would look like the balancer. Have it send a PROXY protocol header
+(`proxy_protocol_v2.enabled` on an NLB target group, `send-proxy-v2` in
+HAProxy) and set `proxy_protocol` and `proxy_protocol_from` ([RFC
+0030](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0030-proxy-protocol.md)).
+The header is read before TLS; the client it carries is the client for
+every layer on this page. A connection from the balancer without a valid
+header is closed, so turn the header on at the balancer right after
+restarting dvarapala, and watch `dvarapala_proxy_protocol_total`.
+
+Keys: [`[l4]`](configuration.html#l4),
+[example](examples.html#proxy-protocoltoml).
 
 ## Rate limit
 

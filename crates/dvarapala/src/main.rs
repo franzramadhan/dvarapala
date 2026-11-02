@@ -196,7 +196,11 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
             .transpose()?;
         let mut c = layer::config(&cfg, Instant::now, model.as_ref())?;
         c.cluster = store::start(&cfg.store, Some(c.limit), cfg.rate_limit.max_clients)?;
-        c.block = block.clone();
+        // RFC 0030: a carried client's packets come from the balancer, so
+        // its dynamic blocks stay out of XDP
+        if cfg.l4.proxy_protocol == config::ProxyProtocolMode::Off {
+            c.block = block.clone();
+        }
         Some(RateLimitLayer::new(c)?)
     } else {
         if cfg.store.backend != config::Backend::Memory {

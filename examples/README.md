@@ -12,6 +12,7 @@ the values differ from the defaults. Every key is described in
 | [websocket.toml](websocket.toml) | Chat or live updates: rate limited upgrades, tunnel limits |
 | [http3.toml](http3.toml) | HTTP/3 next to HTTPS, Retry under load (build with `--features http3`) |
 | [l4-limits.toml](l4-limits.toml) | Public endpoint without a load balancer: tight connection caps, accept rate, slowloris timeouts |
+| [proxy-protocol.toml](proxy-protocol.toml) | TLS passthrough behind a TCP load balancer: the PROXY protocol header carries the real client for every limit ([RFC 0030](../rfc/0030-proxy-protocol.md)) |
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 | [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
 | [ml.toml](ml.toml) | Learned scoring: an XGBoost model scores every client, LLM labels collect the next training set, a new model or threshold swaps in on `config_watch` without a restart (build with `--features ml`, [RFC 0029](../rfc/0029-ml-model-reload.md)) |
