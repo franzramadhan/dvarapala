@@ -34,7 +34,11 @@ that is silently ignored.
 The operator's gateways (RFC 0019) run the container image. With
 `gateway.admin` and `gateway.waf` in the policy (RFC 0025) the operator
 sets `admin.listen` and `waf.endpoint` itself; the policy's `[admin]` and
-`[waf]` hold the other keys.
+`[waf]` hold the other keys. Files over the 1 MiB ConfigMap limit, such
+as `intel.geoip`, come from a PersistentVolumeClaim or an OCI image
+volume in `gateway.mounts` (RFC 0033), mounted read-only at
+`/etc/dvarapala-mounts/<name>/`; image mounts need the registry in the
+operator's `--mount-images` list, empty by default.
 
 A commented example is in [examples/dvarapala.toml](examples/dvarapala.toml).
 
