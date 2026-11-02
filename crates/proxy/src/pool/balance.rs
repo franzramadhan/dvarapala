@@ -1,10 +1,12 @@
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use http::uri::{Authority, Scheme};
 
 use super::{HealthConfig, RetryBudget};
+use crate::Concurrency;
 use crate::reverse::parse;
 
 /// Endpoints in one pool at most.
@@ -103,6 +105,8 @@ pub struct Pool {
     epoch: Instant,
     /// last `pool degraded` log, ms since the epoch
     degraded_log: AtomicU64,
+    /// RFC 0032: the limit on requests in flight to the pool
+    pub(crate) concurrency: Option<Arc<Concurrency>>,
 }
 
 /// One request in flight on an endpoint, until dropped.
@@ -157,9 +161,20 @@ impl Pool {
             now: config.now,
             epoch: (config.now)(),
             degraded_log: AtomicU64::new(0),
+            concurrency: None,
         };
         pool.endpoints.iter().for_each(|e| pool.gauge(e));
         Ok(pool)
+    }
+
+    /// RFC 0032: every listener's requests to the pool share `limit`.
+    pub fn with_concurrency(mut self, limit: Arc<Concurrency>) -> Self {
+        self.concurrency = Some(limit);
+        self
+    }
+
+    pub fn concurrency(&self) -> Option<&Arc<Concurrency>> {
+        self.concurrency.as_ref()
     }
 
     /// Whether any endpoint is `https://`.

@@ -7,8 +7,8 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use dvarapala_l4::{BodyRate, MinBodyRate, is_too_slow};
-use dvarapala_l7::{GrpcStatus, PeerAddr, grpc_response, is_grpc};
-use http::header::{CONNECTION, HeaderValue, UPGRADE};
+use dvarapala_l7::{GrpcStatus, PeerAddr, Priority, grpc_response, is_grpc};
+use http::header::{CONNECTION, HeaderValue, RETRY_AFTER, UPGRADE};
 use http::uri::{Authority, Scheme};
 use http::{Method, Request, Response, StatusCode, Uri, Version};
 use http_body_util::combinators::BoxBody;
@@ -163,6 +163,21 @@ where
     }
 
     fn call(&mut self, mut req: Request<B>) -> Self::Future {
+        // RFC 0032: shed before any upstream work, so a shed request never
+        // counts for ejection nor earns or spends a retry
+        let slot = match &self.pool.concurrency {
+            Some(c) => {
+                let p = req.extensions().get::<Priority>().copied();
+                match c.admit(p.unwrap_or_default()) {
+                    Some(slot) => Some(slot),
+                    None => {
+                        let grpc = is_grpc(req.headers());
+                        return Box::pin(async move { Ok(shed(grpc)) });
+                    }
+                }
+            }
+            None => None,
+        };
         // upgrades need HTTP/1.1 on both sides
         let upgrade = (req.version() == Version::HTTP_11
             && self.protocol != UpstreamProtocol::Http2)
@@ -248,6 +263,13 @@ where
                 *req.version_mut() = *version;
                 *req.uri_mut() = uri;
             };
+            // in flight until the response head; a client too slow to send
+            // its body says nothing about the upstream
+            match (slot, &result) {
+                (Some(_), Err(e)) if is_too_slow(e) => {}
+                (Some(s), r) => s.done(healthy(r)),
+                (None, _) => {}
+            }
             Ok(match result {
                 Ok(mut res) => {
                     let switched = res.status() == StatusCode::SWITCHING_PROTOCOLS;
@@ -310,6 +332,18 @@ pub(crate) fn parse(
     }
     let base_path = uri.path().trim_end_matches('/').to_owned();
     Ok((scheme.clone(), authority.clone(), base_path))
+}
+
+/// `503` with `Retry-After: 1`, gRPC status 8 for gRPC (RFC 0032).
+fn shed(grpc: bool) -> Response<ProxyBody> {
+    let retry = std::time::Duration::from_secs(1);
+    if grpc {
+        return grpc_response(GrpcStatus::ResourceExhausted, Some(retry));
+    }
+    let mut res = status(StatusCode::SERVICE_UNAVAILABLE);
+    res.headers_mut()
+        .insert(RETRY_AFTER, HeaderValue::from_static("1"));
+    res
 }
 
 fn status(code: StatusCode) -> Response<ProxyBody> {

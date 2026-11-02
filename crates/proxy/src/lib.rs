@@ -3,6 +3,7 @@
 //! graceful shutdown.
 
 mod alt_svc;
+mod concurrency;
 mod forward;
 mod hop;
 mod http2;
@@ -18,6 +19,7 @@ mod upgrade;
 mod upstream;
 
 pub use alt_svc::AltSvc;
+pub use concurrency::Concurrency;
 pub use forward::{Destination, ForwardConfig, ForwardError, ForwardProxy, Routes};
 pub use hop::allowed_upgrade;
 pub use http2::Http2Limits;
