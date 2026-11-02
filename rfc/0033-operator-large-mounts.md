@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-02 | #N | |
+| draft | 2026-11-02 | #297 | |
 
 > `gateway.mounts` gains two read-only sources next to ConfigMaps and
 > Secrets: an existing PersistentVolumeClaim and an OCI image volume. They
