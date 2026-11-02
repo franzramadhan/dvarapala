@@ -48,7 +48,7 @@ mod tests {
     #[cfg(not(feature = "geoip"))]
     #[test]
     fn needs_the_feature() {
-        let e = load(Path::new("geo.mmdb"), None).unwrap_err();
+        let e = load(Path::new("geo.mmdb"), &[]).unwrap_err();
         assert!(e.contains("geoip feature"), "{e}");
     }
 
@@ -60,14 +60,33 @@ mod tests {
         let p = dir.join("geo.mmdb");
         let net = "198.51.100.0/24".parse().unwrap();
         std::fs::write(&p, dvarapala_l7::test_db(&[(net, "ZZ", 64500)])).unwrap();
-        let a = load(&p, None).unwrap();
-        let b = load(&p, Some(&a)).unwrap();
+        let a = load(&p, &[]).unwrap();
+        let b = load(&p, std::slice::from_ref(&a)).unwrap();
         assert!(Arc::ptr_eq(&a.db, &b.db));
         std::fs::write(&p, dvarapala_l7::test_db(&[(net, "XA", 64501)])).unwrap();
-        let c = load(&p, Some(&a)).unwrap();
+        let c = load(&p, std::slice::from_ref(&a)).unwrap();
         assert!(!Arc::ptr_eq(&a.db, &c.db));
         std::fs::write(&p, b"not a database").unwrap();
-        assert!(load(&p, Some(&c)).unwrap_err().contains("intel.geoip"));
+        assert!(load(&p, &[c]).unwrap_err().contains("intel.geoip"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(feature = "geoip")]
+    #[test]
+    fn a_reload_swaps_only_the_changed_file() {
+        use dvarapala_l7::test_db_fields;
+        let dir = std::env::temp_dir().join(format!("dvarapala-geoip2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (country, asn) = (dir.join("country.mmdb"), dir.join("asn.mmdb"));
+        let net = "198.51.100.0/24".parse().unwrap();
+        std::fs::write(&country, test_db_fields(&[(net, Some("ZZ"), None)])).unwrap();
+        std::fs::write(&asn, test_db_fields(&[(net, None, Some(64500))])).unwrap();
+        let first = [load(&country, &[]).unwrap(), load(&asn, &[]).unwrap()];
+        std::fs::write(&asn, test_db_fields(&[(net, None, Some(64501))])).unwrap();
+        let second = [load(&country, &first).unwrap(), load(&asn, &first).unwrap()];
+        assert!(Arc::ptr_eq(&first[0].db, &second[0].db));
+        assert!(!Arc::ptr_eq(&first[1].db, &second[1].db));
+        assert_eq!(second[1].path, asn);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

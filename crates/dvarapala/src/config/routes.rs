@@ -232,7 +232,7 @@ mod tests {
         let e = routes(&[r.clone()], &none()).unwrap_err();
         assert!(e.contains("\"eu\": country: needs intel.geoip"), "{e}");
         let geo = super::super::Intel {
-            geoip: Some("geo.mmdb".into()),
+            geoip: Some(vec!["geo.mmdb".into()]),
             feed: vec![
                 toml::from_str("name = \"tor\"\npath = \"tor.txt\"\naction = \"tag\"").unwrap(),
             ],

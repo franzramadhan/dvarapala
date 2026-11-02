@@ -182,6 +182,31 @@ mod tests {
     }
 
     #[test]
+    fn geoip_is_one_path_or_a_list() {
+        let one: Intel = toml::from_str("geoip = \"Country.mmdb\"").unwrap();
+        assert_eq!(one.geoip, Some(vec!["Country.mmdb".into()]));
+        assert!(one.check(false).is_ok());
+        let two: Intel = toml::from_str("geoip = [\"Country.mmdb\", \"ASN.mmdb\"]").unwrap();
+        assert_eq!(
+            two.geoip,
+            Some(vec!["Country.mmdb".into(), "ASN.mmdb".into()])
+        );
+        assert!(two.check(false).is_ok());
+        let err = |s: &str| {
+            toml::from_str::<Intel>(s)
+                .unwrap()
+                .check(false)
+                .unwrap_err()
+        };
+        let e = err("geoip = []");
+        assert!(e.contains("intel.geoip: at least one file"), "{e}");
+        let e = err("geoip = [\"a.mmdb\", \"b.mmdb\", \"a.mmdb\"]");
+        assert!(e.contains("intel.geoip a.mmdb: listed twice"), "{e}");
+        let e = err("geoip = [\"1\", \"2\", \"3\", \"4\", \"5\"]");
+        assert!(e.contains("intel.geoip: at most 4 files"), "{e}");
+    }
+
+    #[test]
     fn bits_follow_the_feed_order() {
         let i = intel(vec![feed("drop"), feed("tor")]);
         assert_eq!(i.bit("tor"), Some(1));

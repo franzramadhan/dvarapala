@@ -64,6 +64,17 @@ pub fn fuzz_geoip(data: &[u8]) {
 /// A minimal IPv4 MaxMind DB for tests: each network maps to a country
 /// code and an ASN. Networks must not overlap; IPv6 ones are skipped.
 pub fn test_db(entries: &[(Cidr, &str, u32)]) -> Vec<u8> {
+    let entries: Vec<_> = entries
+        .iter()
+        .map(|&(net, cc, asn)| (net, Some(cc), Some(asn)))
+        .collect();
+    test_db_fields(&entries)
+}
+
+#[doc(hidden)]
+/// [`test_db`] with either field left out, like a GeoLite2 Country file
+/// (no ASN) or an ASN file (no country).
+pub fn test_db_fields(entries: &[(Cidr, Option<&str>, Option<u32>)]) -> Vec<u8> {
     #[derive(Clone, Copy)]
     enum Rec {
         Empty,
@@ -76,13 +87,20 @@ pub fn test_db(entries: &[(Cidr, &str, u32)]) -> Vec<u8> {
         let IpAddr::V4(a) = net.addr() else { continue };
         let (bits, len) = (u32::from(a), usize::from(net.prefix()));
         let offset = data.len();
-        map(&mut data, 2);
-        string(&mut data, "country");
-        map(&mut data, 1);
-        string(&mut data, "iso_code");
-        string(&mut data, cc);
-        string(&mut data, "autonomous_system_number");
-        uint(&mut data, 6, u64::from(*asn));
+        map(
+            &mut data,
+            usize::from(cc.is_some()) + usize::from(asn.is_some()),
+        );
+        if let Some(cc) = cc {
+            string(&mut data, "country");
+            map(&mut data, 1);
+            string(&mut data, "iso_code");
+            string(&mut data, cc);
+        }
+        if let Some(asn) = asn {
+            string(&mut data, "autonomous_system_number");
+            uint(&mut data, 6, u64::from(*asn));
+        }
         let mut node = 0;
         for i in 0..len {
             let bit = ((bits >> (31 - i)) & 1) as usize;

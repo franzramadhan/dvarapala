@@ -33,7 +33,7 @@ pub use fingerprint::{Fingerprints, Ja4};
 pub use grpc::{GrpcStatus, grpc_response, is_grpc};
 pub use intel::{Action, Feed, FeedList, Intel, MAX_FEEDS};
 #[cfg(feature = "geoip")]
-pub use intel::{GeoIp, fuzz_geoip, test_db};
+pub use intel::{GeoIp, fuzz_geoip, test_db, test_db_fields};
 #[cfg(feature = "llm")]
 pub use llm::{
     Answer, MAX_REPLY, Protocol, features, fuzz_llm_reply, parse_reply, request_body, sample_json,
