@@ -58,6 +58,14 @@ async fn second_connect_closed_before_handshake() {
     let read = tokio::time::timeout(Duration::from_secs(5), second.read(&mut b)).await;
     assert!(matches!(read, Ok(Ok(0) | Err(_))), "{read:?}");
     assert_eq!(counter("dvarapala_l4_rejected_total{reason=per_client}"), 1);
+    // TLS 1.3: the client is done once it sends its Finished, the server
+    // counts the handshake after it reads it, so wait for the server side
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while counter("dvarapala_tls_handshakes_total{result=ok}") == 0
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     for result in ["ok", "rejected", "failed", "timeout"] {
         // only the first connection's handshake
         let want = u64::from(result == "ok");
