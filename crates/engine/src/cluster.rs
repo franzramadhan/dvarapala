@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use crate::{Cidr, ClientKey, Limit, ScheduleConfig, Verdict};
+use crate::{Blocks, Cidr, ClientKey, Limit, ScheduleConfig, Verdict};
 
 /// Shared state across replicas (RFC 0010).
 #[derive(Debug, Clone)]
@@ -57,7 +57,7 @@ pub struct Cluster {
     deltas: HashMap<ClientKey, u32>,
     dropped: u64,
     throttled: HashMap<ClientKey, Instant>,
-    blocked: Vec<(Cidr, Instant)>,
+    blocked: Blocks,
     heavy_out: Vec<(Cidr, Duration)>,
     pauses_out: Vec<(String, Duration)>,
     pauses: HashMap<String, Instant>,
@@ -71,7 +71,7 @@ impl Cluster {
             deltas: HashMap::new(),
             dropped: 0,
             throttled: HashMap::new(),
-            blocked: Vec::new(),
+            blocked: Blocks::new(0),
             heavy_out: Vec::new(),
             pauses_out: Vec::new(),
             pauses: HashMap::new(),
@@ -83,12 +83,7 @@ impl Cluster {
     /// `Drop` for a listed heavy hitter, `Throttle` for a client over the
     /// cluster count, `None` to go on.
     pub fn check(&self, key: ClientKey, now: Instant) -> Option<Verdict> {
-        let ip = IpAddr::from(key);
-        if self
-            .blocked
-            .iter()
-            .any(|(c, until)| *until > now && c.contains(ip))
-        {
+        if self.blocked.contains(IpAddr::from(key), now) {
             return Some(Verdict::Drop);
         }
         let until = *self.throttled.get(&key)?;
@@ -168,7 +163,8 @@ impl Cluster {
                 }
             }
         }
-        self.blocked = reply.heavy.into_iter().map(|(c, d)| (c, now + d)).collect();
+        self.blocked =
+            Blocks::from_entries(reply.heavy.into_iter().map(|(c, d)| (c, now + d)), now);
         self.pauses = reply
             .pauses
             .into_iter()
@@ -332,5 +328,35 @@ mod tests {
         assert_eq!(c.pause("api", t), Some(Duration::from_secs(2)));
         assert_eq!(c.pause("other", t), None);
         assert_eq!(c.check(key(9), t + Duration::from_secs(30)), None);
+    }
+
+    // issue 308: verdicts over a full list; the bench gates the speed
+    #[test]
+    fn check_over_a_full_heavy_hitter_list_keeps_verdicts() {
+        let mut c = cluster(10);
+        let t = Instant::now();
+        let ttl = Duration::from_secs(30);
+        let net = |i: u32| Cidr::of(IpAddr::V4(Ipv4Addr::from(0x0a00_0000 | i)), 32);
+        let mut heavy: Vec<_> = (0..10_000).map(|i| (net(i), ttl)).collect();
+        heavy.push((
+            Cidr::of(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 7)), 32),
+            ttl / 2,
+        ));
+        c.apply(
+            Reply {
+                heavy,
+                ..Reply::default()
+            },
+            t,
+            0,
+        );
+        let member = IpAddr::V4(Ipv4Addr::from(0x0a00_0000 | 9_999)).into();
+        assert_eq!(c.check(member, t), Some(Verdict::Drop));
+        assert_eq!(c.check(member, t + ttl), None);
+        let half = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 7)).into();
+        assert_eq!(c.check(half, t), Some(Verdict::Drop));
+        assert_eq!(c.check(half, t + ttl / 2), None);
+        let other = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7)).into();
+        assert_eq!(c.check(other, t), None);
     }
 }

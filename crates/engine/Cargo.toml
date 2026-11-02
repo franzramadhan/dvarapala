@@ -35,3 +35,7 @@ harness = false
 [[bench]]
 name = "intel"
 harness = false
+
+[[bench]]
+name = "cluster"
+harness = false
