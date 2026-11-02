@@ -83,6 +83,19 @@ export const HEALTH: HealthPage[] = [
     rfc: '0005',
     prefixes: ['dvarapala_tunnel', 'dvarapala_grpc_local_responses_total', 'dvarapala_http2_goaway_total'],
   },
+  {
+    id: 'concurrency',
+    label: 'Concurrency',
+    rfc: '0032',
+    prefixes: ['dvarapala_concurrency_'],
+    marker: 'dvarapala_concurrency_limit',
+    // degraded while shedding, or at the limit before the second poll has rates
+    health: (m) => {
+      const one = (n: string) => values(m, n)[0]?.value ?? 0;
+      const shedding = values(m, 'dvarapala_concurrency_shed_total').some((s) => (rateOf(m, s) ?? 0) > 0);
+      return shedding || one('dvarapala_concurrency_in_flight') >= one('dvarapala_concurrency_limit') ? 'degraded' : 'ok';
+    },
+  },
   { id: 'egress', label: 'Egress', rfc: '0007', prefixes: ['dvarapala_egress_'] },
   { id: 'limiter', label: 'Limiter', rfc: '0001', prefixes: ['dvarapala_limiter_', 'dvarapala_blocks'] },
 ];

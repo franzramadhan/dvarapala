@@ -146,6 +146,26 @@ describe('health pages', () => {
     expect(await screen.findByText('ml_model_info')).toBeTruthy();
   });
 
+  // RFC 0032: the concurrency page, degraded at the limit
+  it('shows the concurrency limit and its shed counts', async () => {
+    mockApi({
+      'GET /metrics': () => ({
+        body: [
+          'dvarapala_concurrency_limit 40',
+          'dvarapala_concurrency_in_flight 40',
+          'dvarapala_concurrency_shed_total{class="normal"} 7',
+          'dvarapala_concurrency_rtt_seconds{kind="noload"} 0.02',
+        ].join('\n'),
+      }),
+      'GET /status': () => ({ body: attackStatus }),
+    });
+    renderApp('/ui/');
+    await waitFor(() => expect(screen.getByTestId('health-concurrency').textContent).toContain('degraded'));
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    fireEvent.click(within(nav).getByText('Concurrency'));
+    expect(await screen.findByText('concurrency_shed_total')).toBeTruthy();
+  });
+
   // RFC 0021 case 20
   it('hides the pages of features that export no series', async () => {
     mockApi({ 'GET /metrics': () => ({ body: 'dvarapala_requests_total{verdict="allow"} 1\ndvarapala_upstream_errors_total 0\ndvarapala_limiter_clients 4\n' }) });
