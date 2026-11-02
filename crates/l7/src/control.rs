@@ -9,8 +9,8 @@ use dvarapala_engine::{
 };
 
 use crate::challenge::Challenge;
-use crate::rate_limit::RateLimitLayer;
-use crate::{ChallengeConfig, Fingerprints, RouteConfig, Routes, Scoring};
+use crate::rate_limit::{RateLimitLayer, Shared};
+use crate::{ChallengeConfig, Fingerprints, Intel, RouteConfig, Routes, Scoring};
 
 /// The parts of the layer a request reads once and a reload swaps whole.
 pub(crate) struct Policy {
@@ -95,6 +95,16 @@ impl RateLimitLayer {
         Ok(())
     }
 
+    /// RFC 0031: the feeds and the GeoIP database requests are checked
+    /// against. A feed refresh swaps its list without this.
+    pub fn set_intel(&self, intel: Arc<Intel>) {
+        *self
+            .shared
+            .intel
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = intel;
+    }
+
     /// Blocks `net` for `ttl`, also at the XDP block list when there is one.
     pub fn block(&self, net: Cidr, ttl: Duration) -> Result<(), BlocksFull> {
         let now = (self.shared.now)();
@@ -154,6 +164,15 @@ impl RateLimitLayer {
             .blocks
             .write()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Shared {
+    pub(crate) fn intel(&self) -> Arc<Intel> {
+        self.intel
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 

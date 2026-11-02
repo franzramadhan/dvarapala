@@ -49,6 +49,8 @@ h3 = "0.0.8"
 h3-quinn = { version = "0.0.10", default-features = false }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 criterion = { version = "0.8.2", default-features = false }
+# RFC 0031: MaxMind DB files, the geoip feature only
+maxminddb = { version = "0.32.0", default-features = false }
 tokio = { version = "1.54.1", default-features = false }
 tower = { version = "0.5.3", default-features = false }
 tower-layer = "0.3.3"

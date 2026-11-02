@@ -1,0 +1,177 @@
+use std::net::IpAddr;
+use std::sync::{Arc, PoisonError, RwLock};
+
+use dvarapala_engine::{Origin, PrefixSet};
+
+/// Feeds a policy holds at most: one route bit each.
+pub const MAX_FEEDS: usize = 64;
+
+/// What a feed does to the clients it lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// `403` and the connection closed, before any bucket.
+    Deny,
+    /// The proof-of-work challenge until the client holds a pass.
+    Challenge,
+    /// No verdict; routes can match the feed.
+    Tag,
+}
+
+impl Action {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::Challenge => "challenge",
+            Self::Tag => "tag",
+        }
+    }
+}
+
+/// The list in force for one feed. A refresh swaps it without a reload;
+/// clones share it.
+#[derive(Debug, Clone, Default)]
+pub struct FeedList(Arc<RwLock<Arc<PrefixSet>>>);
+
+impl FeedList {
+    pub fn new(set: PrefixSet) -> Self {
+        Self(Arc::new(RwLock::new(Arc::new(set))))
+    }
+
+    pub fn set(&self, set: PrefixSet) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(set);
+    }
+
+    pub fn get(&self) -> Arc<PrefixSet> {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Feed {
+    /// The `feed` label in metrics.
+    pub name: String,
+    pub action: Action,
+    /// `false` counts what the action would do and lets the request on.
+    pub enforce: bool,
+    pub list: FeedList,
+}
+
+/// What the feeds decide for a request, the strongest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Effect {
+    None,
+    Challenge,
+    Deny,
+}
+
+/// The feeds and the GeoIP database in force; a reload swaps it whole.
+#[derive(Debug, Default)]
+pub struct Intel {
+    feeds: Vec<Feed>,
+    #[cfg(feature = "geoip")]
+    geo: Option<Arc<crate::GeoIp>>,
+}
+
+impl Intel {
+    /// Feeds past [`MAX_FEEDS`] are ignored; the config refuses them.
+    pub fn new(mut feeds: Vec<Feed>) -> Self {
+        feeds.truncate(MAX_FEEDS);
+        Self {
+            feeds,
+            #[cfg(feature = "geoip")]
+            geo: None,
+        }
+    }
+
+    /// Countries and ASNs for route conditions.
+    #[cfg(feature = "geoip")]
+    pub fn with_geo(mut self, geo: Option<Arc<crate::GeoIp>>) -> Self {
+        self.geo = geo;
+        self
+    }
+
+    /// Where `ip` comes from, and what its feeds in enforce mode decide.
+    /// Feed `i` sets bit `i` of [`Origin::feeds`] in enforce mode only.
+    pub(crate) fn check(&self, ip: IpAddr) -> (Origin, Effect) {
+        let mut origin = Origin::default();
+        let mut effect = Effect::None;
+        for (i, f) in self.feeds.iter().enumerate() {
+            if !f.list.get().contains(ip) {
+                continue;
+            }
+            let mode = if f.enforce { "enforce" } else { "observe" };
+            metrics::counter!(
+                "dvarapala_intel_hits_total",
+                "feed" => f.name.clone(),
+                "action" => f.action.name(),
+                "mode" => mode
+            )
+            .increment(1);
+            if f.enforce {
+                origin.feeds |= 1 << i;
+                effect = effect.max(match f.action {
+                    Action::Deny => Effect::Deny,
+                    Action::Challenge => Effect::Challenge,
+                    Action::Tag => Effect::None,
+                });
+            }
+        }
+        #[cfg(feature = "geoip")]
+        if let Some(g) = &self.geo {
+            (origin.country, origin.asn) = g.lookup(ip);
+        }
+        (origin, effect)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn feed(name: &str, action: Action, enforce: bool, nets: &[&str]) -> Feed {
+        let set = PrefixSet::new(nets.iter().map(|n| n.parse().unwrap()));
+        Feed {
+            name: name.into(),
+            action,
+            enforce,
+            list: FeedList::new(set),
+        }
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn enforced_feeds_set_bits_and_the_strongest_effect() {
+        let intel = Intel::new(vec![
+            feed("tor", Action::Tag, true, &["192.0.2.0/24"]),
+            feed("drop", Action::Deny, false, &["192.0.2.0/24"]),
+            feed("bots", Action::Challenge, true, &["192.0.2.7"]),
+            feed("bad", Action::Deny, true, &["198.51.100.0/24"]),
+        ]);
+        let (o, e) = intel.check(ip("192.0.2.7"));
+        assert_eq!((o.feeds, e), (0b101, Effect::Challenge));
+        let (o, e) = intel.check(ip("192.0.2.8"));
+        assert_eq!((o.feeds, e), (0b1, Effect::None));
+        assert_eq!(intel.check(ip("198.51.100.1")).1, Effect::Deny);
+        assert_eq!(
+            intel.check(ip("203.0.113.1")),
+            (Origin::default(), Effect::None)
+        );
+    }
+
+    #[test]
+    fn a_refresh_swaps_the_list_in_place() {
+        let f = feed("drop", Action::Deny, true, &["192.0.2.0/24"]);
+        let list = f.list.clone();
+        let intel = Intel::new(vec![f]);
+        assert_eq!(intel.check(ip("192.0.2.1")).1, Effect::Deny);
+        list.set(PrefixSet::new(["198.51.100.0/24".parse().unwrap()]));
+        assert_eq!(intel.check(ip("192.0.2.1")).1, Effect::None);
+        assert_eq!(list.get().len(), 1);
+    }
+}
