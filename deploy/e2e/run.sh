@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# RFC 0019 cases 15 to 21 and RFC 0025 cases 16 and 17 on a kind cluster. Needs kind, kubectl, helm and
+# RFC 0019 cases 15 to 21, RFC 0025 cases 16 and 17 and RFC 0033 cases 10
+# to 12 on a kind cluster. Needs kind, kubectl, helm, python3 and
 # the images dvarapala:e2e and dvarapala-operator:e2e in the local Docker
 # (ci.yml job operator-e2e builds them).
 #   deploy/e2e/run.sh default   # Envoy Gateway and ingress-nginx: 15 to 20,
-#                               # then RFC 0025 16 and 17
+#                               # then RFC 0025 16 and 17, RFC 0033 10 to 12
 #   deploy/e2e/run.sh cilium    # Cilium, kubeProxyReplacement: 21
 set -euo pipefail
 
@@ -250,6 +251,79 @@ console_waf() {
   echo "ok: waf mode reloaded without restart"
 }
 
+# RFC 0033 cases 10 to 12: a generated GeoIP database on a claim, a
+# country route through the gateway, then the file swapped in place.
+# 192.0.2.10 (RFC 5737) comes in X-Forwarded-For through the trusted proxy.
+geo_code() {
+  k -n shop exec curl -- curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: echo.example' \
+    -H 'X-Forwarded-For: 192.0.2.10' "$1" || true
+}
+geo_put() {
+  python3 "$here/geoip-db.py" "192.0.2.0/24=$1/64512" |
+    k -n shop exec -i geo-fill -- sh -c 'cat > /geo/.new && mv /geo/.new /geo/test.mmdb'
+}
+geoip() {
+  local url=$1 gw before after ok=
+  k apply --server-side -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: geo, namespace: shop}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 16Mi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: geo-fill, namespace: shop}
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: fill
+      image: curlimages/curl:8.11.1
+      command: [sleep, "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+      volumeMounts: [{name: geo, mountPath: /geo}]
+  volumes: [{name: geo, persistentVolumeClaim: {claimName: geo}}]
+EOF
+  k -n shop wait pod/geo-fill --for=condition=Ready --timeout=120s
+  geo_put XA
+  local config='trusted_proxies = [\"10.0.0.0/8\"]\n[rate_limit]\nrate = 100\nburst = 100\n[intel]\ngeoip = [\"/etc/dvarapala-mounts/geoip/test.mmdb\"]\n[[routes]]\nname = \"geo\"\ncountry = [\"XA\"]\ndeny = true\n'
+  k -n shop patch dvarapalapolicy default --type merge -p "{\"spec\":{\"config\":\"$config\",
+    \"gateway\":{\"admin\":null,\"waf\":null,\"mounts\":[{\"name\":\"geoip\",\"persistentVolumeClaim\":{\"claimName\":\"geo\"}}]}}}"
+  gw=$(k -n shop get deploy -l app.kubernetes.io/name=dvarapala-gateway -o name | head -1)
+  for _ in $(seq 30); do
+    k -n shop get "$gw" -o jsonpath='{.spec.template.spec.volumes[*].persistentVolumeClaim.claimName}' | grep -q geo && break
+    sleep 2
+  done
+  k -n shop rollout status "$gw" --timeout=240s
+  for _ in $(seq 60); do
+    if [ "$(geo_code "$url") $(code "$url")" = "403 200" ]; then ok=1; break; fi
+    sleep 3
+  done
+  [ -n "$ok" ] || fail "country route not applied: $(geo_code "$url") $(code "$url"): $(k -n shop get dvarapalapolicy default -o yaml)"
+  echo "ok: country route from a claim"
+  before=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
+  geo_put XB
+  ok=
+  # config_watch rereads the file every 10s
+  for _ in $(seq 40); do
+    if [ "$(geo_code "$url")" = 200 ]; then ok=1; break; fi
+    sleep 3
+  done
+  [ -n "$ok" ] || fail "swapped geoip file not picked up"
+  after=$(k -n shop get pods -l app.kubernetes.io/name=dvarapala-gateway -o jsonpath='{.items[*].metadata.uid}')
+  no_new_pods "$before" "$after"
+  echo "ok: geoip file swapped without restart"
+  k apply --server-side --force-conflicts --dry-run=server --validate=strict \
+    -f "$here/../../examples/kubernetes-geoip.yaml" >/dev/null || fail "examples/kubernetes-geoip.yaml refused"
+  echo "ok: kubernetes-geoip.yaml validates"
+}
+
 # REUSE=1 skips the cluster setup, to rerun the cases
 [ -n "${REUSE:-}" ] || up
 envoy=$(k -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=eg -o jsonpath='{.items[0].metadata.name}')
@@ -261,5 +335,6 @@ if [ "$flavor" = default ]; then
   reload "$gateway_url"
   operator_down "$gateway_url"
   console_waf "$gateway_url"
+  geoip "$gateway_url"
 fi
 echo "PASS: $flavor"

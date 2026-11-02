@@ -306,7 +306,7 @@ jobs:
         name: Images
         run: |
           set -euo pipefail
-          cargo build --locked --release --target x86_64-unknown-linux-musl -p dvarapala -p dvarapala-operator
+          cargo build --locked --release --target x86_64-unknown-linux-musl -p dvarapala -p dvarapala-operator --features dvarapala/geoip
           mkdir -p dist/amd64
           cp target/x86_64-unknown-linux-musl/release/{dvarapala,dvarapala-operator} dist/amd64/
           docker build --platform linux/amd64 -t dvarapala:e2e .

@@ -1,0 +1,107 @@
+# Kubernetes (RFC 0033): GeoLite2 databases for an operator gateway, too
+# large for a ConfigMap, from a PersistentVolumeClaim that MaxMind's
+# geoipupdate refreshes weekly. Builds on kubernetes.yaml (the operator
+# installed, a route labeled with the policy). Names are placeholders
+# (shop, geoip, <account id>, <license key>).
+#
+# The gateways read the files in place: config_watch (on for operator
+# gateways) swaps a database when its bytes change, with no rollout. A
+# GeoLite2 file is read whole, so each gateway pod holds its size in
+# memory (a City file costs tens of MiB).
+#
+# The claim must be readable from every node a gateway pod runs on:
+# ReadWriteMany (or ReadOnlyMany for the gateways and a separate writer).
+# On a single node, ReadWriteOnce is enough.
+#
+# A gateway does not start without its geoip files: run the job once
+# before labeling a route with the policy:
+#   kubectl -n shop create job geoipupdate-first --from=cronjob/geoipupdate
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: geoip
+  namespace: shop
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests: {storage: 256Mi}
+---
+# The MaxMind account, never in the policy.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: geoipupdate
+  namespace: shop
+stringData:
+  GEOIPUPDATE_ACCOUNT_ID: "<account id>"
+  GEOIPUPDATE_LICENSE_KEY: "<license key>"
+---
+# geoipupdate writes each file to a temporary name and renames it, so a
+# gateway never reads half a database. MaxMind publishes GeoLite2 twice a
+# week.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: geoipupdate
+  namespace: shop
+spec:
+  schedule: "17 4 * * 3,6"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: geoipupdate
+              # pin it by digest
+              image: ghcr.io/maxmind/geoipupdate:v7.1.1
+              envFrom:
+                - secretRef: {name: geoipupdate}
+              env:
+                - {name: GEOIPUPDATE_EDITION_IDS, value: GeoLite2-Country GeoLite2-ASN}
+                - {name: GEOIPUPDATE_DB_DIR, value: /geoip}
+              volumeMounts:
+                - {name: geoip, mountPath: /geoip}
+          volumes:
+            - name: geoip
+              persistentVolumeClaim: {claimName: geoip}
+---
+apiVersion: dvarapala.franzramadhan.dev/v1alpha1
+kind: DvarapalaPolicy
+metadata:
+  name: default
+  namespace: shop
+spec:
+  config: |
+    trusted_proxies = ["10.0.0.0/8"]
+    [rate_limit]
+    rate = 20
+    burst = 40
+    # the Country file gives the country, the ASN file the ASN
+    [intel]
+    geoip = [
+      "/etc/dvarapala-mounts/geoip/GeoLite2-Country.mmdb",
+      "/etc/dvarapala-mounts/geoip/GeoLite2-ASN.mmdb",
+    ]
+    # /admin/ from one country only; ZZ stands for your ISO 3166-1 code
+    [[routes]]
+    name = "admin"
+    path = "/admin/"
+    country = ["ZZ"]
+    [[routes]]
+    name = "admin-elsewhere"
+    path = "/admin/"
+    deny = true
+    # a network that sends only abuse, by its ASN (a private one here)
+    [[routes]]
+    name = "abusive-asn"
+    asn = [64512]
+    deny = true
+  gateway:
+    replicas: 2
+    # read-only at /etc/dvarapala-mounts/geoip/; the operator never
+    # creates, resizes or deletes the claim
+    mounts:
+      - name: geoip
+        persistentVolumeClaim: {claimName: geoip}
