@@ -126,4 +126,98 @@ mod tests {
         };
         assert!(server_config(&bad).is_err());
     }
+
+    const SECRET: &str = "/api/v1/namespaces/dvarapala/secrets/op-tls";
+    const HOOK: &str =
+        "/apis/admissionregistration.k8s.io/v1/mutatingwebhookconfigurations/dvarapala-operator";
+
+    fn names() -> Vec<String> {
+        vec!["op.dvarapala.svc".into()]
+    }
+
+    #[tokio::test]
+    async fn ensure_creates_the_secret_once() {
+        let fake = crate::fake::Fake::default();
+        let c = fake.client();
+        let first = ensure(&c, "dvarapala", "op-tls", &names()).await.unwrap();
+        let stored = fake.get(SECRET).unwrap();
+        assert_eq!(stored["type"], "kubernetes.io/tls");
+        // a second start, or another replica, reads the stored pair
+        let again = ensure(&c, "dvarapala", "op-tls", &names()).await.unwrap();
+        assert_eq!(first, again);
+        assert_eq!(fake.writes(), ["POST /api/v1/namespaces/dvarapala/secrets"]);
+    }
+
+    #[tokio::test]
+    async fn ensure_refuses_a_secret_without_the_pair() {
+        let fake = crate::fake::Fake::default();
+        fake.put(SECRET, serde_json::json!({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "op-tls"}, "data": {}}));
+        let e = ensure(&fake.client(), "dvarapala", "op-tls", &names())
+            .await
+            .unwrap_err();
+        assert_eq!(e, "secret dvarapala/op-tls has no tls.crt and tls.key");
+    }
+
+    #[tokio::test]
+    async fn ensure_reports_api_errors() {
+        let fake = crate::fake::Fake::default();
+        fake.fail(http::Method::GET, SECRET, 403);
+        assert!(
+            ensure(&fake.client(), "dvarapala", "op-tls", &names())
+                .await
+                .is_err()
+        );
+        let fake = crate::fake::Fake::default();
+        fake.fail(
+            http::Method::POST,
+            "/api/v1/namespaces/dvarapala/secrets",
+            500,
+        );
+        assert!(
+            ensure(&fake.client(), "dvarapala", "op-tls", &names())
+                .await
+                .is_err()
+        );
+        // another replica keeps winning the create: give up after three
+        let fake = crate::fake::Fake::default();
+        fake.fail(
+            http::Method::POST,
+            "/api/v1/namespaces/dvarapala/secrets",
+            409,
+        );
+        let e = ensure(&fake.client(), "dvarapala", "op-tls", &names())
+            .await
+            .unwrap_err();
+        assert_eq!(e, "secret dvarapala/op-tls: kept conflicting");
+    }
+
+    #[tokio::test]
+    async fn trust_sets_the_bundle_of_every_webhook() {
+        let fake = crate::fake::Fake::default();
+        let hook = |bundle: Option<&str>| {
+            serde_json::json!({"name": "mutate.dvarapala.franzramadhan.dev",
+                "clientConfig": {"caBundle": bundle},
+                "admissionReviewVersions": ["v1"], "sideEffects": "None"})
+        };
+        fake.put(
+            HOOK,
+            serde_json::json!({"apiVersion": "admissionregistration.k8s.io/v1",
+                "kind": "MutatingWebhookConfiguration",
+                "metadata": {"name": "dvarapala-operator"},
+                "webhooks": [hook(None), hook(None)]}),
+        );
+        let c = fake.client();
+        trust(&c, "dvarapala-operator", "PEM").await.unwrap();
+        let stored = fake.get(HOOK).unwrap();
+        // "PEM" in base64
+        assert_eq!(stored["webhooks"][0]["clientConfig"]["caBundle"], "UEVN");
+        assert_eq!(stored["webhooks"][1]["clientConfig"]["caBundle"], "UEVN");
+        // already trusted: no write
+        trust(&c, "dvarapala-operator", "PEM").await.unwrap();
+        assert_eq!(fake.writes().len(), 1);
+        let e = trust(&c, "missing", "PEM").await.unwrap_err();
+        assert!(e.starts_with("missing: "), "{e}");
+        fake.fail(http::Method::PUT, HOOK, 500);
+        assert!(trust(&c, "dvarapala-operator", "OTHER").await.is_err());
+    }
 }

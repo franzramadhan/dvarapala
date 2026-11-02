@@ -472,3 +472,7 @@ async fn status(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "controller_tests.rs"]
+mod tests;

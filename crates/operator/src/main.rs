@@ -3,15 +3,12 @@
 use std::error::Error;
 use std::net::SocketAddr;
 use std::process::ExitCode;
-use std::sync::Arc;
 
-use dvarapala_operator::controller::{self, Ctx};
+use dvarapala_operator::app::{self, Options};
+use dvarapala_operator::controller;
 use dvarapala_operator::crd::DvarapalaPolicy;
-use dvarapala_operator::{cert, server, webhook};
-use hyper::StatusCode;
 use kube::{Client, CustomResourceExt};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use tokio_rustls::TlsAcceptor;
 use tracing_subscriber::EnvFilter;
 
 const USAGE: &str = "usage: dvarapala-operator run --gateway-image <image> [--webhook-listen <addr>] [--metrics-listen <addr>] [--waf-images <prefix,...>]
@@ -22,16 +19,6 @@ The namespace comes from POD_NAMESPACE. Log level comes from RUST_LOG (default i
 /// RFC 0025: the WAF sidecar images a policy may name, by default.
 const WAF_IMAGES: &str = "ghcr.io/corazawaf/coraza-spoa";
 
-/// The Service and `MutatingWebhookConfiguration` of `deploy/operator.yaml`.
-const NAME: &str = "dvarapala-operator";
-
-struct Args {
-    image: String,
-    webhook: SocketAddr,
-    metrics: SocketAddr,
-    waf_images: Vec<String>,
-}
-
 /// Comma separated, blanks dropped: an empty flag allows no image.
 fn prefixes(s: &str) -> Vec<String> {
     s.split(',')
@@ -41,7 +28,7 @@ fn prefixes(s: &str) -> Vec<String> {
         .collect()
 }
 
-fn args(mut a: impl Iterator<Item = String>) -> Option<Args> {
+fn args(mut a: impl Iterator<Item = String>) -> Option<Options> {
     let mut image = None;
     let mut webhook = SocketAddr::from(([0, 0, 0, 0], 9443));
     let mut metrics = SocketAddr::from(([0, 0, 0, 0], 9090));
@@ -56,7 +43,7 @@ fn args(mut a: impl Iterator<Item = String>) -> Option<Args> {
             _ => return None,
         }
     }
-    Some(Args {
+    Some(Options {
         image: image?,
         webhook,
         metrics,
@@ -98,54 +85,15 @@ fn main() -> ExitCode {
 }
 
 #[tokio::main]
-async fn run(a: Args) -> Result<(), Box<dyn Error>> {
+async fn run(o: Options) -> Result<(), Box<dyn Error>> {
     // the kube client's TLS takes the process default
     let _ = rustls::crypto::ring::default_provider().install_default();
     let ns = std::env::var("POD_NAMESPACE").map_err(|_| "POD_NAMESPACE is not set")?;
     let client = Client::try_default().await?;
-    let names = [
-        NAME.to_owned(),
-        format!("{NAME}.{ns}.svc"),
-        format!("{NAME}.{ns}.svc.cluster.local"),
-    ];
-    let pem = cert::ensure(&client, &ns, &format!("{NAME}-tls"), &names).await?;
-    cert::trust(&client, NAME, &pem.cert).await?;
-    let tls = TlsAcceptor::from(cert::server_config(&pem)?);
-
     let prom = PrometheusBuilder::new().install_recorder()?;
-    server::serve(a.metrics, None, move |path, _| {
-        let prom = prom.clone();
-        async move {
-            match path.as_str() {
-                "/metrics" => server::ok(prom.render().into_bytes(), "text/plain; version=0.0.4"),
-                "/healthz" => server::ok(b"ok".to_vec(), "text/plain"),
-                _ => server::status(StatusCode::NOT_FOUND),
-            }
-        }
-    })
-    .await?;
-
-    let wc = client.clone();
-    server::serve(a.webhook, Some(tls), move |path, body| {
-        let wc = wc.clone();
-        async move {
-            match path.as_str() {
-                "/mutate" => server::ok(webhook::review(&wc, &body).await, "application/json"),
-                _ => server::status(StatusCode::NOT_FOUND),
-            }
-        }
-    })
-    .await?;
-
-    let kinds = controller::kinds(&client).await;
-    let ctx = Arc::new(Ctx {
-        client,
-        image: a.image,
-        kinds,
-        waf_images: a.waf_images,
-    });
+    let started = app::start(client, &ns, o, prom).await?;
     tokio::select! {
-        () = controller::run(ctx) => Err("controller stopped".into()),
+        () = controller::run(started.ctx) => Err("controller stopped".into()),
         r = tokio::signal::ctrl_c() => r.map_err(Into::into),
     }
 }
@@ -154,7 +102,7 @@ async fn run(a: Args) -> Result<(), Box<dyn Error>> {
 mod tests {
     use super::*;
 
-    fn parse(s: &str) -> Option<Args> {
+    fn parse(s: &str) -> Option<Options> {
         args(s.split_whitespace().map(str::to_owned))
     }
 
