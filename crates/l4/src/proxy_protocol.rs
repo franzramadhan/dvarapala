@@ -1,7 +1,6 @@
 //! The PROXY protocol header a TCP load balancer sends before the client's
 //! bytes (RFC 0030): version 1 (text) and version 2 (binary). Parsing only,
 //! no I/O; TLVs are skipped.
-#![allow(unused_variables, unused_imports, dead_code)]
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -48,7 +47,7 @@ pub struct Invalid(pub &'static str);
 
 impl fmt::Display for Invalid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("rfc 0030")
+        f.write_str(self.0)
     }
 }
 
@@ -58,15 +57,111 @@ impl std::error::Error for Invalid {}
 /// guessing, and never for more than the header can hold, so a reader
 /// that reads exactly what is asked never reads past the header.
 pub fn parse(buf: &[u8], version: Version) -> Result<Parsed, Invalid> {
-    todo!("rfc 0030")
+    let Some(&first) = buf.first() else {
+        return Ok(Parsed::Incomplete(1));
+    };
+    match (version, first) {
+        (Version::V1 | Version::Any, b'P') => v1(buf),
+        (Version::V2 | Version::Any, b'\r') => v2(buf),
+        _ => Err(Invalid("no header")),
+    }
 }
 
 fn v1(buf: &[u8]) -> Result<Parsed, Invalid> {
-    todo!("rfc 0030")
+    let n = buf.len().min(SIG_V1.len());
+    if buf[..n] != SIG_V1[..n] {
+        return Err(Invalid("bad v1 signature"));
+    }
+    let head = &buf[..buf.len().min(MAX_V1)];
+    let Some(end) = head.windows(2).position(|w| w == b"\r\n") else {
+        if buf.len() >= MAX_V1 {
+            return Err(Invalid("v1 line too long"));
+        }
+        // ponytail: one byte at a time, at most 107 reads from a trusted peer
+        return Ok(Parsed::Incomplete(1));
+    };
+    let line = std::str::from_utf8(&buf[SIG_V1.len()..end]).map_err(|_| Invalid("v1 not ascii"))?;
+    let mut f = line.split(' ');
+    let source = match f.next() {
+        Some("UNKNOWN") => Source::Local,
+        Some(proto @ ("TCP4" | "TCP6")) => {
+            let mut next = || f.next().ok_or(Invalid("v1 missing field"));
+            let src: IpAddr = next()?.parse().map_err(|_| Invalid("v1 bad address"))?;
+            let dst: IpAddr = next()?.parse().map_err(|_| Invalid("v1 bad address"))?;
+            let port = |s: &str| {
+                // no sign, no leading zeros
+                if s.starts_with('0') && s != "0" || s.starts_with('+') {
+                    return Err(Invalid("v1 bad port"));
+                }
+                s.parse::<u16>().map_err(|_| Invalid("v1 bad port"))
+            };
+            let sport = port(next()?)?;
+            port(next()?)?;
+            if f.next().is_some() {
+                return Err(Invalid("v1 extra field"));
+            }
+            let v4 = proto == "TCP4";
+            if src.is_ipv4() != v4 || dst.is_ipv4() != v4 {
+                return Err(Invalid("v1 family mismatch"));
+            }
+            Source::Client(SocketAddr::new(src, sport))
+        }
+        _ => return Err(Invalid("v1 bad protocol")),
+    };
+    Ok(Parsed::Done {
+        source,
+        len: end + 2,
+    })
 }
 
 fn v2(buf: &[u8]) -> Result<Parsed, Invalid> {
-    todo!("rfc 0030")
+    let n = buf.len().min(SIG_V2.len());
+    if buf[..n] != SIG_V2[..n] {
+        return Err(Invalid("bad v2 signature"));
+    }
+    if buf.len() < 16 {
+        return Ok(Parsed::Incomplete(16 - buf.len()));
+    }
+    let (ver, cmd, family) = (buf[12] >> 4, buf[12] & 0x0f, buf[13]);
+    if ver != 2 {
+        return Err(Invalid("bad v2 version"));
+    }
+    let body = u16::from_be_bytes([buf[14], buf[15]]) as usize;
+    let len = 16 + body;
+    if len > MAX_V2 {
+        return Err(Invalid("v2 header too long"));
+    }
+    if buf.len() < len {
+        return Ok(Parsed::Incomplete(len - buf.len()));
+    }
+    let a = &buf[16..len];
+    let source = match (cmd, family) {
+        (0, _) => Source::Local,
+        // TCP over IPv4: src, dst, sport, dport
+        (1, 0x11) => {
+            let a: &[u8; 12] = a
+                .get(..12)
+                .and_then(|s| s.try_into().ok())
+                .ok_or(Invalid("v2 short address"))?;
+            let ip = Ipv4Addr::new(a[0], a[1], a[2], a[3]);
+            Source::Client(SocketAddr::new(ip.into(), u16::from_be_bytes([a[8], a[9]])))
+        }
+        (1, 0x21) => {
+            let a: &[u8; 36] = a
+                .get(..36)
+                .and_then(|s| s.try_into().ok())
+                .ok_or(Invalid("v2 short address"))?;
+            let mut ip = [0u8; 16];
+            ip.copy_from_slice(&a[..16]);
+            let port = u16::from_be_bytes([a[32], a[33]]);
+            Source::Client(SocketAddr::new(Ipv6Addr::from(ip).into(), port))
+        }
+        // unspecified or unix: no address to key on
+        (1, 0x00 | 0x31) => Source::Local,
+        (1, _) => return Err(Invalid("v2 unsupported family")),
+        _ => return Err(Invalid("bad v2 command")),
+    };
+    Ok(Parsed::Done { source, len })
 }
 
 #[cfg(test)]
@@ -95,7 +190,6 @@ mod tests {
 
     /// RFC 0030 case 1
     #[test]
-    #[ignore = "rfc 0030"]
     fn v1_lines() {
         let l = b"PROXY TCP4 192.0.2.10 198.51.100.1 4000 443\r\nGET";
         assert_eq!(done(l, Version::V1), (client("192.0.2.10:4000"), 45));
@@ -111,7 +205,6 @@ mod tests {
 
     /// RFC 0030 case 2
     #[test]
-    #[ignore = "rfc 0030"]
     fn v2_headers() {
         let mut a = vec![192, 0, 2, 10, 198, 51, 100, 1];
         a.extend_from_slice(&4000u16.to_be_bytes());
@@ -139,7 +232,6 @@ mod tests {
 
     /// RFC 0030 case 3
     #[test]
-    #[ignore = "rfc 0030"]
     fn bad_and_oversized_headers() {
         let mut long = v2_header(1, 0x11, &[]);
         long[14..16].copy_from_slice(&217u16.to_be_bytes());
@@ -172,7 +264,6 @@ mod tests {
 
     /// Asks for exactly what is missing, never past the header.
     #[test]
-    #[ignore = "rfc 0030"]
     fn incomplete_asks_for_the_rest() {
         assert_eq!(parse(&[], Version::Any), Ok(Parsed::Incomplete(1)));
         assert_eq!(parse(b"\r\n\r", Version::V2), Ok(Parsed::Incomplete(13)));

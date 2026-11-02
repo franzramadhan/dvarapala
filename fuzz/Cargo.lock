@@ -453,6 +453,7 @@ dependencies = [
  "bytes",
  "dvarapala-engine",
  "dvarapala-ffi",
+ "dvarapala-l4",
  "dvarapala-l7",
  "dvarapala-operator",
  "dvarapala-proxy",

@@ -64,7 +64,6 @@ fn v2_header() -> Vec<u8> {
 
 /// RFC 0030 case 5
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn v2_header_client_reaches_the_upstream() {
     let up = echo_xff().await;
     let p = ReverseProxy::<Incoming>::new(&format!("http://{up}")).unwrap();
@@ -87,7 +86,6 @@ async fn v2_header_client_reaches_the_upstream() {
 /// JA4 fingerprint then reads as usual
 #[cfg(feature = "tls")]
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "rfc 0030"]
 async fn header_then_tls_handshake() {
     use dvarapala_proxy::serve_tls;
     use dvarapala_proxy::tls::{Tls, TlsConfig};

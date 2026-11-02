@@ -75,7 +75,6 @@ async fn closed(mut s: TcpStream) -> Duration {
 
 /// RFC 0030 case 7
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn trusted_peer_without_a_header_is_closed() {
     record();
     let (addr, _rx) = listen(config("127.0.0.0/8", ConnsConfig::default()), None).await;
@@ -89,7 +88,6 @@ async fn trusted_peer_without_a_header_is_closed() {
 
 /// RFC 0030 case 8
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn half_a_header_times_out() {
     record();
     let (addr, _rx) = listen(config("127.0.0.0/8", ConnsConfig::default()), None).await;
@@ -102,7 +100,6 @@ async fn half_a_header_times_out() {
 
 /// RFC 0030 case 9
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn untrusted_peer_header_is_not_honored() {
     let (addr, mut rx) = listen(config("192.0.2.0/24", ConnsConfig::default()), None).await;
     let _s = proxied(addr, "192.0.2.10:4000").await;
@@ -116,7 +113,6 @@ async fn untrusted_peer_header_is_not_honored() {
 
 /// The bytes after the header reach the connection, the client is carried
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn header_sets_the_client_and_keeps_the_rest() {
     let (addr, mut rx) = listen(config("127.0.0.0/8", ConnsConfig::default()), None).await;
     let mut s = proxied(addr, "192.0.2.10:4000").await;
@@ -130,7 +126,6 @@ async fn header_sets_the_client_and_keeps_the_rest() {
 
 /// RFC 0030 case 10
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn per_client_cap_keys_on_the_carried_client() {
     record();
     let conns = ConnsConfig {
@@ -152,7 +147,6 @@ async fn per_client_cap_keys_on_the_carried_client() {
 
 /// RFC 0030 case 12
 #[tokio::test]
-#[ignore = "rfc 0030"]
 async fn carried_clients_never_reach_the_block_sink() {
     record();
     let seen: Arc<Mutex<Vec<Cidr>>> = Arc::default();
@@ -171,7 +165,6 @@ async fn carried_clients_never_reach_the_block_sink() {
 }
 
 #[test]
-#[ignore = "rfc 0030"]
 fn empty_from_is_refused() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
