@@ -9,9 +9,10 @@
 # cron job that rewrites the file is enough. Each feed starts in observe:
 # watch dvarapala_intel_hits_total before switching it to enforce.
 #
-# The GeoIP database is the operator's own MaxMind DB file
-# (GeoLite2-Country, GeoLite2-ASN, a City file, or an IPinfo or DB-IP
-# file in the same format) under its license; dvarapala downloads none.
+# The GeoIP database is the operator's own MaxMind DB file with the
+# MaxMind schema (GeoLite2, GeoIP2 or DB-IP Lite) under its license;
+# dvarapala downloads none. A Country file gives country only, an ASN
+# file ASN only.
 # Country and ASN routes need a build with --features geoip (the
 # container image has it).
 #

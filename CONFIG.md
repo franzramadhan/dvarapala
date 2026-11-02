@@ -789,9 +789,13 @@ good fetch) and is logged as `intel feed refresh failed`.
 | `challenge` | the [challenge](#challenge) until the client holds a pass, attack or not (needs `[challenge]` on) | counted, allowed |
 | `tag` | routes with the feed in `feeds` match the client | counted |
 
-`intel.geoip` is a MaxMind DB file (GeoLite2-Country, GeoLite2-ASN, a
-City file, or an IPinfo or DB-IP file in the same format) that the
-operator brings with its license; nothing is downloaded. It is read whole
+`intel.geoip` is one MaxMind DB file with the MaxMind schema
+(`country.iso_code`, `autonomous_system_number`): GeoLite2 or GeoIP2
+from MaxMind, or the DB-IP Lite files. The operator brings it with its
+license; nothing is downloaded. Files with another schema (IPinfo, for
+one) load but match nothing. One file sets what it holds: a Country or
+City file gives `country` only, an ASN file gives `asn` only, so a route
+cannot use both with the free GeoLite2 files. It is read whole
 into memory, at start and on each reload or `config_watch` change, and
 swapped only when its bytes change (`geoip loaded sha256=<hex> type=<db type>`).
 It sets each client's country (`country.iso_code`) and ASN

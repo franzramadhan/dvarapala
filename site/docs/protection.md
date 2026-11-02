@@ -17,7 +17,8 @@ With `mode = "enforce"`, clients refused by the `[l4]` accept rate and
 heavy hitters dropped by detection get a dynamic block for `block_ttl`.
 Both completed a TCP handshake, so a spoofed source cannot get a victim
 blocked. Keep kernel SYN cookies on for the backlog. In `observe` mode it
-counts `would_drop` and passes everything.
+counts `would_drop` and passes everything. With `l4.proxy_protocol` on,
+no dynamic blocks are sent (see below).
 
 Keys: [`[xdp]`](configuration.html#xdp).
 
@@ -48,6 +49,13 @@ The header is read before TLS; the client it carries is the client for
 every layer on this page. A connection from the balancer without a valid
 header is closed, so turn the header on at the balancer right after
 restarting dvarapala, and watch `dvarapala_proxy_protocol_total`.
+
+Behind such a balancer, XDP sees the balancer's packets, not the
+client's. While `proxy_protocol` is on, no dynamic blocks reach the XDP
+block list (a blocked address cannot be told to come through the
+balancer or not); the client is still refused at L4 and L7. Put the
+balancers in `xdp.allow` so a static block or a per-source rate never
+drops them.
 
 Keys: [`[l4]`](configuration.html#l4),
 [example](examples.html#proxy-protocoltoml).
@@ -166,13 +174,27 @@ cron job that rewrites the file is enough. Lists are parsed with the caps
 of attacker input (body size, entries, line length) and a prefix wider
 than `/8` (IPv6 `/16`) is refused, so a broken list cannot deny everyone.
 
-`intel.geoip` points at a MaxMind DB file the operator brings
-(GeoLite2, or an IPinfo or DB-IP file in the same format); dvarapala
-downloads none. Routes then match on `country` and `asn`, for example an
-admin path open to one country. It needs the `geoip` feature, which the
-container image has.
+`intel.geoip` points at one MaxMind DB file the operator brings, with
+the MaxMind schema: GeoLite2 or GeoIP2, or DB-IP Lite. dvarapala
+downloads none, and a file with another schema (IPinfo) loads but
+matches nothing. Routes then match on `country` and `asn`, for example
+an admin path open to one country. One file sets only what it holds: a
+Country or City file gives `country`, an ASN file gives `asn`. It needs
+the `geoip` feature, which the container image has.
 
-Keys: [`[intel]`](configuration.html#intel).
+To keep the file current, run MaxMind's `geoipupdate` on a schedule (the
+databases change weekly) and let a reload or `config_watch` pick up the
+new bytes. The file is swapped only when it changes, and the log line
+`geoip loaded sha256=<hex>` names each swap. On Kubernetes the file does
+not fit a ConfigMap or Secret (1 MiB at most; GeoLite2-Country is several
+MiB), so operator gateways cannot mount it yet; a hand-written gateway
+can use any volume.
+
+Feeds act at L7 only: they are not pushed to the XDP block list. For a
+list to drop in the driver, put it in `xdp.block`.
+
+Keys: [`[intel]`](configuration.html#intel),
+[example](examples.html#inteltoml).
 
 ## WAF
 
@@ -207,7 +229,8 @@ tunnels do not hold a slot. Routes can bypass the limit
 (`concurrency = false`) or weigh more (`concurrency_weight`). Shed
 requests never eject a `[pool]` endpoint or spend a retry.
 
-Keys: [`[concurrency]`](configuration.html#concurrency).
+Keys: [`[concurrency]`](configuration.html#concurrency),
+[example](examples.html#concurrencytoml).
 
 ## LLM labels
 
