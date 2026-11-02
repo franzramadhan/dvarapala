@@ -13,6 +13,9 @@ const BUCKETS: usize = 128;
 const NOLOAD_DRIFT: f64 = 0.01;
 /// A failed request counts as this many times the no-load latency, at least.
 const FAILURE_FACTOR: f64 = 10.0;
+/// A window p50 up to this many times the no-load latency reads as flat:
+/// one histogram bucket (19%) or timer jitter must not shrink the limit.
+const TOLERANCE: f64 = 1.2;
 
 /// Who a request comes from, in the order the limit sheds them last.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -302,7 +305,7 @@ impl Concurrency {
         };
         self.noload.store(w.noload.to_bits(), Relaxed);
         let old = w.estimate;
-        let gradient = (w.noload / p50).clamp(0.5, 1.0);
+        let gradient = (TOLERANCE * w.noload / p50).clamp(0.5, 1.0);
         // app limited: a limit the traffic never came near does not grow
         if gradient < 1.0 || f64::from(peak) >= old / 2.0 {
             w.estimate = (old * gradient + old.sqrt())
