@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| accepted | 2026-11-02 | #297 | |
+| implemented | 2026-11-02 | #297 | v0.23.0 |
 
 > `gateway.mounts` gains two read-only sources next to ConfigMaps and
 > Secrets: an existing PersistentVolumeClaim and an OCI image volume. They
@@ -143,7 +143,7 @@ private ASN; no third-party database is checked in.
 
 ## Rollout
 
-- **Rollout:** a minor release. The CRD gains optional fields only;
+- **Rollout:** a minor release, v0.23.0. The CRD gains optional fields only;
   existing policies render the same gateways (case 7). `--mount-images`
   is empty by default, so image mounts stay refused until enabled.
 - **Off switch:** remove the mount from the policy; the gateway rolls
