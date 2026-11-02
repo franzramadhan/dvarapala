@@ -6,7 +6,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-aya-ebpf = "0.2.1"
+aya-ebpf = "0.3.0"
 dvarapala-xdp-common = { path = "../xdp-common" }
 
 [[bin]]
