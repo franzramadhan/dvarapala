@@ -18,7 +18,7 @@ struct Loaded {
 /// What a reload checked and read, put in force by [`Running::commit`].
 pub struct Prepared {
     feeds: Vec<(config::Feed, FeedList)>,
-    geo: Option<Geo>,
+    geo: Vec<Geo>,
     max_bytes: usize,
 }
 
@@ -26,7 +26,7 @@ pub struct Prepared {
 #[derive(Default)]
 pub struct Running {
     feeds: Mutex<HashMap<String, Loaded>>,
-    geo: Mutex<Option<Geo>>,
+    geo: Mutex<Vec<Geo>>,
 }
 
 impl Running {
@@ -55,10 +55,15 @@ impl Running {
             feeds.push((f.clone(), list));
         }
         drop(running);
-        let geo = match &intel.geoip {
-            Some(p) => Some(geoip::load(p, lock(&self.geo).as_ref())?),
-            None => None,
-        };
+        // one bad file refuses the whole reload
+        let running = lock(&self.geo);
+        let geo: Vec<Geo> = intel
+            .geoip
+            .iter()
+            .flatten()
+            .map(|p| geoip::load(p, &running))
+            .collect::<Result<_, _>>()?;
+        drop(running);
         Ok(Prepared {
             feeds,
             geo,
@@ -98,7 +103,7 @@ impl Running {
         *running = next;
         let intel = Intel::new(feeds);
         #[cfg(feature = "geoip")]
-        let intel = intel.with_geo(p.geo.as_ref().map(|g| g.db.clone()));
+        let intel = intel.with_geo(p.geo.iter().map(|g| g.db.clone()));
         layer.set_intel(Arc::new(intel));
         *lock(&self.geo) = p.geo;
     }
@@ -106,7 +111,9 @@ impl Running {
     /// Each `path` feed and the database, the files `config_watch` polls.
     pub fn files(cfg: &Config) -> Vec<std::path::PathBuf> {
         let feeds = cfg.intel.feed.iter().filter_map(|f| f.path.clone());
-        feeds.chain(cfg.intel.geoip.clone()).collect()
+        feeds
+            .chain(cfg.intel.geoip.iter().flatten().cloned())
+            .collect()
     }
 }
 

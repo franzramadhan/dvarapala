@@ -52,11 +52,27 @@ impl GeoIp {
 #[doc(hidden)]
 /// Fuzzing entry point: a database from arbitrary bytes, then lookups.
 pub fn fuzz_geoip(data: &[u8]) {
+    let ips = [
+        IpAddr::from([192, 0, 2, 1]),
+        IpAddr::from([0, 0, 0, 0]),
+        IpAddr::from([255, 255, 255, 255]),
+        "2001:db8::1".parse().unwrap(),
+    ];
     if let Ok(g) = GeoIp::from_bytes(data.to_vec()) {
-        for ip in [[192, 0, 2, 1], [0, 0, 0, 0], [255, 255, 255, 255]] {
-            let _ = g.lookup(IpAddr::from(ip));
+        for ip in ips {
+            let _ = g.lookup(ip);
         }
-        let _ = g.lookup("2001:db8::1".parse().unwrap());
+    }
+    // the first byte splits the rest into two files, looked up together
+    if let Some((&at, rest)) = data.split_first() {
+        let (a, b) = rest.split_at(usize::from(at).min(rest.len()));
+        let geo = [a, b]
+            .into_iter()
+            .filter_map(|d| GeoIp::from_bytes(d.to_vec()).ok().map(std::sync::Arc::new));
+        let intel = crate::Intel::new(Vec::new()).with_geo(geo);
+        for ip in ips {
+            let _ = intel.check(ip);
+        }
     }
 }
 

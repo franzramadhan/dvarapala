@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use dvarapala_l7::{Action, MAX_FEEDS};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::waf::size;
 use super::{Mode, duration};
@@ -15,8 +15,10 @@ use super::{Mode, duration};
 #[serde(deny_unknown_fields, default)]
 pub struct Intel {
     pub feed: Vec<Feed>,
-    /// A MaxMind DB file; unset turns `routes[].country` and `asn` off.
-    pub geoip: Option<PathBuf>,
+    /// MaxMind DB files, one path or a list (a Country and an ASN file
+    /// combine); unset turns `routes[].country` and `asn` off.
+    #[serde(deserialize_with = "one_or_many")]
+    pub geoip: Option<Vec<PathBuf>>,
     /// Largest feed body or file read.
     #[serde(deserialize_with = "size")]
     pub max_bytes: usize,
@@ -83,6 +85,23 @@ fn max_entries() -> usize {
     200_000
 }
 
+/// The most `intel.geoip` files.
+const MAX_GEOIP: usize = 4;
+
+/// `geoip = "a.mmdb"` reads as `geoip = ["a.mmdb"]`.
+fn one_or_many<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<PathBuf>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(PathBuf),
+        Many(Vec<PathBuf>),
+    }
+    Ok(Some(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(p) => vec![p],
+        OneOrMany::Many(v) => v,
+    }))
+}
+
 impl Intel {
     /// `challenge` is whether `[challenge]` is on. Errors name the feed
     /// and the key.
@@ -92,6 +111,18 @@ impl Intel {
         }
         if self.max_bytes == 0 {
             return Err("intel.max_bytes must be above 0".into());
+        }
+        if let Some(files) = &self.geoip {
+            if files.is_empty() {
+                return Err("intel.geoip: at least one file, or leave it unset".into());
+            }
+            if files.len() > MAX_GEOIP {
+                return Err(format!("intel.geoip: at most {MAX_GEOIP} files"));
+            }
+            let mut seen = HashSet::new();
+            if let Some(p) = files.iter().find(|p| !seen.insert(*p)) {
+                return Err(format!("intel.geoip {}: listed twice", p.display()));
+            }
         }
         let mut names = HashSet::new();
         for f in &self.feed {
