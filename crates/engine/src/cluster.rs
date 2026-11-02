@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use crate::{Cidr, ClientKey, Limit, ScheduleConfig, Verdict};
+use crate::{Blocks, Cidr, ClientKey, Limit, ScheduleConfig, Verdict};
 
 /// Shared state across replicas (RFC 0010).
 #[derive(Debug, Clone)]
@@ -57,7 +57,7 @@ pub struct Cluster {
     deltas: HashMap<ClientKey, u32>,
     dropped: u64,
     throttled: HashMap<ClientKey, Instant>,
-    blocked: Vec<(Cidr, Instant)>,
+    blocked: Blocks,
     heavy_out: Vec<(Cidr, Duration)>,
     pauses_out: Vec<(String, Duration)>,
     pauses: HashMap<String, Instant>,
@@ -71,7 +71,7 @@ impl Cluster {
             deltas: HashMap::new(),
             dropped: 0,
             throttled: HashMap::new(),
-            blocked: Vec::new(),
+            blocked: Blocks::new(0),
             heavy_out: Vec::new(),
             pauses_out: Vec::new(),
             pauses: HashMap::new(),
@@ -83,12 +83,7 @@ impl Cluster {
     /// `Drop` for a listed heavy hitter, `Throttle` for a client over the
     /// cluster count, `None` to go on.
     pub fn check(&self, key: ClientKey, now: Instant) -> Option<Verdict> {
-        let ip = IpAddr::from(key);
-        if self
-            .blocked
-            .iter()
-            .any(|(c, until)| *until > now && c.contains(ip))
-        {
+        if self.blocked.contains(IpAddr::from(key), now) {
             return Some(Verdict::Drop);
         }
         let until = *self.throttled.get(&key)?;
@@ -168,7 +163,8 @@ impl Cluster {
                 }
             }
         }
-        self.blocked = reply.heavy.into_iter().map(|(c, d)| (c, now + d)).collect();
+        self.blocked =
+            Blocks::from_entries(reply.heavy.into_iter().map(|(c, d)| (c, now + d)), now);
         self.pauses = reply
             .pauses
             .into_iter()

@@ -7,6 +7,7 @@ use crate::Cidr;
 
 /// Networks blocked by hand (RFC 0014), each until its expiry, at most
 /// `max` at once. Not thread-safe; callers wrap it in a lock.
+#[derive(Debug)]
 pub struct Blocks {
     max: usize,
     entries: HashMap<Cidr, Instant>,
@@ -33,6 +34,28 @@ impl Blocks {
             max,
             entries: HashMap::new(),
             prefixes: [0; 33 + 129],
+        }
+    }
+
+    /// A list holding `entries` still in force at `now`, built in one pass
+    /// (a repeated network keeps the later expiry). It holds all of them,
+    /// whatever `max` would allow.
+    pub fn from_entries(entries: impl IntoIterator<Item = (Cidr, Instant)>, now: Instant) -> Self {
+        let mut map: HashMap<Cidr, Instant> = HashMap::new();
+        for (net, until) in entries.into_iter().filter(|(_, u)| *u > now) {
+            let u = map
+                .entry(Cidr::of(net.addr(), net.prefix()))
+                .or_insert(until);
+            *u = (*u).max(until);
+        }
+        let mut prefixes = [0; 33 + 129];
+        for net in map.keys() {
+            prefixes[slot(*net)] += 1;
+        }
+        Self {
+            max: map.len(),
+            entries: map,
+            prefixes,
         }
     }
 
