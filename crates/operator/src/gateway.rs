@@ -9,10 +9,11 @@ use k8s_openapi::api::autoscaling::v2::{
     MetricTarget, ResourceMetricSource,
 };
 use k8s_openapi::api::core::v1::{
-    Capabilities, ConfigMapVolumeSource, Container, ContainerPort, EnvFromSource, EnvVar, PodSpec,
-    PodTemplateSpec, Probe, ResourceRequirements, SeccompProfile, SecretEnvSource,
-    SecretVolumeSource, SecurityContext, Service, ServicePort, ServiceSpec, TCPSocketAction,
-    TopologySpreadConstraint, Volume, VolumeMount,
+    Capabilities, ConfigMapVolumeSource, Container, ContainerPort, EnvFromSource, EnvVar,
+    ImageVolumeSource, PersistentVolumeClaimVolumeSource, PodSpec, PodTemplateSpec, Probe,
+    ResourceRequirements, SeccompProfile, SecretEnvSource, SecretVolumeSource, SecurityContext,
+    Service, ServicePort, ServiceSpec, TCPSocketAction, TopologySpreadConstraint, Volume,
+    VolumeMount,
 };
 use k8s_openapi::api::policy::v1::{PodDisruptionBudget, PodDisruptionBudgetSpec};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -351,7 +352,8 @@ pub fn deployment(g: &Gateway, p: &PolicySpec, image: &str, restart_hash: &str) 
 }
 
 /// A `gateway.mounts` entry: read-only at `MOUNTS/<name>`, volume
-/// `mount-<name>`. The operator names the object, never reads it.
+/// `mount-<name>`. The operator names the object, never reads it. A
+/// claim's files change in place, so they never roll the pods (RFC 0033).
 fn user_mount(m: &Mount) -> (VolumeMount, Volume) {
     let name = format!("mount-{}", m.name);
     let vm = VolumeMount {
@@ -369,6 +371,20 @@ fn user_mount(m: &Mount) -> (VolumeMount, Volume) {
         secret: m.secret.as_ref().map(|s| SecretVolumeSource {
             secret_name: Some(s.clone()),
             ..SecretVolumeSource::default()
+        }),
+        persistent_volume_claim: m.persistent_volume_claim.as_ref().map(|c| {
+            PersistentVolumeClaimVolumeSource {
+                claim_name: c.claim_name.clone(),
+                read_only: Some(true),
+            }
+        }),
+        image: m.image.as_ref().map(|i| ImageVolumeSource {
+            reference: Some(i.reference.clone()),
+            pull_policy: Some(
+                i.pull_policy
+                    .clone()
+                    .unwrap_or_else(|| "IfNotPresent".into()),
+            ),
         }),
         ..Volume::default()
     };

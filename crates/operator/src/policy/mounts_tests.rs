@@ -67,7 +67,6 @@ fn bad_mounts_are_named() {
 
 // RFC 0033 case 3, and case 2's no warning
 #[test]
-#[ignore = "rfc 0033"]
 fn an_image_without_a_digest_is_a_warning() {
     assert_eq!(with(vec![image("geoip", PINNED)], &[GEO]), Ok(vec![]));
     let w = with(vec![image("geoip", "registry.example/geo/lite:1")], &[GEO]).unwrap();
@@ -77,7 +76,6 @@ fn an_image_without_a_digest_is_a_warning() {
 
 // RFC 0033 case 4
 #[test]
-#[ignore = "rfc 0033"]
 fn images_outside_mount_images_are_refused() {
     for (reference, images) in [
         (PINNED, &[][..]),
@@ -103,7 +101,6 @@ fn images_outside_mount_images_are_refused() {
 
 // RFC 0033 case 5
 #[test]
-#[ignore = "rfc 0033"]
 fn a_mount_needs_exactly_one_source() {
     let both = Mount {
         config_map: Some("c".into()),
@@ -133,7 +130,6 @@ fn a_mount_needs_exactly_one_source() {
 
 // RFC 0033 case 6
 #[test]
-#[ignore = "rfc 0033"]
 fn seventeen_mixed_mounts_are_refused() {
     let mixed = |i: usize| match i % 3 {
         0 => cm(&format!("m{i}")),
