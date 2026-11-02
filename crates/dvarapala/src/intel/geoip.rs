@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// A loaded database and the hash of the bytes it came from.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(not(feature = "geoip"), allow(dead_code))]
 pub struct Geo {
     #[cfg(feature = "geoip")]

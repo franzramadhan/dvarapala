@@ -32,7 +32,7 @@ pub use challenge::{Challenge, Fingerprint};
 pub use concurrency::Concurrency;
 pub use forward::{Forward, ProxyMode};
 pub use history::History;
-pub use intel::{Feed, FeedAction, Intel};
+pub use intel::{Feed, Intel};
 pub use l4::{L4, ProxyProtocolMode};
 pub use ml::Ml;
 #[cfg(feature = "llm")]
