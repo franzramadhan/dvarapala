@@ -122,8 +122,12 @@ pub struct Origin {
 
 /// A country code for [`Matcher::countries`]: two ASCII letters.
 pub fn parse_country(s: &str) -> Result<[u8; 2], String> {
-    let _ = s;
-    todo!("rfc 0031")
+    match s.as_bytes() {
+        &[a, b] if a.is_ascii_alphabetic() && b.is_ascii_alphabetic() => {
+            Ok([a.to_ascii_uppercase(), b.to_ascii_uppercase()])
+        }
+        _ => Err(format!("country {s:?} is not a two-letter ISO 3166-1 code")),
+    }
 }
 
 impl Matcher {
@@ -150,8 +154,9 @@ impl Matcher {
     /// The RFC 0031 conditions. A client with no country or ASN never
     /// matches a condition on it.
     pub fn matches_origin(&self, o: &Origin) -> bool {
-        let _ = o;
-        todo!("rfc 0031")
+        (self.countries.is_empty() || o.country.is_some_and(|c| self.countries.contains(&c)))
+            && (self.asns.is_empty() || o.asn.is_some_and(|a| self.asns.contains(&a)))
+            && (self.feeds == 0 || self.feeds & o.feeds != 0)
     }
 }
 
@@ -240,7 +245,6 @@ mod tests {
 
     // RFC 0031 cases 7 and 10, on the matcher
     #[test]
-    #[ignore = "rfc 0031"]
     fn country_asn_and_feed_conditions() {
         let zz = Origin {
             country: Some(*b"ZZ"),
