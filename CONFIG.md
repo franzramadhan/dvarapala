@@ -720,9 +720,10 @@ kept open. There is no queue. A shed request is never sent, so it is not
 a failure for `[pool]` ejection and spends no retry.
 
 `fixed` is a hard cap of `limit`. `gradient` moves the limit between
-`min` and `max` once per `window`: `new = old * clamp(noload / p50, 0.5, 1)
+`min` and `max` once per `window`: `new = old * clamp(1.2 * noload / p50, 0.5, 1)
 + sqrt(old)`, where `p50` is the window's median latency and `noload` a
-slowly rising minimum of window medians. Flat latency grows the limit by
+slowly rising minimum of window medians; the 1.2 lets a median up to a
+fifth above `noload` (timer jitter, histogram rounding) read as flat. Flat latency grows the limit by
 about its square root per window (not while fewer than half of it are in
 use); rising latency shrinks it, by at most half per window. A connect
 error or timeout counts as a sample of ten times `noload`, so a backend

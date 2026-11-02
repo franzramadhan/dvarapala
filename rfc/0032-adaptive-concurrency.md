@@ -175,6 +175,12 @@ who is asking, and a choice of whom to turn away when it is reached.
   request never reaches the pool and cannot eject an endpoint or spend a
   retry (case 9). The pool carries the limit (`Pool::with_concurrency`),
   which makes the TCP and HTTP/3 listeners share it.
+- The gradient has a tolerance: `new = old * clamp(1.2 * noload / p50,
+  0.5, 1) + sqrt(old)`. Without it, one histogram bucket (19%) or timer
+  jitter on a busy CI runner read as rising latency and kept the limit at
+  `min` (case 8 failed on CI). With the tolerance the limit settles where
+  latency is about a fifth above no-load; the case 8 upstream has a
+  quadratic knee at 50, where that is about 55 to 65 in flight.
 - The engine's latency histogram has 128 buckets (4 per octave of
   microseconds, 1 us to about 70 min) instead of 64, so the p50 stays
   within 19% at both ends.
