@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(host.matching(&abs, c), Some("a"));
         assert!(
             Routes::default()
-                .find(&Request::get("/").body(()).unwrap(), c)
+                .find(&Request::get("/").body(()).unwrap(), c, &Origin::default())
                 .is_none()
         );
     }
