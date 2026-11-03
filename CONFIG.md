@@ -856,8 +856,10 @@ Reverse mode only. The WAF runs after the rate limiter (and after
 `[challenge]`, `[fingerprint]` and `[[routes]]`), so a flood is refused
 before it costs an inspection, and before the proxy. The agent gets the
 client address (after `trusted_proxies`), the method, path, query,
-protocol version, headers and up to `max_body` bytes of the body. gRPC
-requests are sent without their body. In builds with the `waf` feature
+protocol version, headers and up to `max_body` bytes of the body. A
+gRPC request over HTTP/2 or HTTP/3 is sent without its body unless the
+body's length is known (`content-length`); on HTTP/1.x a gRPC content
+type changes nothing. In builds with the `waf` feature
 (on by default); a build without it refuses `waf.enabled`.
 
 ```toml
@@ -873,15 +875,15 @@ endpoint = "unix:/run/coraza-spoa/coraza.sock"
 | `mode` | string | `"observe"` | `"observe"` logs and counts what the agent would block and forwards; `"enforce"` blocks |
 | `endpoint` | string | `""` | The agent: `"host:port"` or `"unix:/absolute/path"`, required when `enabled`. Requests cross it in clear: keep it on loopback or a Unix socket (anything else logs a warning at start) |
 | `app` | string | `"default"` | The agent's application, the rule set to apply; `coraza-spoa` falls back to its `default_application` for an unknown name |
-| `timeout` | duration | `"250ms"` | Waiting for a connection plus the round trip; over it the request counts as an `error` |
+| `timeout` | duration | `"250ms"` | Waiting for a connection plus the round trip, once per request (a retry without the body gets what is left); over it the request counts as an `error` |
 | `on_error` | string | `"block"` | When the agent is down, slow or answers garbage, in `enforce`: `"block"` answers `503`, `"pass"` forwards. `observe` always forwards |
-| `max_body` | size | `"16KiB"` | Body bytes buffered and sent at most, as bytes or with `B`, `KiB` or `MiB`, up to 64 MiB; `0` sends headers only. The agent's frame is `max_body` plus 16 KiB |
+| `max_body` | size | `"16KiB"` | Body bytes buffered and sent at most, as bytes or with `B`, `KiB` or `MiB`, up to 64 MiB; `0` sends headers only. The agent's frame is `max_body` plus 16 KiB, or less if the agent asks for less: a request that does not fit with its body is handled as a body over `max_body`; one whose request line and headers alone do not fit gets `431` in `enforce`, whatever `on_error` says |
 | `body_limit_action` | string | `"reject"` | A body over `max_body` in `enforce`: `"reject"` answers `413` without asking; `"pass"` sends the request to the agent without its body, then the whole body upstream. `observe` always does as `"pass"` |
 | `max_concurrent` | integer | `64` | Connections to the agent, one request each at a time; a request waits for a free one within `timeout` |
 | `rules_files` | list of paths | `[]` | The agent's rule files, at most 8, shown by `GET /waf` and the console ([RFC 0021](rfc/0021-admin-ui-config-waf.md)). Display only: the gateway never parses or applies them. A file over 256 KiB or unreadable is listed with its error and logged as `waf rules file unreadable` |
 
 A blocked request gets the agent's status when it is `400` to `599`,
-`403` otherwise, with `Connection: close` on a `403` (gRPC: status 7, or
+`403` otherwise, with `Connection: close` on a `403` (gRPC over HTTP/2 or HTTP/3: status 7, or
 14 for `503`). The body is read before the agent is asked, then sent
 upstream as it came. The first match of a client in a second is logged
 as `waf match` with the rule, the matched rule IDs, the anomaly score and
@@ -996,8 +998,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
 | `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
 | `dvarapala_route_keys{route}` | Keys in the route's table |
-| `dvarapala_waf_requests_total{verdict}` | Requests seen by the WAF ([RFC 0017](rfc/0017-waf.md)): `pass`, `block`, `would_block` (`observe`), `skipped` (a route with `waf = false`), `error` (no answer from the agent), `body_over_limit` (counted besides the verdict with `body_limit_action = "pass"`) |
-| `dvarapala_waf_errors_total{reason}` | Agent failures: `connect`, `timeout`, `protocol` (a bad or oversized frame), `disconnect` |
+| `dvarapala_waf_requests_total{verdict}` | Requests seen by the WAF ([RFC 0017](rfc/0017-waf.md)): `pass`, `block`, `would_block` (`observe`), `skipped` (a route with `waf = false`; besides the verdict, a gRPC stream over HTTP/2 or HTTP/3 sent without its body), `error` (no answer from the agent), `body_over_limit` (a body over `max_body` or over the agent's frame size; counted besides the verdict with `body_limit_action = "pass"`), `head_over_limit` (the request line and headers do not fit the agent's frame: `431` in `enforce`, forwarded in `observe`) |
+| `dvarapala_waf_errors_total{reason}` | Agent failures: `connect`, `timeout`, `protocol` (a bad or oversized frame from the agent), `disconnect`. A request too large for the agent's frame is not an agent failure: see `body_over_limit` and `head_over_limit` |
 | `dvarapala_waf_rule_matches_total{rule}` | Blocks and would-blocks by the agent's rule ID; the first 256 IDs get a label, later ones count as `other` |
 | `dvarapala_waf_inspect_seconds` | Histogram of the round trip to the agent |
 | `dvarapala_llm_sampling` | 1 while LLM labels sample ([RFC 0023](rfc/0023-llm-labels.md)) |

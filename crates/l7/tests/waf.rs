@@ -169,13 +169,15 @@ async fn hello_frame_size_and_refusal() {
         StatusCode::OK
     );
     assert_eq!(*seen.frame_sizes.lock().unwrap(), [1024]);
-    // a 2 KiB body does not fit the 1 KiB the agent agreed to
-    let protocol = reason("protocol");
+    // a 2 KiB body does not fit the 1 KiB the agent agreed to: a body
+    // over the limit, not an agent error
+    let (protocol, over) = (reason("protocol"), verdict("body_over_limit"));
     assert_eq!(
         send(&mut svc, request("/", body(2048, true))).await,
-        StatusCode::SERVICE_UNAVAILABLE
+        StatusCode::PAYLOAD_TOO_LARGE
     );
-    assert_eq!(reason("protocol"), protocol + 1);
+    assert_eq!(reason("protocol"), protocol);
+    assert_eq!(verdict("body_over_limit"), over + 1);
 
     let (addr, _) = agent(Reply::RefuseHello).await;
     let mut svc = WafLayer::new(Some(config(addr, true))).layer(upstream(got));
