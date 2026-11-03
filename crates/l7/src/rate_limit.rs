@@ -240,7 +240,9 @@ where
             .as_ref()
             .map(|s| (s, ReqInfo::of(&req, &self.shared.paths)));
         let heavy_ttl = self.shared.cooldown.filter(|_| policy.enforce);
-        let (mut verdict, scope, seen, heavy) = self.shared.take(key, info, pass, heavy_ttl);
+        let (mut verdict, scope, seen, heavy) =
+            self.shared
+                .take(key, info, pass, heavy_ttl, &policy.trusted);
         // the route's bucket on top of the global one: both must allow
         if let (Some(r), Verdict::Allow) = (route, verdict) {
             verdict = r.take(&req, key, fp, (self.shared.now)());
@@ -349,6 +351,7 @@ impl Shared {
         info: Option<(&Scoring, ReqInfo)>,
         pass: Pass,
         heavy_ttl: Option<Duration>,
+        trusted: &TrustedProxies,
     ) -> (Verdict, Scope, Seen, bool) {
         let now = (self.now)();
         // the cluster's verdict first: a listed heavy hitter or a client
@@ -400,7 +403,8 @@ impl Shared {
             metrics::counter!("dvarapala_limiter_evictions_total").increment(evicted);
         }
         if let (Some(b), Some(_)) = (&self.block, heavy_ttl) {
-            for net in &heavy {
+            // a network with a trusted proxy in it carries every client behind it
+            for net in heavy.iter().filter(|n| !trusted.overlaps(**n)) {
                 b.block(*net);
             }
         }
@@ -425,16 +429,16 @@ fn accepts_html(headers: &HeaderMap) -> bool {
     })
 }
 
-/// All `X-Forwarded-For` lines as one list. Non-UTF-8 counts as absent, so
-/// the key falls back to the peer.
+/// All `X-Forwarded-For` lines as one list, read as bytes. A byte that is
+/// not UTF-8 turns its hop into one that does not parse, and `client_ip`
+/// reads right to left, so the hops the trusted proxies wrote still count.
 pub(crate) fn forwarded_for(headers: &HeaderMap) -> Option<Cow<'_, str>> {
     let mut values = headers.get_all("x-forwarded-for").iter();
-    let first = values.next()?.to_str().ok()?;
-    let mut joined: Cow<'_, str> = Cow::Borrowed(first);
+    let mut joined = String::from_utf8_lossy(values.next()?.as_bytes());
     for v in values {
         let s = joined.to_mut();
         s.push_str(", ");
-        s.push_str(v.to_str().ok()?);
+        s.push_str(&String::from_utf8_lossy(v.as_bytes()));
     }
     Some(joined)
 }
@@ -479,6 +483,9 @@ mod tests {
             Some("198.51.100.7, 192.0.2.1")
         );
         h.append("x-forwarded-for", HeaderValue::from_bytes(b"\xff").unwrap());
-        assert_eq!(forwarded_for(&h), None);
+        assert_eq!(
+            forwarded_for(&h).as_deref(),
+            Some("198.51.100.7, 192.0.2.1, \u{fffd}")
+        );
     }
 }

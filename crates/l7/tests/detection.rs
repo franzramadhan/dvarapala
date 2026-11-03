@@ -50,7 +50,17 @@ fn layer_in(
     cluster: Option<Arc<Mutex<Cluster>>>,
     block: Option<BlockSink>,
 ) -> RateLimitLayer {
-    RateLimitLayer::new(RateLimitConfig {
+    RateLimitLayer::new(config(enforce, prefix_v4, scoring, cluster, block)).unwrap()
+}
+
+fn config(
+    enforce: bool,
+    prefix_v4: u8,
+    scoring: Option<Scoring>,
+    cluster: Option<Arc<Mutex<Cluster>>>,
+    block: Option<BlockSink>,
+) -> RateLimitConfig {
+    RateLimitConfig {
         limit: Limit::new(4, 1).unwrap(),
         max_clients: NonZeroUsize::new(4096).unwrap(),
         trusted: TrustedProxies::default(),
@@ -73,8 +83,7 @@ fn layer_in(
         routes: Vec::new(),
         max_blocks: 4,
         priority: None,
-    })
-    .unwrap()
+    }
 }
 
 async fn send<S>(svc: &mut S, peer: &str) -> StatusCode
@@ -272,6 +281,30 @@ async fn heavy_hitters_reach_the_block_sink_while_enforcing() {
         let listed = seen.lock().unwrap().iter().any(|n| n == "192.0.2.10/32");
         assert_eq!(listed, enforce, "enforce = {enforce}");
     }
+}
+
+// a heavy network that holds a trusted proxy stays off the block sink
+#[tokio::test]
+async fn heavy_trusted_proxy_stays_off_the_block_sink() {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let s = seen.clone();
+    let sink = BlockSink::new(move |c| s.lock().unwrap().push(c.to_string()));
+    let mut c = config(true, 32, None, None, Some(sink));
+    c.trusted = TrustedProxies::new(vec!["192.0.2.0/24".parse().unwrap()]);
+    let l = RateLimitLayer::new(c).unwrap();
+    let mut svc = l.clone().layer(inner());
+    flood(&mut svc).await;
+    send(&mut svc, "203.0.113.1").await;
+    assert!(
+        l.top()
+            .iter()
+            .any(|(n, _)| n.to_string() == "192.0.2.10/32")
+    );
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "{:?}",
+        seen.lock().unwrap()
+    );
 }
 
 // RFC 0014: status and top for the admin API follow the attack to its end

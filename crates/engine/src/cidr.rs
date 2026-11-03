@@ -132,6 +132,13 @@ impl TrustedProxies {
     pub fn contains(&self, ip: IpAddr) -> bool {
         self.0.iter().any(|c| c.contains(ip))
     }
+
+    /// Whether `net` and any trusted network share an address.
+    pub fn overlaps(&self, net: Cidr) -> bool {
+        self.0
+            .iter()
+            .any(|c| c.contains(net.addr()) || net.contains(c.addr()))
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +187,18 @@ mod tests {
             Cidr::of(ip("::ffff:192.0.2.77"), 32),
             Cidr::of(ip("192.0.2.77"), 32)
         );
+    }
+
+    #[test]
+    fn trusted_overlaps_in_both_directions() {
+        let t = TrustedProxies::new(vec!["192.0.2.10".parse().unwrap()]);
+        assert!(t.overlaps("192.0.2.0/24".parse().unwrap()));
+        assert!(t.overlaps("192.0.2.10/32".parse().unwrap()));
+        assert!(!t.overlaps("198.51.100.0/24".parse().unwrap()));
+        assert!(!t.overlaps("2001:db8::/32".parse().unwrap()));
+        let t = TrustedProxies::new(vec!["192.0.2.0/24".parse().unwrap()]);
+        assert!(t.overlaps("192.0.2.77/32".parse().unwrap()));
+        assert!(!TrustedProxies::default().overlaps("0.0.0.0/0".parse().unwrap()));
     }
 
     #[test]
