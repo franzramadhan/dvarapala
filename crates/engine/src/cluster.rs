@@ -167,8 +167,10 @@ impl Cluster {
     /// batch with [`Pending::into_batch`] after releasing the lock.
     pub fn take(&mut self) -> Pending {
         Pending {
-            // shortcut: the map regrows on the request path, keep a spare map if that shows up
-            counts: std::mem::take(&mut self.deltas),
+            counts: std::mem::replace(
+                &mut self.deltas,
+                HashMap::with_capacity(self.deltas.capacity()),
+            ),
             dropped: std::mem::take(&mut self.dropped),
             heavy: std::mem::take(&mut self.heavy_out),
             pauses: std::mem::take(&mut self.pauses_out),
@@ -322,6 +324,19 @@ mod tests {
         assert_eq!(b.counts, vec![(key(2), 5), (key(3), 3)]);
         assert_eq!(b.dropped, 1);
         assert_eq!(c.drain(12_345).counts, vec![]);
+    }
+
+    #[test]
+    fn record_after_take_does_not_regrow_the_map() {
+        let mut c = cluster(2);
+        for k in 0..2 {
+            c.record(key(k));
+        }
+        let before = c.deltas.capacity();
+        let _pending = c.take();
+        assert!(c.deltas.capacity() >= before);
+        c.record(key(1));
+        assert_eq!(c.deltas.capacity(), before);
     }
 
     #[test]
