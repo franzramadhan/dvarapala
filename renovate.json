@@ -4,6 +4,12 @@
     "config:recommended",
     "helpers:pinGitHubActionDigestsToSemver"
   ],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null
+  },
   "packageRules": [
     {
       "description": "kube pins k8s-openapi: bump them in one PR, and k8s-openapi only when a kube release accepts it",
