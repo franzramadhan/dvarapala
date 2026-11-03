@@ -3,11 +3,12 @@ use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dvarapala_engine::{Cidr, Limit, TrustedProxies};
 use dvarapala_l7::{PeerAddr, RateLimitConfig, RateLimitLayer};
+use http::header::HeaderValue;
 use http::{Request, Response, StatusCode};
 use http_body_util::Full;
 use tower::{Layer, Service, ServiceExt, service_fn};
@@ -27,7 +28,7 @@ fn layer(rate: u32, burst: u32, trusted: &[&str]) -> RateLimitLayer {
         challenge: None,
         fingerprints: Default::default(),
         routes: Vec::new(),
-        max_blocks: 0,
+        max_blocks: 4,
         priority: None,
     })
     .unwrap()
@@ -56,6 +57,33 @@ fn req(peer: &str, xff: Option<&str>) -> Request<Body> {
     r.extensions_mut()
         .insert(PeerAddr(peer.parse::<SocketAddr>().unwrap()));
     r
+}
+
+/// One `X-Forwarded-For` line per entry, raw bytes as a client may send.
+fn req_lines(peer: &str, lines: &[&[u8]]) -> Request<Body> {
+    let mut r = req(peer, None);
+    for l in lines {
+        let v = HeaderValue::from_bytes(l).unwrap();
+        r.headers_mut().append("x-forwarded-for", v);
+    }
+    r
+}
+
+/// Sends `r`, then a clean request for `client`: the second one is
+/// throttled only when both share one bucket (rate 1/s, burst 1).
+async fn shares_bucket_with(r: Request<Body>, client: &str) -> bool {
+    let (_, inner) = counting();
+    let mut svc = layer(1, 1, &["192.0.2.0/24"]).layer(inner);
+    let first = svc.ready().await.unwrap().call(r).await.unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let second = svc
+        .ready()
+        .await
+        .unwrap()
+        .call(req("192.0.2.1:1", Some(client)))
+        .await
+        .unwrap();
+    second.status() == StatusCode::TOO_MANY_REQUESTS
 }
 
 #[tokio::test]
@@ -157,5 +185,30 @@ async fn missing_peer_fails_closed() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn xff_with_non_ascii_hop_keys_the_client() {
+    let r = req_lines("192.0.2.1:1", &[b"\xff, 198.51.100.7"]);
+    assert!(shares_bucket_with(r, "198.51.100.7").await);
+}
+
+#[tokio::test]
+async fn xff_line_with_non_ascii_keeps_the_proxy_line() {
+    let r = req_lines("192.0.2.1:1", &[b"203.0.113.9\xff", b"198.51.100.7"]);
+    assert!(shares_bucket_with(r, "198.51.100.7").await);
+}
+
+#[tokio::test]
+async fn xff_with_non_ascii_hop_still_hits_a_manual_block() {
+    let (calls, inner) = counting();
+    let l = layer(100, 100, &["192.0.2.0/24"]);
+    let mut svc = l.layer(inner);
+    l.block("198.51.100.7/32".parse().unwrap(), Duration::from_secs(60))
+        .unwrap();
+    let r = req_lines("192.0.2.1:1", &[b"\xff, 198.51.100.7"]);
+    let res = svc.ready().await.unwrap().call(r).await.unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
