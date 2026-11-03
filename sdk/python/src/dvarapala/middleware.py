@@ -1,7 +1,8 @@
 """ASGI and WSGI middleware with the routes applied (RFC 0028): 429 with
 Retry-After (seconds, rounded up, at least 1) or 403 with Connection:
 close, as the gateway does, and 400 with Connection: close for input the
-guard refuses, so a bad request never reaches the app. Neither protocol
+guard refuses, so a bad request never reaches the app. WSGI may not set
+Connection (PEP 3333), so its 403 and 400 leave it to the server. Neither protocol
 exposes accepted connections, so the l4 limits need the server's own hook
 and Guard.conn_open.
 
@@ -88,5 +89,7 @@ class WSGIMiddleware:
         if (refuse := _answer(v)) is None:
             return self.app(environ, start_response)
         status, reason, headers = refuse
-        start_response(f"{status} {reason}", headers)
+        # PEP 3333 forbids hop-by-hop headers (wsgiref answers 500); the
+        # server decides whether the connection stays open
+        start_response(f"{status} {reason}", [(k, v) for k, v in headers if k != "Connection"])
         return [b""]
