@@ -1,5 +1,23 @@
 # Credits
 
+## Research
+
+The learned scoring in detection ([RFC 0002](rfc/0002-adaptive-detection.md))
+started from this paper. It compares classifiers on the CICDDoS2019 dataset
+and finds Random Forest, AdaBoost and XGBoost the most accurate and fast
+enough for real-time detection. That result made a small XGBoost model in
+the request path worth a try.
+
+- Debashis Kar Suvra, "An Efficient Real Time DDoS Detection Model Using
+  Machine Learning Algorithms", arXiv:2501.14311, 2025.
+  <https://arxiv.org/abs/2501.14311>
+
+dvarapala does not use code or data from the paper. It computes its own
+features per client and loads standard XGBoost JSON models (see
+[Learned scoring](site/docs/ml.md)).
+
+## WAF
+
 dvarapala's WAF ([RFC 0017](rfc/0017-waf.md)) stands on the work of these
 projects. dvarapala does not bundle or link them: it speaks SPOP to an
 agent you run next to it, and each project's license applies to the copy
