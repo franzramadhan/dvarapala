@@ -292,6 +292,26 @@ mod tests {
     }
 
     #[test]
+    fn take_then_build_matches_drain_and_leaves_the_cluster_empty() {
+        let mut c = cluster(2);
+        for (k, n) in [(1, 1), (2, 5), (3, 3)] {
+            for _ in 0..n {
+                c.record(key(k));
+            }
+        }
+        c.publish_pause("api", Duration::from_secs(3));
+        let pending = c.take();
+        // the cluster is already empty before the batch is built
+        let again = c.take().into_batch(0);
+        assert_eq!((again.counts, again.dropped, again.pauses), (vec![], 0, vec![]));
+        let b = pending.into_batch(12_345);
+        assert_eq!(b.window_start, 10_000);
+        assert_eq!(b.counts, vec![(key(2), 5), (key(3), 3)]);
+        assert_eq!(b.dropped, 1);
+        assert_eq!(b.pauses, vec![("api".to_owned(), Duration::from_secs(3))]);
+    }
+
+    #[test]
     fn record_is_bounded_by_max_clients() {
         let mut c = Cluster::new(ClusterConfig {
             max_clients: 1,
