@@ -131,9 +131,11 @@ for it:
 
 If the operator refuses a policy, the policy is `Ready=False` with the
 reason. The full examples are
-[`kubernetes-console-waf.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-console-waf.yaml)
-and, for GeoIP from a claim,
-[`kubernetes-geoip.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-geoip.yaml).
+[`kubernetes-console-waf.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-console-waf.yaml),
+for GeoIP from a claim,
+[`kubernetes-geoip.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-geoip.yaml),
+and for a scoring model from a ConfigMap,
+[`kubernetes-ml.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-ml.yaml).
 
 ## What happens
 

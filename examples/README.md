@@ -15,7 +15,7 @@ the values differ from the defaults. Every key is described in
 | [proxy-protocol.toml](proxy-protocol.toml) | TLS passthrough behind a TCP load balancer: the PROXY protocol header carries the real client for every limit ([RFC 0030](../rfc/0030-proxy-protocol.md)) |
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 | [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
-| [ml.toml](ml.toml) | Learned scoring: an XGBoost model scores every client, LLM labels collect the next training set, a new model or threshold swaps in on `config_watch` without a restart (build with `--features ml`, [RFC 0029](../rfc/0029-ml-model-reload.md)) |
+| [ml.toml](ml.toml) | Learned scoring: an XGBoost model scores every client, LLM labels collect the next training set, a new model or threshold swaps in on `config_watch` without a restart (build with `--features ml`, [RFC 0029](../rfc/0029-ml-model-reload.md)); [ml/](ml/) has a dummy model, synthetic labels and the training script |
 | [challenge.toml](challenge.toml) | Public website: browsers solve a proof of work during an attack instead of sharing the attack limit; JA4 rules and forwarding |
 | [routes.toml](routes.toml) | One site, three policies: scanner paths denied, a low login rate, an API limited per key and exempt from the challenge |
 | [pool.toml](pool.toml) | Three app servers without a load balancer: least requests, health checks, ejection and budgeted retries |
@@ -26,6 +26,7 @@ the values differ from the defaults. Every key is described in
 | [xdp.toml](xdp.toml) | Linux host on the open internet: SYN and packet floods dropped in the NIC driver (build with `--features xdp`) |
 | [kubernetes.yaml](kubernetes.yaml) | Kubernetes: a policy, an `HTTPRoute` and an `Ingress` labeled to go through gateways the operator runs, and network policies so nothing bypasses them ([RFC 0019](../rfc/0019-operator.md)) |
 | [kubernetes-console-waf.yaml](kubernetes-console-waf.yaml) | Kubernetes: an operator gateway with the console, the WAF agent as a sidecar, a CA mount for the store and a network policy for the admin port ([RFC 0025](../rfc/0025-operator-gateway-parity.md)) |
+| [kubernetes-ml.yaml](kubernetes-ml.yaml) | Kubernetes: learned scoring on an operator gateway, the model from a ConfigMap; a new model swaps in on `config_watch` without a rollout ([RFC 0029](../rfc/0029-ml-model-reload.md), [RFC 0033](../rfc/0033-operator-large-mounts.md)) |
 | [kubernetes-geoip.yaml](kubernetes-geoip.yaml) | Kubernetes: GeoLite2 Country and ASN files for an operator gateway from a PersistentVolumeClaim that a `geoipupdate` CronJob refreshes, country and ASN routes without a rollout ([RFC 0033](../rfc/0033-operator-large-mounts.md)) |
 
 Run one with `dvarapala serve --config examples/<file>`. Paths, names and

@@ -201,3 +201,15 @@ fn the_model_carries_the_threshold_and_shows_in_status() {
         )
     );
 }
+
+// examples/ml/model.json loads and splits the two clients of site/docs/ml.md
+#[cfg(feature = "ml")]
+#[test]
+fn the_example_model_loads_and_splits_reader_and_walker() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/ml/model.json");
+    let m = load(Path::new(path), None).unwrap();
+    let reader = [1.0, 1.0, 6.8, 11.2, 0.0, 0.0, 1.0, 0.0, 0.3, 0.91];
+    let walker = [7.0, 5.6, 0.16, 0.002, 0.0, 0.0, 8.0, 0.42, 2.1, 0.88];
+    assert!(m.scorer.score(&reader) < 0.1);
+    assert!(m.scorer.score(&walker) > 0.9);
+}

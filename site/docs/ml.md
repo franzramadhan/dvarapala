@@ -157,6 +157,11 @@ booster = xgb.train(
 booster.save_model("model.json")
 ```
 
+[`examples/ml/`](https://github.com/franzramadhan/dvarapala/tree/main/examples/ml)
+has this script as `train.py`, with synthetic labels and the dummy model
+it writes. The data is not real traffic: use it to learn the format, not
+to enforce.
+
 The model must be XGBoost JSON with objective `binary:logistic` and
 booster `gbtree`. It can have at most 1024 trees, 65 536 nodes, depth 16
 and 16 MiB. Train it on columns named after the features above (any
@@ -196,7 +201,8 @@ threshold = 1.0  # watch only: a score is never above 1
   continues to score.
 - `dvarapala_ml_model_info{sha256}` and `GET /status` (`ml`) show which
   model each replica runs. Compare them with `sha256sum model.json`. With
-  the operator, update the ConfigMap of the model. The gateways poll it.
+  the operator, update the ConfigMap of the model. The gateways poll it
+  ([`kubernetes-ml.yaml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/kubernetes-ml.yaml)).
 
 There is no observe mode. Thus start with `threshold = 1.0` and read
 `dvarapala_ml_score` for a few days. An `ml_band` trigger
