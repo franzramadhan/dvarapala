@@ -33,6 +33,39 @@ pub struct Batch {
     pub dropped: u64,
 }
 
+/// What [`Cluster::take`] removed: not yet cut to `max_keys` or sorted.
+#[derive(Debug)]
+pub struct Pending {
+    counts: HashMap<ClientKey, u32>,
+    dropped: u64,
+    heavy: Vec<(Cidr, Duration)>,
+    pauses: Vec<(String, Duration)>,
+    max_keys: usize,
+    window_ms: u64,
+}
+
+impl Pending {
+    /// Keeps the busiest `max_keys` clients, busiest first, and counts the
+    /// rest as dropped. `unix_ms` is the wall clock.
+    pub fn into_batch(self, unix_ms: u64) -> Batch {
+        let mut counts: Vec<_> = self.counts.into_iter().collect();
+        let mut dropped = self.dropped;
+        if counts.len() > self.max_keys {
+            counts.select_nth_unstable_by(self.max_keys, |a, b| b.1.cmp(&a.1));
+            dropped += (counts.len() - self.max_keys) as u64;
+            counts.truncate(self.max_keys);
+        }
+        counts.sort_unstable_by_key(|&(_, n)| std::cmp::Reverse(n));
+        Batch {
+            window_start: unix_ms - unix_ms % self.window_ms,
+            counts,
+            heavy: self.heavy,
+            pauses: self.pauses,
+            dropped,
+        }
+    }
+}
+
 /// What a sync round brings back.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Reply {
@@ -129,24 +162,24 @@ impl Cluster {
         self.cfg.window
     }
 
-    /// Takes everything waiting for the store; `unix_ms` is the wall clock.
-    pub fn drain(&mut self, unix_ms: u64) -> Batch {
-        let mut counts: Vec<_> = self.deltas.drain().collect();
-        let mut dropped = std::mem::take(&mut self.dropped);
-        if counts.len() > self.cfg.max_keys {
-            counts.select_nth_unstable_by(self.cfg.max_keys, |a, b| b.1.cmp(&a.1));
-            dropped += (counts.len() - self.cfg.max_keys) as u64;
-            counts.truncate(self.cfg.max_keys);
-        }
-        counts.sort_unstable_by_key(|&(_, n)| std::cmp::Reverse(n));
-        let w = self.window_ms();
-        Batch {
-            window_start: unix_ms - unix_ms % w,
-            counts,
+    /// Takes everything waiting for the store, without sorting it. O(1):
+    /// swaps the containers out, so the lock is held briefly. Build the
+    /// batch with [`Pending::into_batch`] after releasing the lock.
+    pub fn take(&mut self) -> Pending {
+        Pending {
+            // shortcut: the map regrows on the request path, keep a spare map if that shows up
+            counts: std::mem::take(&mut self.deltas),
+            dropped: std::mem::take(&mut self.dropped),
             heavy: std::mem::take(&mut self.heavy_out),
             pauses: std::mem::take(&mut self.pauses_out),
-            dropped,
+            max_keys: self.cfg.max_keys,
+            window_ms: self.window_ms(),
         }
+    }
+
+    /// Takes everything waiting for the store; `unix_ms` is the wall clock.
+    pub fn drain(&mut self, unix_ms: u64) -> Batch {
+        self.take().into_batch(unix_ms)
     }
 
     /// Applies a good round: clients over the cluster allowance are
@@ -303,7 +336,10 @@ mod tests {
         let pending = c.take();
         // the cluster is already empty before the batch is built
         let again = c.take().into_batch(0);
-        assert_eq!((again.counts, again.dropped, again.pauses), (vec![], 0, vec![]));
+        assert_eq!(
+            (again.counts, again.dropped, again.pauses),
+            (vec![], 0, vec![])
+        );
         let b = pending.into_batch(12_345);
         assert_eq!(b.window_start, 10_000);
         assert_eq!(b.counts, vec![(key(2), 5), (key(3), 3)]);

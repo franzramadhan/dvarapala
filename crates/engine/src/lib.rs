@@ -22,7 +22,7 @@ mod verdict;
 pub use blocks::{Blocks, BlocksFull};
 pub use bucket::{Bucket, Limit, LimitError};
 pub use cidr::{BlockSink, Cidr, CidrError, TrustedProxies};
-pub use cluster::{Batch, Cluster, ClusterConfig, Reply, overshoot, split};
+pub use cluster::{Batch, Cluster, ClusterConfig, Pending, Reply, overshoot, split};
 pub use concurrency::{
     Class, Concurrency, ConcurrencyConfig, ConcurrencyError, LimitMode, Outcome, Priority, Update,
 };
