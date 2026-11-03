@@ -103,7 +103,8 @@ the split before you enforce anything.
 Turn on LLM labels with a trigger that selects the traffic you care about.
 `ml.llm.export` writes one JSON line per answer. If `ml.llm.persist` is
 on, `GET /llm/export` on the admin API streams the same lines from every
-replica.
+replica
+([`examples/llm-store.toml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/llm-store.toml)).
 
 ```toml
 [ml.llm]

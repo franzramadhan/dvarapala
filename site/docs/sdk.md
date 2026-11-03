@@ -16,6 +16,16 @@ the gateway.
 The SDKs take the [Configuration](configuration.html) names with the
 defaults of the gateway. If a key or a value is bad, the error names it.
 
+Each SDK has one small program with a per-client limit, a deny route and a
+manual block, and CI runs each one:
+[`sdk/go/example_test.go`](https://github.com/franzramadhan/dvarapala/blob/main/sdk/go/example_test.go)
+(`net/http`),
+[`sdk/python/examples/server.py`](https://github.com/franzramadhan/dvarapala/blob/main/sdk/python/examples/server.py)
+(WSGI) and
+[`sdk/js/examples/server.js`](https://github.com/franzramadhan/dvarapala/blob/main/sdk/js/examples/server.js)
+(`node:http`). Run the Python or JavaScript program with `--demo`: it
+sends five requests and prints the status of each.
+
 ## Keys
 
 | Accepted in process | |

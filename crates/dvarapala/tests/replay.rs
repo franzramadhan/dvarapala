@@ -285,3 +285,30 @@ fn long_lines_skip_and_reasons_are_capped() {
     // ten reasons at most
     assert_eq!(r.matches("\nskipped line ").count(), 10, "{r}");
 }
+
+// examples/replay.toml over examples/replay/access.jsonl, as its README says
+#[test]
+fn the_example_log_replays_as_documented() {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let r = stdout(&replay(
+        &examples.join("replay.toml"),
+        &[examples.join("replay/access.jsonl").to_str().unwrap()],
+    ));
+    assert!(r.starts_with("lines 323, replayed 323, skipped 0"), "{r}");
+    let route = |name, verdict| {
+        series(
+            &r,
+            &format!("dvarapala_route_requests_total{{route=\"{name}\",verdict=\"{verdict}\"}}"),
+        )
+    };
+    assert_eq!(route("probes", "deny"), 16, "{r}");
+    assert_eq!(route("dotfiles", "deny"), 12, "{r}");
+    assert!(route("login", "throttle") > 0, "{r}");
+    assert!(
+        series(
+            &r,
+            r#"dvarapala_requests_total{verdict="throttle",protocol="http1"}"#
+        ) > 0,
+        "{r}"
+    );
+}

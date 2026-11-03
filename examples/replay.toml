@@ -1,0 +1,43 @@
+# A candidate config tried on a recorded access log before it reaches
+# clients (RFC 0016).
+#
+# Use case: you want deny routes for scanners and a low login rate, and
+# need to know who they refuse before you deploy them. dvarapala replay
+# runs this file's protection layer over replay/access.jsonl on a virtual
+# clock: the minute in the log replays in milliseconds, with no listener
+# and no upstream. Compare the result with the config you run now:
+#
+#   dvarapala replay --config examples/dvarapala.toml --out now.jsonl examples/replay/access.jsonl
+#   dvarapala replay --config examples/replay.toml --out next.jsonl examples/replay/access.jsonl
+#   diff now.jsonl next.jsonl
+#
+# replay/access.jsonl is synthetic (see replay/README.md). Replay ignores
+# upstream, [pool], [tls], [l4], [store], [xdp] and [admin], so this file
+# can be the one you deploy. Placeholders: app.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+
+[rate_limit]
+rate = 5
+burst = 10
+
+[detection]
+mode = "observe"
+
+[[routes]]
+name = "probes"
+path = "/wp-admin"
+deny = true
+
+[[routes]]
+name = "dotfiles"
+path = "/."
+deny = true
+
+[[routes]]
+name = "login"
+path = "=/login"
+methods = ["POST"]
+rate = 1
+burst = 5

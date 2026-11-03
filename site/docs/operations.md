@@ -121,4 +121,8 @@ The report lists the lines that replay read and skipped, the time span, and the
 and `dvarapala_detection_*` series. `--out` writes one
 `{"line":N,"status":S}` per line. To compare two configurations, replay
 each one and diff the files.
+[`examples/replay.toml`](https://github.com/franzramadhan/dvarapala/blob/main/examples/replay.toml)
+and its synthetic log in
+[`examples/replay/`](https://github.com/franzramadhan/dvarapala/tree/main/examples/replay)
+show the loop.
 The fields are in [Configuration](configuration.html#replay).
