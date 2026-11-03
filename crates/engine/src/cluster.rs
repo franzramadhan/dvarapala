@@ -166,11 +166,9 @@ impl Cluster {
     /// swaps the containers out, so the lock is held briefly. Build the
     /// batch with [`Pending::into_batch`] after releasing the lock.
     pub fn take(&mut self) -> Pending {
+        let cap = self.deltas.capacity();
         Pending {
-            counts: std::mem::replace(
-                &mut self.deltas,
-                HashMap::with_capacity(self.deltas.capacity()),
-            ),
+            counts: std::mem::replace(&mut self.deltas, HashMap::with_capacity(cap)),
             dropped: std::mem::take(&mut self.dropped),
             heavy: std::mem::take(&mut self.heavy_out),
             pauses: std::mem::take(&mut self.pauses_out),
@@ -334,9 +332,10 @@ mod tests {
         }
         let before = c.deltas.capacity();
         let _pending = c.take();
-        assert!(c.deltas.capacity() >= before);
+        let after = c.deltas.capacity();
+        assert!(after >= before);
         c.record(key(1));
-        assert_eq!(c.deltas.capacity(), before);
+        assert_eq!(c.deltas.capacity(), after);
     }
 
     #[test]
