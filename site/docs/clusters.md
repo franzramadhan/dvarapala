@@ -2,20 +2,25 @@
 title: Clusters
 ---
 
-One replica holds each client to `rate`. Several replicas behind a load
-balancer each hold it to `rate` too, so a client spread across N replicas
-gets N times its limit. A store gives the replicas one shared view: one
-per-client limit, one list of heavy hitters, and in forward mode one
-budget per destination.
+A replica is one dvarapala process in a group that serves the same app.
+One replica holds each client to `rate`. Behind a load balancer, each of
+several replicas also holds the client to `rate`. Thus a client spread
+across N replicas gets N times its limit.
+
+A store gives the replicas one shared view. This view has one limit per
+client and one list of heavy hitters (the network prefixes with the most
+traffic). In forward mode, it also has one budget per destination.
 
 ## Run it
 
-The container image has both backends. The release tarballs (and so
-Homebrew and `install.sh`) have neither: with those, a shared backend
-fails at start with `store.backend = "redis" needs a binary built with the
-redis feature`. Use the image, or build with the backend you need
-(`--features redis`, `--features postgres`, or both), then point every replica at the same store and
-cluster name:
+The container image has both backends. The release tarballs (and thus
+Homebrew and `install.sh`) have neither. With those binaries, a shared
+backend fails at start with `store.backend = "redis" needs a binary built
+with the redis feature`.
+
+1. Use the image, or build with the backend that you need
+   (`--features redis`, `--features postgres`, or both).
+2. Point each replica at the same store and cluster name:
 
 ```toml
 [store]
@@ -25,40 +30,43 @@ cluster = "app"
 sync_interval = "1s"
 ```
 
-Put the password in `DVARAPALA__STORE__URL`, not the file; it is never
-logged. Behind a load balancer, also list it in `trusted_proxies`.
+Put the password in `DVARAPALA__STORE__URL`, not in the file. dvarapala
+never logs this variable. If the replicas are behind a load balancer, also
+put the load balancer in `trusted_proxies`.
 
 ## What is shared
 
-- **Per-client limit:** each replica adds the requests it allowed to a
-  cluster count per window (10 sync intervals). A client over `rate x
-  window + burst` in the cluster is throttled on every replica until the
-  window ends. A count reaches the other replicas within two sync
-  periods, which bounds the overshoot.
-- **Heavy hitters:** a prefix that detection drops in `enforce` mode on
-  one replica is dropped on all of them for `cooldown_windows` windows.
-- **Forward mode:** each destination's `rate`, `burst` and
-  `max_concurrent` are divided by the live replica count, and a provider
-  `Retry-After` seen by one replica pauses the destination on all.
+- Per-client limit: each replica adds the requests that it allowed to a
+  cluster count per window (10 sync intervals). If a client goes over
+  `rate x window + burst` in the cluster, every replica throttles it until
+  the window ends. A count reaches the other replicas within two sync
+  periods. This sets the maximum overshoot.
+- Heavy hitters: if detection drops a prefix in `enforce` mode on one
+  replica, all replicas drop it for `cooldown_windows` windows.
+- Forward mode: dvarapala divides the `rate`, `burst` and
+  `max_concurrent` of each destination by the number of live replicas. If
+  one replica gets a `Retry-After` from a provider, the destination pauses
+  on all replicas.
 
 ## When the store goes away
 
 Nothing on the request path waits for the store. Each replica decides
-from local state and syncs in the background, so a lost store is a
-fail-open to local limits, logged once as `store unavailable` and
-`store recovered`. Forward mode keeps the last replica count, so egress
-stays under the agreement.
+from local state and syncs in the background. If the store is lost, each
+replica fails open to its local limits. dvarapala logs this once as
+`store unavailable`, and later as `store recovered`. Forward mode keeps
+the last replica count, so outbound traffic stays under the agreement.
 
 ## PostgreSQL
 
-Tables are `UNLOGGED`, in the `dvarapala` schema, migrated at start
-(`migrate = false` only checks the version). With CloudNativePG, use the
+The tables are `UNLOGGED`, in the `dvarapala` schema. dvarapala migrates
+them at start (with `migrate = false`, it only makes sure that the version
+is correct). With CloudNativePG, use the
 `<cluster>-rw` service or a `Pooler` in transaction mode.
 `dvarapala store schema` prints the migration SQL to apply by hand.
 
 ## Watch it
 
-`dvarapala_store_up` is 1 while syncing works;
-`dvarapala_requests_total{scope="cluster"}` counts refusals from the
-cluster count or drop list rather than the local bucket. Every key and
+`dvarapala_store_up` is 1 while the sync works.
+`dvarapala_requests_total{scope="cluster"}` counts refusals that come from
+the cluster count or the drop list, not from the local bucket. Every key and
 metric is in [Configuration](configuration.html#store).
