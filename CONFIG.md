@@ -875,7 +875,7 @@ endpoint = "unix:/run/coraza-spoa/coraza.sock"
 | `mode` | string | `"observe"` | `"observe"` logs and counts what the agent would block and forwards; `"enforce"` blocks |
 | `endpoint` | string | `""` | The agent: `"host:port"` or `"unix:/absolute/path"`, required when `enabled`. Requests cross it in clear: keep it on loopback or a Unix socket (anything else logs a warning at start) |
 | `app` | string | `"default"` | The agent's application, the rule set to apply; `coraza-spoa` falls back to its `default_application` for an unknown name |
-| `timeout` | duration | `"250ms"` | Waiting for a connection plus the round trip; over it the request counts as an `error` |
+| `timeout` | duration | `"250ms"` | Waiting for a connection plus the round trip, once per request (a retry without the body gets what is left); over it the request counts as an `error` |
 | `on_error` | string | `"block"` | When the agent is down, slow or answers garbage, in `enforce`: `"block"` answers `503`, `"pass"` forwards. `observe` always forwards |
 | `max_body` | size | `"16KiB"` | Body bytes buffered and sent at most, as bytes or with `B`, `KiB` or `MiB`, up to 64 MiB; `0` sends headers only. The agent's frame is `max_body` plus 16 KiB, or less if the agent asks for less: a request that does not fit with its body is handled as a body over `max_body`; one whose request line and headers alone do not fit gets `431` in `enforce`, whatever `on_error` says |
 | `body_limit_action` | string | `"reject"` | A body over `max_body` in `enforce`: `"reject"` answers `413` without asking; `"pass"` sends the request to the agent without its body, then the whole body upstream. `observe` always does as `"pass"` |
@@ -883,7 +883,7 @@ endpoint = "unix:/run/coraza-spoa/coraza.sock"
 | `rules_files` | list of paths | `[]` | The agent's rule files, at most 8, shown by `GET /waf` and the console ([RFC 0021](rfc/0021-admin-ui-config-waf.md)). Display only: the gateway never parses or applies them. A file over 256 KiB or unreadable is listed with its error and logged as `waf rules file unreadable` |
 
 A blocked request gets the agent's status when it is `400` to `599`,
-`403` otherwise, with `Connection: close` on a `403` (gRPC: status 7, or
+`403` otherwise, with `Connection: close` on a `403` (gRPC over HTTP/2 or HTTP/3: status 7, or
 14 for `503`). The body is read before the agent is asked, then sent
 upstream as it came. The first match of a client in a second is logged
 as `waf match` with the rule, the matched rule IDs, the anomaly score and

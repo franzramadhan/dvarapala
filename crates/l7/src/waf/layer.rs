@@ -166,9 +166,9 @@ where
 {
     let cfg = &live.cfg;
     let (parts, body) = req.into_parts();
-    let grpc = is_grpc(&parts.headers);
     // gRPC runs on HTTP/2 and HTTP/3 only; elsewhere the type changes nothing
-    let grpc_stream = grpc && matches!(parts.version, Version::HTTP_2 | Version::HTTP_3);
+    let grpc =
+        is_grpc(&parts.headers) && matches!(parts.version, Version::HTTP_2 | Version::HTTP_3);
     let (mut head, mut data, mut rest) = (VecDeque::new(), Vec::new(), Some(body));
     let mut over = false;
     if let Some(b) = rest
@@ -176,7 +176,7 @@ where
         .filter(|b| cfg.max_body > 0 && !b.is_end_stream())
     {
         // a gRPC stream may never end: headers only, unless its length is known
-        if grpc_stream && b.size_hint().exact().is_none() {
+        if grpc && b.size_hint().exact().is_none() {
             count("skipped");
         } else {
             over = b.size_hint().lower() > cfg.max_body as u64;
@@ -207,7 +207,9 @@ where
         data.clear();
     }
     let client = client(cfg, &parts);
-    let mut answer = ask(&live, &parts, client, &data).await;
+    // one deadline for the first ask and a retry without the body
+    let deadline = tokio::time::Instant::now() + cfg.timeout;
+    let mut answer = ask(&live, &parts, client, &data, deadline).await;
     // over the agent's frame size with the body: a size limit, not an
     // agent error; the same action as a body over `max_body`
     if matches!(answer, Err(Failure::TooLarge)) && !data.is_empty() {
@@ -216,7 +218,7 @@ where
             return Ok(local(StatusCode::PAYLOAD_TOO_LARGE, grpc));
         }
         data.clear();
-        answer = ask(&live, &parts, client, &data).await;
+        answer = ask(&live, &parts, client, &data, deadline).await;
     }
     let block = match answer {
         Ok(a) if a.action.is_some() => {
@@ -267,12 +269,13 @@ fn client(cfg: &WafConfig, p: &Parts) -> (IpAddr, u16) {
     (ip.to_canonical(), port)
 }
 
-/// The `coraza-req` message for the request, bounded by `timeout`.
+/// The `coraza-req` message for the request, bounded by `deadline`.
 async fn ask(
     live: &Live,
     p: &Parts,
     (src, port): (IpAddr, u16),
     body: &[u8],
+    deadline: tokio::time::Instant,
 ) -> Result<Answer, Failure> {
     let cfg = &live.cfg;
     let mut headers = Vec::with_capacity(1024);
@@ -303,7 +306,7 @@ async fn ask(
         ("exportRuleIDs", Value::Bool(true)),
     ];
     let start = Instant::now();
-    let out = tokio::time::timeout(cfg.timeout, live.pool.ask(MESSAGE, &args)).await;
+    let out = tokio::time::timeout_at(deadline, live.pool.ask(MESSAGE, &args)).await;
     metrics::histogram!("dvarapala_waf_inspect_seconds").record(start.elapsed().as_secs_f64());
     out.unwrap_or(Err(Failure::Timeout))
 }

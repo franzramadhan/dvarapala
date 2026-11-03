@@ -253,8 +253,9 @@ async fn grpc_typed_body_on_http1_over_max_body_is_rejected() {
     let over = verdict("body_over_limit");
     for exact in [true, false] {
         let res = send(&mut svc, grpc(Version::HTTP_11, body(2048, exact))).await;
-        // refused in gRPC form, like every local answer to a gRPC type
-        assert_eq!(res.headers()["grpc-status"], "7");
+        // no gRPC on HTTP/1.1: a plain answer
+        assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(res.headers().get("grpc-status").is_none());
     }
     assert_eq!(seen.notifies(), 0);
     assert!(got.lock().unwrap().is_empty());

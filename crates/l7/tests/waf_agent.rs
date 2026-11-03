@@ -196,6 +196,7 @@ async fn grpc_gets_grpc_answers() {
     metrics();
     let grpc = || {
         let mut r = empty();
+        *r.version_mut() = Version::HTTP_2;
         r.headers_mut()
             .insert("content-type", "application/grpc".parse().unwrap());
         r
