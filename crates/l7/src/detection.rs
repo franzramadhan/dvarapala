@@ -51,20 +51,23 @@ impl ReqInfo {
 }
 
 impl Scoring {
-    /// Records the request in the client's stats and scores it. A score
-    /// above the threshold turns the request into a throttle for `window`.
-    /// The score and features go along for RFC 0023 samples.
-    pub(crate) fn judge(
-        &self,
+    /// Records the request in the client's stats and returns its features.
+    /// Runs under the limiter's lock; `verdict` does the scoring outside it.
+    pub(crate) fn record(
         stats: &mut ClientStats,
         info: ReqInfo,
         now: Instant,
         window: Duration,
         instance: (f64, f64),
-    ) -> (Verdict, f64, Features) {
+    ) -> Features {
         stats.record(now, window, info.size, info.has_user_agent, info.path_hash);
-        let features = stats.features(instance.0, instance.1);
-        let score = self.scorer.score(&features);
+        stats.features(instance.0, instance.1)
+    }
+
+    /// Scores the features. A score above the threshold turns the request
+    /// into a throttle for `window`. The score goes along for RFC 0023 samples.
+    pub(crate) fn verdict(&self, features: &Features, window: Duration) -> (Verdict, f64) {
+        let score = self.scorer.score(features);
         // NaN: features only, no model (RFC 0023 samples)
         if !score.is_nan() {
             metrics::histogram!("dvarapala_ml_score").record(score);
@@ -76,7 +79,7 @@ impl Scoring {
         } else {
             Verdict::Allow
         };
-        (v, score, features)
+        (v, score)
     }
 }
 

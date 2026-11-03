@@ -362,7 +362,8 @@ impl Shared {
         let mut heavy = Vec::new();
         let mut seen: Seen = (false, None);
         let mut suspect = false;
-        let (verdict, clients, evicted) = {
+        let mut pending = None;
+        let (mut verdict, clients, evicted) = {
             let mut g = self.lock();
             let Inner { guard, watch } = &mut *g;
             let d = guard.check_passed(key, now, pass);
@@ -384,7 +385,7 @@ impl Shared {
             if d.would_drop {
                 log_would_drop(key);
             }
-            let mut v = d.verdict;
+            let v = d.verdict;
             if let (Some((s, info)), Verdict::Allow) = (info, v) {
                 let window = guard.window();
                 let instance = guard
@@ -392,12 +393,17 @@ impl Shared {
                     .map_or((0.0, 0.0), |det| (det.zscore(), det.entropy()));
                 if let Some(slot) = guard.get_mut(&key) {
                     let stats = slot.get_or_insert_with(Box::default);
-                    let (j, score, features) = s.judge(stats, info, now, window, instance);
-                    (v, seen.1) = (j, Some((score, features)));
+                    let features = Scoring::record(stats, info, now, window, instance);
+                    pending = Some((s, features, window));
                 }
             }
             (v, guard.clients(), d.evicted)
         };
+        // the model walk runs outside the lock
+        if let Some((s, features, window)) = pending {
+            let (v, score) = s.verdict(&features, window);
+            (verdict, seen.1) = (v, Some((score, features)));
+        }
         metrics::gauge!("dvarapala_limiter_clients").set(clients as f64);
         if evicted > 0 {
             metrics::counter!("dvarapala_limiter_evictions_total").increment(evicted);
