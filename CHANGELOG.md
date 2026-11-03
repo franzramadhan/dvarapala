@@ -12,10 +12,12 @@ release branch (see `CLAUDE.md`).
 - **l7:** Cap pending oidc logins per client (#317)
 - **l7:** Waf size limits for oversized and grpc-typed requests (#319)
 - **l7:** Read x-forwarded-for as bytes (#318)
+- **l7:** Score requests outside the rate limiter lock (#320)
 
 ### Docs
 
 - Plain english for the docs site (#315)
+- Dummy xgboost model and a kubernetes ml example (#322)
 
 ### Build and CI
 
