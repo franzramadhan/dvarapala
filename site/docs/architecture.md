@@ -2,10 +2,10 @@
 title: Architecture
 ---
 
-dvarapala has one engine and several entry points. The protection logic
-lives in the `engine` crate, which decides a verdict for a connection or a request and
-does no I/O. The proxy and the binary are thin wrappers that feed it and
-carry out what it decides.
+dvarapala has one engine and several entry points. The `engine` crate holds
+the protection logic. It decides a verdict (allow, throttle, challenge or drop)
+for a connection or a request, and it does no I/O. The proxy and the binary are
+thin wrappers that feed the engine and carry out its decisions.
 
 ## Request path
 
@@ -67,45 +67,49 @@ carry out what it decides.
 ```
 
 With `[pool]` ([RFC 0015](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0015-upstream-pools.md)),
-one pool serves the TCP and HTTP/3 listeners. Active health checks and
-passive ejection after consecutive errors take an endpoint out until it
-passes a check again. With every endpoint out the pool still picks one
-and counts it as degraded, so a wrong health check is not an outage.
-Without `[pool]`, `upstream` is a pool of one with no checks.
+one pool serves the TCP and HTTP/3 listeners. Active health checks, and
+passive ejection after consecutive errors, take an endpoint out of the
+pool. The endpoint stays out until it passes a check again. If every
+endpoint is out, the pool still picks one and counts it as degraded. Thus
+a wrong health check does not cause an outage. Without `[pool]`,
+`upstream` is a pool of one with no checks.
 
 The admin API and its web console ([Operations](operations.html)) run on
-its own listener, next to the metrics one, and change the running policy
-in place.
+their own listener, next to the metrics listener. They change the running
+policy in place.
 
 With `[ml]` ([RFC 0002](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0002-adaptive-detection.md)),
-the model runs in the rate limiter, under the same lock as the client's
-bucket, after the bucket, detection and challenge all said allow. Only
-those requests update the client's features, so a throttled client does
-not feed its own score. The score costs one walk of the trees in process,
-no I/O. LLM labels ([RFC 0023](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0023-llm-labels.md))
-are not a stage: samples go to a queue and the LLM answers off the
-request path, never changing a verdict. See [Learned scoring](ml.html).
+the model runs in the rate limiter, under the same lock as the bucket of
+the client. It runs only after the bucket, detection and challenge all
+allowed the request. Only those requests update the features of the
+client, so a throttled client does not feed its own score. The score costs
+one walk of the trees in the process, with no I/O.
+
+LLM labels ([RFC 0023](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0023-llm-labels.md))
+are not a stage. Samples go to a queue, and the LLM answers off the
+request path. The LLM never changes a verdict. See [Learned scoring](ml.html).
 
 With `[waf]` ([RFC 0017](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0017-waf.md)), the agent is a separate
-process: rules change without a dvarapala build, and its memory and CPU
-stay out of the proxy. See [WAF](waf.html).
+process. You can change its rules without a new dvarapala build, and its
+memory and CPU stay out of the proxy. See [WAF](waf.html).
 
 With `l4.proxy_protocol` ([RFC 0030](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0030-proxy-protocol.md)),
-the client every later stage keys on is the address in the PROXY header
-from a balancer in `l4.proxy_protocol_from`. While it is on, the rate
-limiter sends no dynamic blocks to XDP: the packets of a carried client
-come from the balancer, and a blocked address cannot be told apart.
+every later stage keys on the client address in the PROXY header. That
+header must come from a balancer in `l4.proxy_protocol_from`. While this
+option is on, the rate limiter sends no dynamic blocks to XDP. The packets
+of a carried client come from the balancer, so XDP cannot tell a blocked
+address apart.
 
 Reputation feeds ([RFC 0031](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0031-network-intel.md))
-refresh off the request path; a failed refresh keeps the last good
-list, so an outage of a third-party list changes no verdict.
+refresh off the request path. If a refresh fails, dvarapala keeps the last
+good list. Thus an outage of a third-party list changes no verdict.
 
 With `[concurrency]` ([RFC 0032](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0032-adaptive-concurrency.md)),
-a shed request never reaches the pool, so it counts neither for ejection
-nor against the retry budget.
+a shed request (one refused at once with `503`) never reaches the pool. It
+does not count toward ejection, and it does not use the retry budget.
 
-Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
-`grpc-status`), so clients see a status code instead of a broken stream.
+Local errors on a gRPC request come back in gRPC form (HTTP 200 with
+`grpc-status`). Thus clients see a status code instead of a broken stream.
 
 ## Crates
 
@@ -121,18 +125,19 @@ Local errors on a gRPC request come back gRPC-shaped (HTTP 200 with
 | `xdp-ebpf` | The eBPF program, its own workspace on a pinned nightly |
 | `ffi` | C ABI (`dvarapala.h`) over the engine, for the SDKs |
 | `node` | N-API addon over the C ABI for the JavaScript SDK |
-| `dvarapala` | The binary: config, metrics endpoint, signals |
+| `dvarapala` | The binary: configuration, metrics endpoint, signals |
 | `operator` | Kubernetes operator: the `DvarapalaPolicy` CRD, the route rewrite webhook and the gateway controller |
 
-Dependencies point inward: the binary and `ffi` depend on the rest,
-`engine` on no other workspace crate. More crates arrive with the RFC that
-needs them.
+Dependencies point inward. The binary and `ffi` depend on the rest, and
+`engine` depends on no other workspace crate. New crates arrive with the
+RFC that needs them.
 
 ## Clusters
 
 Replicas share state through a store ([RFC 0010](https://github.com/franzramadhan/dvarapala/blob/main/rfc/0010-shared-state.md)),
-never on the request path: each replica decides from local state and a
-background task syncs every `sync_interval`. See [Clusters](clusters.html).
+but never on the request path. Each replica decides from local state, and
+a background task syncs the state every `sync_interval`. See
+[Clusters](clusters.html).
 
 ## Modes
 
@@ -147,19 +152,23 @@ background task syncs every `sync_interval`. See [Clusters](clusters.html).
 
 ## Failure policy
 
-The protection path fails closed: when a limit cannot be decided, the
-request does not pass. It fails open only where an RFC says so, and logs
-it: a lost store falls back to local limits (and keeps LLM labels in
-memory), and `waf.on_error = "pass"`
-forwards when the WAF agent fails. On Kubernetes, a new gateway passes
-traffic straight to the application until its first pod is ready, then
-never again: no ready gateway pod means `503`. Shutdown drains in-flight requests and open tunnels for up to 30 s.
+The protection path fails closed: if dvarapala cannot decide a limit, the
+request does not pass. It fails open only where an RFC says so, and it
+logs the event. A lost store falls back to local limits and keeps LLM
+labels in memory. With `waf.on_error = "pass"`, dvarapala forwards the
+request when the WAF agent fails.
+
+On Kubernetes, a new gateway passes traffic straight to the application
+until its first pod is ready. After that, it never does so again: if no
+gateway pod is ready, the answer is `503`. At shutdown, dvarapala drains
+in-flight requests and open tunnels for up to 30 s.
 
 ## Stack
 
-Rust for a small footprint without a GC and memory safety at the trust
-boundary: `tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3` (feature
-`http3`), `redis` and `tokio-postgres` (features `redis`, `postgres`),
-`aya` (feature `xdp`), `kube` (the operator), and `metrics` with the
-Prometheus exporter. The idle binary has an RSS budget that CI checks on
-every change.
+dvarapala uses Rust for a small footprint without a garbage collector and
+for memory safety at the trust boundary. The stack is
+`tokio`, `hyper`, `tower`, `rustls`, `quinn` and `h3` (feature `http3`),
+`redis` and `tokio-postgres` (features `redis`, `postgres`), `aya`
+(feature `xdp`), `kube` (the operator), and `metrics` with the Prometheus
+exporter. The idle binary has an RSS budget, and CI checks it on every
+change.
