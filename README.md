@@ -290,4 +290,4 @@ Built on `tokio`, `hyper`, `tower`, `rustls`, `quinn`, `h3`, `redis`,
 | **Contributing** | Contributor and agent rules: [CLAUDE.md](CLAUDE.md) |
 | **Security** | Report vulnerabilities privately: [SECURITY.md](SECURITY.md) |
 | **License** | [MIT](LICENSE) |
-| **Credits** | Coraza, coraza-spoa and the OWASP CRS: [CREDITS.md](CREDITS.md) |
+| **Credits** | The XGBoost DDoS detection paper behind learned scoring, and Coraza, coraza-spoa and the OWASP CRS: [CREDITS.md](CREDITS.md) |
