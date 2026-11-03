@@ -8,6 +8,10 @@ use super::ja4;
 /// Largest ClientHello fingerprinted; a bigger one is served without.
 const MAX_HELLO: usize = 16 * 1024;
 
+/// Most bytes read for one ClientHello: [`MAX_HELLO`], its 4-byte
+/// handshake header and the headers of up to 8 records.
+const MAX_READ: usize = MAX_HELLO + 4 + 5 * 8;
+
 /// Reads the ClientHello records off `io` (RFC 0012). Returns every byte
 /// read, to be replayed to rustls, and the JA4 when the records hold a
 /// whole ClientHello of at most [`MAX_HELLO`] bytes.
@@ -23,7 +27,8 @@ pub(crate) async fn read<IO: AsyncRead + Unpin>(io: &mut IO) -> io::Result<(Vec<
             return Ok((seen, None));
         }
         let len = usize::from(u16::from_be_bytes([head[3], head[4]]));
-        if hs.len() + len > MAX_HELLO + 4 {
+        // RFC 8446 5.1: a handshake record is never empty; rustls rejects it
+        if len == 0 || hs.len() + len > MAX_HELLO + 4 || seen.len() + len > MAX_READ {
             return Ok((seen, None));
         }
         let start = seen.len();
@@ -90,5 +95,31 @@ mod tests {
         assert_eq!((seen.as_slice(), f), (&one[..5], None));
         let (seen, f) = read(&mut &b"GET / HTTP/1.1\r\n"[..]).await.unwrap();
         assert_eq!((seen.as_slice(), f), (&b"GET /"[..], None));
+    }
+
+    #[tokio::test]
+    async fn bytes_read_stay_bounded() {
+        // empty handshake records: the first one ends the read
+        let wire = [0x16, 3, 1, 0, 0].repeat(100_000);
+        let (seen, f) = read(&mut &wire[..]).await.unwrap();
+        assert!(f.is_none());
+        assert!(seen.len() <= MAX_HELLO + 64, "read {} bytes", seen.len());
+        // a hello sent one byte per record: the headers count too
+        let mut hello = vec![1, 0, 0x30, 0];
+        hello.resize(4 + 0x3000, 0);
+        let wire = records_of(&hello, 1);
+        let (seen, f) = read(&mut &wire[..]).await.unwrap();
+        assert!(f.is_none());
+        assert!(seen.len() <= MAX_HELLO + 64, "read {} bytes", seen.len());
+    }
+
+    fn records_of(h: &[u8], size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for part in h.chunks(size) {
+            out.extend_from_slice(&[0x16, 3, 1]);
+            out.extend_from_slice(&(part.len() as u16).to_be_bytes());
+            out.extend_from_slice(part);
+        }
+        out
     }
 }
