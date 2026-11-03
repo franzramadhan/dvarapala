@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use super::*;
 
 const ISS: &str = "https://idp.example";
@@ -20,6 +22,11 @@ fn jwt(claims: &str) -> String {
     format!("eyJhbGciOiJSUzI1NiJ9.{}.c2ln", b64url(claims.as_bytes()))
 }
 
+/// A documentation address (RFC 5737).
+fn ip(n: u8) -> IpAddr {
+    IpAddr::from([192, 0, 2, n])
+}
+
 fn query(url: &str) -> HashMap<String, String> {
     let q = url.split_once('?').unwrap().1;
     q.split('&')
@@ -37,8 +44,8 @@ fn authorization_url_with_pkce() {
     };
     let logins = Logins::default();
     let now = Instant::now();
-    let a = query(&logins.begin(&cfg(), &p, now));
-    let b = query(&logins.begin(&cfg(), &p, now));
+    let a = query(&logins.begin(&cfg(), &p, ip(1), now));
+    let b = query(&logins.begin(&cfg(), &p, ip(1), now));
     assert_eq!(a["response_type"], "code");
     assert_eq!(a["code_challenge_method"], "S256");
     assert_eq!(a["client_id"], "dvarapala");
@@ -125,18 +132,63 @@ fn state_is_single_use_and_expires() {
     };
     let logins = Logins::default();
     let now = Instant::now();
-    let url = logins.begin(&cfg(), &p, now);
+    let url = logins.begin(&cfg(), &p, ip(1), now);
     assert!(url.starts_with("https://idp.example/auth?x=1&response_type=code"));
     let state = query(&url)["state"].clone();
     assert_eq!(logins.take("unknown", now), None);
     assert!(logins.take(&state, now).is_some());
     assert_eq!(logins.take(&state, now), None, "used twice");
-    let old = query(&logins.begin(&cfg(), &p, now))["state"].clone();
+    let old = query(&logins.begin(&cfg(), &p, ip(1), now))["state"].clone();
     assert_eq!(logins.take(&old, now + PENDING_TTL), None, "too old");
-    for _ in 0..MAX_PENDING + 5 {
-        logins.begin(&cfg(), &p, now);
+    for n in 0..MAX_PENDING + 5 {
+        logins.begin(&cfg(), &p, ip(n as u8), now);
     }
     assert_eq!(logins.lock().len(), MAX_PENDING);
+}
+
+#[test]
+fn one_client_only_replaces_its_own_pending_logins() {
+    let p = Provider {
+        authorization_endpoint: format!("{ISS}/auth"),
+        token_endpoint: format!("{ISS}/token"),
+    };
+    let logins = Logins::default();
+    let now = Instant::now();
+    let a = query(&logins.begin(&cfg(), &p, ip(1), now))["state"].clone();
+    let first = query(&logins.begin(&cfg(), &p, ip(2), now))["state"].clone();
+    let mut last = String::new();
+    for i in 1..=MAX_PENDING as u64 {
+        let at = now + Duration::from_millis(i);
+        last = query(&logins.begin(&cfg(), &p, ip(2), at))["state"].clone();
+    }
+    assert_eq!(logins.lock().len(), 1 + MAX_PENDING_PER_CLIENT);
+    assert_eq!(logins.take(&first, now), None, "oldest of the same client");
+    assert!(logins.take(&last, now).is_some());
+    assert!(logins.take(&a, now).is_some(), "other client kept");
+}
+
+#[test]
+fn a_full_table_drops_from_the_busiest_client() {
+    let p = Provider {
+        authorization_endpoint: format!("{ISS}/auth"),
+        token_endpoint: format!("{ISS}/token"),
+    };
+    let logins = Logins::default();
+    let now = Instant::now();
+    let a = query(&logins.begin(&cfg(), &p, ip(0), now))["state"].clone();
+    let clients = (MAX_PENDING / MAX_PENDING_PER_CLIENT) as u8 + 2;
+    let mut at = now;
+    for n in 1..=clients {
+        for _ in 0..MAX_PENDING_PER_CLIENT {
+            at += Duration::from_millis(1);
+            logins.begin(&cfg(), &p, ip(n), at);
+        }
+    }
+    assert_eq!(logins.lock().len(), MAX_PENDING);
+    assert!(
+        logins.take(&a, now).is_some(),
+        "a client with one login kept"
+    );
 }
 
 #[test]
