@@ -3,6 +3,7 @@
 //! binary fetches discovery and exchanges the code.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -12,8 +13,12 @@ use serde_json::Value;
 use crate::admin::{param, secure_url};
 use crate::session::random;
 
-/// Pending logins at most; the oldest is dropped for a new one.
+/// Pending logins at most. When full, a new login drops the oldest one
+/// of the client with the most pending logins.
 pub const MAX_PENDING: usize = 64;
+/// Pending logins per client address at most. A client over it drops its
+/// own oldest login, never another client's.
+pub const MAX_PENDING_PER_CLIENT: usize = 4;
 /// How long a login may take at the issuer.
 pub const PENDING_TTL: Duration = Duration::from_secs(600);
 
@@ -78,6 +83,7 @@ pub fn provider(doc: &[u8], issuer: &str) -> Result<Provider, String> {
 pub struct Pending {
     pub verifier: String,
     pub nonce: String,
+    client: IpAddr,
     started: Instant,
 }
 
@@ -88,8 +94,8 @@ pub struct Logins {
 }
 
 impl Logins {
-    /// Starts a login; the URL to send the browser to.
-    pub fn begin(&self, cfg: &OidcConfig, p: &Provider, now: Instant) -> String {
+    /// Starts a login for `client`; the URL to send the browser to.
+    pub fn begin(&self, cfg: &OidcConfig, p: &Provider, client: IpAddr, now: Instant) -> String {
         let (state, nonce, verifier) = (token(), token(), token());
         let challenge = b64url(digest(&SHA256, verifier.as_bytes()).as_ref());
         let url = format!(
@@ -106,12 +112,15 @@ impl Logins {
         );
         let mut map = self.lock();
         map.retain(|_, l| now.saturating_duration_since(l.started) < PENDING_TTL);
-        if map.len() >= MAX_PENDING
-            && let Some(k) = map
-                .iter()
-                .min_by_key(|(_, l)| l.started)
-                .map(|(k, _)| k.clone())
-        {
+        let own = map.values().filter(|l| l.client == client).count();
+        let drop_from = if own >= MAX_PENDING_PER_CLIENT {
+            Some(client)
+        } else if map.len() >= MAX_PENDING {
+            busiest(&map)
+        } else {
+            None
+        };
+        if let Some(k) = drop_from.and_then(|c| oldest(&map, c)) {
             map.remove(&k);
         }
         let started = now;
@@ -120,6 +129,7 @@ impl Logins {
             Pending {
                 verifier,
                 nonce,
+                client,
                 started,
             },
         );
@@ -137,6 +147,28 @@ impl Logins {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// The client with the most pending logins; on a tie, the one whose
+/// oldest login is oldest.
+fn busiest(map: &HashMap<String, Pending>) -> Option<IpAddr> {
+    let mut per: HashMap<IpAddr, (usize, Instant)> = HashMap::new();
+    for l in map.values() {
+        let e = per.entry(l.client).or_insert((0, l.started));
+        e.0 += 1;
+        e.1 = e.1.min(l.started);
+    }
+    per.into_iter()
+        .max_by_key(|&(_, (n, first))| (n, std::cmp::Reverse(first)))
+        .map(|(c, _)| c)
+}
+
+/// The `state` of `client`'s oldest pending login.
+fn oldest(map: &HashMap<String, Pending>, client: IpAddr) -> Option<String> {
+    map.iter()
+        .filter(|(_, l)| l.client == client)
+        .min_by_key(|(_, l)| l.started)
+        .map(|(k, _)| k.clone())
 }
 
 /// `code` and `state` from the redirect, or the issuer's `error`.

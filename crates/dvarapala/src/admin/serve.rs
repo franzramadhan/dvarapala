@@ -66,7 +66,7 @@ pub async fn serve(addr: SocketAddr, admin: Admin) -> io::Result<()> {
     let slots = Arc::new(Semaphore::new(MAX_CONNS));
     tokio::spawn(async move {
         loop {
-            let Ok((stream, _)) = listener.accept().await else {
+            let Ok((stream, peer)) = listener.accept().await else {
                 continue;
             };
             // over the bound: close it instead of queueing
@@ -77,7 +77,9 @@ pub async fn serve(addr: SocketAddr, admin: Admin) -> io::Result<()> {
             let svc = hyper::service::service_fn(move |req: Request<Incoming>| {
                 let admin = admin.clone();
                 // no admin call reads a body
-                let req = Request::from_parts(req.into_parts().0, ());
+                let mut req = Request::from_parts(req.into_parts().0, ());
+                // the console keys pending OIDC logins by client
+                req.extensions_mut().insert(peer);
                 async move { Ok::<_, Infallible>(admin.answer(&req).await) }
             });
             tokio::spawn(async move {

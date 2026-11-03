@@ -1,6 +1,7 @@
 //! The console (RFC 0018): its bundle, sessions, and the token and OIDC
 //! logins that open them.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -78,7 +79,7 @@ impl Console {
             ("/session", &Method::POST) => self.token_login(token, req),
             ("/session", &Method::GET) => self.whoami(req),
             ("/session", &Method::DELETE) => self.logout(req),
-            ("/session/oidc", &Method::GET) => self.oidc_start().await?,
+            ("/session/oidc", &Method::GET) => self.oidc_start(req).await?,
             ("/session/oidc/callback", &Method::GET) => self.oidc_finish(req).await?,
             _ => return None,
         })
@@ -156,12 +157,17 @@ impl Console {
         r
     }
 
-    async fn oidc_start(&self) -> Option<Response<Full<Bytes>>> {
+    async fn oidc_start(&self, req: &Request<()>) -> Option<Response<Full<Bytes>>> {
         let issuer = self.issuer.as_ref()?;
+        // the TCP peer, set by the admin listener
+        let client = req
+            .extensions()
+            .get::<SocketAddr>()
+            .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |a| a.ip().to_canonical());
         Some(match issuer.provider().await {
             Ok(p) => redirect(
                 StatusCode::FOUND,
-                &self.logins.begin(&issuer.cfg, &p, Instant::now()),
+                &self.logins.begin(&issuer.cfg, &p, client, Instant::now()),
             ),
             Err(e) => {
                 logged("oidc", "", Err(Denied::Invalid(e.clone())));
