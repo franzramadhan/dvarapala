@@ -60,6 +60,9 @@ pub enum Failure {
     Timeout,
     Protocol,
     Disconnect,
+    /// The request does not fit the frame size the agent agreed to. Not
+    /// sent, and not an agent failure: the caller decides.
+    TooLarge,
 }
 
 impl Failure {
@@ -69,6 +72,7 @@ impl Failure {
             Self::Timeout => "timeout",
             Self::Protocol => "protocol",
             Self::Disconnect => "disconnect",
+            Self::TooLarge => "too_large",
         }
     }
 }
@@ -133,15 +137,18 @@ impl Pool {
             // an idle connection the agent closed: once more on a new one
             Err(Failure::Disconnect | Failure::Connect) if reused => {
                 conn = self.dial().await?;
-                exchange(&mut conn, &notify, stream).await?
+                exchange(&mut conn, &notify, stream).await
             }
-            r => r?,
+            r => r,
         };
-        self.idle
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(conn);
-        Ok(answer)
+        // a request too large was never sent: the connection stays usable
+        if matches!(answer, Ok(_) | Err(Failure::TooLarge)) {
+            self.idle
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(conn);
+        }
+        answer
     }
 
     async fn dial(&self) -> Result<Conn, Failure> {
@@ -197,12 +204,7 @@ impl Pool {
 
 async fn exchange(conn: &mut Conn, notify: &[u8], stream: u64) -> Result<Answer, Failure> {
     if notify.len() - 4 > conn.max_frame as usize {
-        log_agent(format_args!(
-            "request of {} bytes over the agent's frame size {}",
-            notify.len() - 4,
-            conn.max_frame
-        ));
-        return Err(Failure::Protocol);
+        return Err(Failure::TooLarge);
     }
     conn.io
         .write_all(notify)

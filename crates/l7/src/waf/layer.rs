@@ -167,27 +167,33 @@ where
     let cfg = &live.cfg;
     let (parts, body) = req.into_parts();
     let grpc = is_grpc(&parts.headers);
+    // gRPC runs on HTTP/2 and HTTP/3 only; elsewhere the type changes nothing
+    let grpc_stream = grpc && matches!(parts.version, Version::HTTP_2 | Version::HTTP_3);
     let (mut head, mut data, mut rest) = (VecDeque::new(), Vec::new(), Some(body));
     let mut over = false;
-    // gRPC streams may never end: headers only
     if let Some(b) = rest
         .as_mut()
-        .filter(|b| cfg.max_body > 0 && !grpc && !b.is_end_stream())
+        .filter(|b| cfg.max_body > 0 && !b.is_end_stream())
     {
-        over = b.size_hint().lower() > cfg.max_body as u64;
-        while !over {
-            match b.frame().await {
-                None => {
-                    rest = None;
-                    break;
-                }
-                Some(Err(_)) => return Ok(local(StatusCode::BAD_REQUEST, grpc)),
-                Some(Ok(f)) => {
-                    if let Some(d) = f.data_ref() {
-                        data.extend_from_slice(d);
+        // a gRPC stream may never end: headers only, unless its length is known
+        if grpc_stream && b.size_hint().exact().is_none() {
+            count("skipped");
+        } else {
+            over = b.size_hint().lower() > cfg.max_body as u64;
+            while !over {
+                match b.frame().await {
+                    None => {
+                        rest = None;
+                        break;
                     }
-                    head.push_back(f);
-                    over = data.len() > cfg.max_body;
+                    Some(Err(_)) => return Ok(local(StatusCode::BAD_REQUEST, grpc)),
+                    Some(Ok(f)) => {
+                        if let Some(d) = f.data_ref() {
+                            data.extend_from_slice(d);
+                        }
+                        head.push_back(f);
+                        over = data.len() > cfg.max_body;
+                    }
                 }
             }
         }
@@ -201,7 +207,18 @@ where
         data.clear();
     }
     let client = client(cfg, &parts);
-    let block = match ask(&live, &parts, client, &data).await {
+    let mut answer = ask(&live, &parts, client, &data).await;
+    // over the agent's frame size with the body: a size limit, not an
+    // agent error; the same action as a body over `max_body`
+    if matches!(answer, Err(Failure::TooLarge)) && !data.is_empty() {
+        count("body_over_limit");
+        if cfg.reject_over_limit && cfg.enforce {
+            return Ok(local(StatusCode::PAYLOAD_TOO_LARGE, grpc));
+        }
+        data.clear();
+        answer = ask(&live, &parts, client, &data).await;
+    }
+    let block = match answer {
         Ok(a) if a.action.is_some() => {
             log_match(&parts, client.0, &a, cfg.enforce);
             if let Some(p) = parts.extensions.get::<crate::Probe>() {
@@ -216,6 +233,13 @@ where
         Ok(_) => {
             count("pass");
             None
+        }
+        // the head alone is over the agent's frame size: refused in
+        // `enforce` whatever `on_error` says
+        Err(Failure::TooLarge) => {
+            count("head_over_limit");
+            cfg.enforce
+                .then_some(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE)
         }
         Err(f) => {
             metrics::counter!("dvarapala_waf_errors_total", "reason" => f.label()).increment(1);
