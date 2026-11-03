@@ -8,6 +8,10 @@ use super::ja4;
 /// Largest ClientHello fingerprinted; a bigger one is served without.
 const MAX_HELLO: usize = 16 * 1024;
 
+/// Most bytes read for one ClientHello: [`MAX_HELLO`], its 4-byte
+/// handshake header and the headers of up to 8 records.
+const MAX_READ: usize = MAX_HELLO + 4 + 5 * 8;
+
 /// Reads the ClientHello records off `io` (RFC 0012). Returns every byte
 /// read, to be replayed to rustls, and the JA4 when the records hold a
 /// whole ClientHello of at most [`MAX_HELLO`] bytes.
@@ -23,7 +27,8 @@ pub(crate) async fn read<IO: AsyncRead + Unpin>(io: &mut IO) -> io::Result<(Vec<
             return Ok((seen, None));
         }
         let len = usize::from(u16::from_be_bytes([head[3], head[4]]));
-        if hs.len() + len > MAX_HELLO + 4 {
+        // RFC 8446 5.1: a handshake record is never empty; rustls rejects it
+        if len == 0 || hs.len() + len > MAX_HELLO + 4 || seen.len() + len > MAX_READ {
             return Ok((seen, None));
         }
         let start = seen.len();
