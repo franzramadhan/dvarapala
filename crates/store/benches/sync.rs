@@ -11,13 +11,17 @@ use dvarapala_engine::{Cluster, ClusterConfig, Limit};
 use dvarapala_store::{Memory, Round, Store};
 
 fn cluster() -> Cluster {
+    cluster_of(10_000)
+}
+
+fn cluster_of(n: u32) -> Cluster {
     let mut c = Cluster::new(ClusterConfig {
         limit: Some(Limit::new(20, 40).unwrap()),
         window: Duration::from_secs(10),
         max_keys: 10_000,
-        max_clients: 10_000,
+        max_clients: n as usize,
     });
-    for i in 0..10_000u32 {
+    for i in 0..n {
         c.record(IpAddr::V4(Ipv4Addr::from(0xc000_0200 + i)).into());
     }
     c
@@ -52,6 +56,21 @@ fn benches(c: &mut Criterion) {
         b.iter_batched(
             cluster,
             |mut cl| black_box(cl.drain(0)),
+            criterion::BatchSize::LargeInput,
+        )
+    });
+    c.bench_function("drain 100k keys", |b| {
+        b.iter_batched(
+            || cluster_of(100_000),
+            |mut cl| black_box(cl.drain(0)),
+            criterion::BatchSize::LargeInput,
+        )
+    });
+    // the part done under the lock the request path takes
+    c.bench_function("lock hold: take 100k keys", |b| {
+        b.iter_batched(
+            || cluster_of(100_000),
+            |mut cl| black_box(cl.take()),
             criterion::BatchSize::LargeInput,
         )
     });

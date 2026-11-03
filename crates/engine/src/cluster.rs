@@ -33,6 +33,39 @@ pub struct Batch {
     pub dropped: u64,
 }
 
+/// What [`Cluster::take`] removed: not yet cut to `max_keys` or sorted.
+#[derive(Debug)]
+pub struct Pending {
+    counts: HashMap<ClientKey, u32>,
+    dropped: u64,
+    heavy: Vec<(Cidr, Duration)>,
+    pauses: Vec<(String, Duration)>,
+    max_keys: usize,
+    window_ms: u64,
+}
+
+impl Pending {
+    /// Keeps the busiest `max_keys` clients, busiest first, and counts the
+    /// rest as dropped. `unix_ms` is the wall clock.
+    pub fn into_batch(self, unix_ms: u64) -> Batch {
+        let mut counts: Vec<_> = self.counts.into_iter().collect();
+        let mut dropped = self.dropped;
+        if counts.len() > self.max_keys {
+            counts.select_nth_unstable_by(self.max_keys, |a, b| b.1.cmp(&a.1));
+            dropped += (counts.len() - self.max_keys) as u64;
+            counts.truncate(self.max_keys);
+        }
+        counts.sort_unstable_by_key(|&(_, n)| std::cmp::Reverse(n));
+        Batch {
+            window_start: unix_ms - unix_ms % self.window_ms,
+            counts,
+            heavy: self.heavy,
+            pauses: self.pauses,
+            dropped,
+        }
+    }
+}
+
 /// What a sync round brings back.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Reply {
@@ -129,24 +162,24 @@ impl Cluster {
         self.cfg.window
     }
 
-    /// Takes everything waiting for the store; `unix_ms` is the wall clock.
-    pub fn drain(&mut self, unix_ms: u64) -> Batch {
-        let mut counts: Vec<_> = self.deltas.drain().collect();
-        let mut dropped = std::mem::take(&mut self.dropped);
-        if counts.len() > self.cfg.max_keys {
-            counts.select_nth_unstable_by(self.cfg.max_keys, |a, b| b.1.cmp(&a.1));
-            dropped += (counts.len() - self.cfg.max_keys) as u64;
-            counts.truncate(self.cfg.max_keys);
-        }
-        counts.sort_unstable_by_key(|&(_, n)| std::cmp::Reverse(n));
-        let w = self.window_ms();
-        Batch {
-            window_start: unix_ms - unix_ms % w,
-            counts,
+    /// Takes everything waiting for the store, without sorting it. O(1):
+    /// swaps the containers out, so the lock is held briefly. Build the
+    /// batch with [`Pending::into_batch`] after releasing the lock.
+    pub fn take(&mut self) -> Pending {
+        let cap = self.deltas.capacity();
+        Pending {
+            counts: std::mem::replace(&mut self.deltas, HashMap::with_capacity(cap)),
+            dropped: std::mem::take(&mut self.dropped),
             heavy: std::mem::take(&mut self.heavy_out),
             pauses: std::mem::take(&mut self.pauses_out),
-            dropped,
+            max_keys: self.cfg.max_keys,
+            window_ms: self.window_ms(),
         }
+    }
+
+    /// Takes everything waiting for the store; `unix_ms` is the wall clock.
+    pub fn drain(&mut self, unix_ms: u64) -> Batch {
+        self.take().into_batch(unix_ms)
     }
 
     /// Applies a good round: clients over the cluster allowance are
@@ -289,6 +322,43 @@ mod tests {
         assert_eq!(b.counts, vec![(key(2), 5), (key(3), 3)]);
         assert_eq!(b.dropped, 1);
         assert_eq!(c.drain(12_345).counts, vec![]);
+    }
+
+    #[test]
+    fn record_after_take_does_not_regrow_the_map() {
+        let mut c = cluster(2);
+        for k in 0..2 {
+            c.record(key(k));
+        }
+        let before = c.deltas.capacity();
+        let _pending = c.take();
+        let after = c.deltas.capacity();
+        assert!(after >= before);
+        c.record(key(1));
+        assert_eq!(c.deltas.capacity(), after);
+    }
+
+    #[test]
+    fn take_then_build_matches_drain_and_leaves_the_cluster_empty() {
+        let mut c = cluster(2);
+        for (k, n) in [(1, 1), (2, 5), (3, 3)] {
+            for _ in 0..n {
+                c.record(key(k));
+            }
+        }
+        c.publish_pause("api", Duration::from_secs(3));
+        let pending = c.take();
+        // the cluster is already empty before the batch is built
+        let again = c.take().into_batch(0);
+        assert_eq!(
+            (again.counts, again.dropped, again.pauses),
+            (vec![], 0, vec![])
+        );
+        let b = pending.into_batch(12_345);
+        assert_eq!(b.window_start, 10_000);
+        assert_eq!(b.counts, vec![(key(2), 5), (key(3), 3)]);
+        assert_eq!(b.dropped, 1);
+        assert_eq!(b.pauses, vec![("api".to_owned(), Duration::from_secs(3))]);
     }
 
     #[test]

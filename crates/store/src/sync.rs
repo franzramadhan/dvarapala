@@ -72,7 +72,8 @@ async fn run<S: Store>(
     let mut down_logged = false;
     loop {
         tokio::time::sleep(delay).await;
-        let batch = lock().drain(unix_ms());
+        let pending = lock().take();
+        let batch = pending.into_batch(unix_ms());
         if batch.dropped > 0 {
             metrics::counter!("dvarapala_store_keys_dropped_total").increment(batch.dropped);
         }
