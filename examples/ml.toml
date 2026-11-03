@@ -11,7 +11,9 @@
 # Start with threshold = 1.0 (a score is never above 1, so nothing is
 # throttled) and read dvarapala_ml_score until the split is clear, then
 # lower it in this file. Build with --features ml (the container image has
-# it). Placeholders: <host>, <model>, api.example.
+# it). Placeholders: <host>, <model>, api.example. ml/ next to this file
+# has a dummy model.json to try (synthetic data, not for enforcement) and
+# the train.py that wrote it.
 
 listen = "0.0.0.0:8080"
 upstream = "http://api.example:8080"

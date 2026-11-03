@@ -1,0 +1,46 @@
+# Kubernetes (RFC 0029, RFC 0033): learned scoring for an operator gateway,
+# the XGBoost model from a ConfigMap. Builds on kubernetes.yaml (the
+# operator installed, a route labeled with the policy). Names are
+# placeholders (shop, shop-ml-model).
+#
+# The gateway image has the ml feature. A model is small (the dummy in
+# ml/ is about 12 KiB), so a ConfigMap holds it (1 MiB at most). A larger
+# model goes on a claim, as in kubernetes-geoip.yaml.
+#
+# A gateway does not start without its model: create the ConfigMap before
+# the policy. ml/model.json is a dummy trained on synthetic data, to try
+# the loop; train your own before you lower the threshold.
+#   kubectl -n shop create configmap shop-ml-model --from-file=model.json=ml/model.json
+#
+# A new model needs no rollout. Replace the ConfigMap; the kubelet updates
+# the mounted file (about a minute), config_watch sees new bytes and swaps
+# the model in place. A bad model is refused and the running one keeps
+# scoring.
+#   kubectl -n shop create configmap shop-ml-model --from-file=model.json \
+#     --dry-run=client -o yaml | kubectl apply -f -
+# dvarapala_ml_model_info{sha256} shows which model each gateway runs;
+# compare it with sha256sum model.json.
+apiVersion: dvarapala.franzramadhan.dev/v1alpha1
+kind: DvarapalaPolicy
+metadata:
+  name: default
+  namespace: shop
+spec:
+  config: |
+    trusted_proxies = ["10.0.0.0/8"]
+    # scoring runs inside the rate limiter
+    [rate_limit]
+    rate = 20
+    burst = 40
+    [detection]
+    mode = "observe"
+    [ml]
+    model = "/etc/dvarapala-mounts/ml-model/model.json"
+    # watch only: a score is never above 1. Read dvarapala_ml_score for a
+    # few days, then lower it here; the edit reloads in place.
+    threshold = 1.0
+  gateway:
+    replicas: 2
+    # read-only at /etc/dvarapala-mounts/ml-model/
+    mounts:
+      - {name: ml-model, configMap: shop-ml-model}

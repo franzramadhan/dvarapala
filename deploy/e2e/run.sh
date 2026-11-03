@@ -322,6 +322,9 @@ EOF
   k apply --server-side --force-conflicts --dry-run=server --validate=strict \
     -f "$here/../../examples/kubernetes-geoip.yaml" >/dev/null || fail "examples/kubernetes-geoip.yaml refused"
   echo "ok: kubernetes-geoip.yaml validates"
+  k apply --server-side --force-conflicts --dry-run=server --validate=strict \
+    -f "$here/../../examples/kubernetes-ml.yaml" >/dev/null || fail "examples/kubernetes-ml.yaml refused"
+  echo "ok: kubernetes-ml.yaml validates"
 }
 
 # REUSE=1 skips the cluster setup, to rerun the cases
