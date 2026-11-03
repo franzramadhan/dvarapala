@@ -1,0 +1,67 @@
+# LLM labels from every replica in one PostgreSQL table (RFC 0024).
+#
+# Use case: three replicas behind a load balancer collect training data
+# for [ml]. With ml.llm.export, each replica writes its own file on its
+# own disk, and in a container that file is gone with the pod. With
+# persist, each label is a row of dvarapala.llm_labels in the store: the
+# console and GET /llm show the labels of the whole cluster, and one call
+# exports them for training:
+#
+#   curl -H "Authorization: Bearer $DVARAPALA__ADMIN__TOKEN" \
+#     "http://127.0.0.1:9091/llm/export?since=2026-11-01T00:00:00Z" > labels.jsonl
+#   uv run examples/ml/train.py --labels labels.jsonl
+#
+# Writes fail open: if the store goes away, dvarapala logs
+# "llm store unavailable" once and keeps the labels in memory. Rows keep
+# the redacted path, which can hold personal data: retention deletes them.
+# Build with --features postgres (the container image has it). Set the
+# secrets in the environment, never in this file:
+#   DVARAPALA__STORE__URL, DVARAPALA__ADMIN__TOKEN, DVARAPALA__ML__LLM__API_KEY
+# Placeholders: <host>, <user>, <db>, <model>, app.example.
+
+listen = "0.0.0.0:8080"
+upstream = "http://app.example:8081"
+# The load balancer sets X-Forwarded-For.
+trusted_proxies = ["192.0.2.10/32"]
+
+[metrics]
+listen = "127.0.0.1:9090"
+
+[rate_limit]
+rate = 20
+burst = 40
+
+[detection]
+mode = "observe"
+
+[store]
+backend = "postgres"
+url = "postgres://<user>@<host>:5432/<db>?sslmode=verify-full"
+cluster = "app"
+
+[admin]
+listen = "127.0.0.1:9091"
+
+[ml.llm]
+endpoint = "http://<host>:4000/v1"
+protocol = "chat"
+model = "<model>"
+instructions = "A shop: pages, a search box and a login form."
+enabled = true
+persist = true
+retention = "30d"
+
+# Suspicious traffic, and normal traffic from a page real users load, so
+# the training set has both classes.
+[[ml.llm.triggers]]
+on = "attack"
+
+[[ml.llm.triggers]]
+on = "route"
+route = "pages"
+# one in twenty requests on the route; per_client still caps each client
+rate = 0.05
+
+[[routes]]
+name = "pages"
+path = "/"

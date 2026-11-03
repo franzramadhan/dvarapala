@@ -16,6 +16,8 @@ the values differ from the defaults. Every key is described in
 | [forward-proxy.toml](forward-proxy.toml) | Egress rate compliance: calls to third-party APIs held to each provider's rate and concurrency |
 | [cluster.toml](cluster.toml) | Replicas behind one load balancer sharing limits and heavy hitters through Redis or PostgreSQL (build with `--features redis` or `postgres`) |
 | [ml.toml](ml.toml) | Learned scoring: an XGBoost model scores every client, LLM labels collect the next training set, a new model or threshold swaps in on `config_watch` without a restart (build with `--features ml`, [RFC 0029](../rfc/0029-ml-model-reload.md)); [ml/](ml/) has a dummy model, synthetic labels and the training script |
+| [llm-store.toml](llm-store.toml) | Training data from every replica: LLM labels as rows in the PostgreSQL store, exported with one admin call (build with `--features postgres`, [RFC 0024](../rfc/0024-llm-label-store.md)) |
+| [replay.toml](replay.toml) | A candidate config tried on a recorded access log before it ships; [replay/](replay/) has a synthetic minute of readers, a scanner, a scraper and credential stuffing ([RFC 0016](../rfc/0016-replay.md)) |
 | [challenge.toml](challenge.toml) | Public website: browsers solve a proof of work during an attack instead of sharing the attack limit; JA4 rules and forwarding |
 | [routes.toml](routes.toml) | One site, three policies: scanner paths denied, a low login rate, an API limited per key and exempt from the challenge |
 | [pool.toml](pool.toml) | Three app servers without a load balancer: least requests, health checks, ejection and budgeted retries |
