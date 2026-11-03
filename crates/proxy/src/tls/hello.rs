@@ -91,4 +91,30 @@ mod tests {
         let (seen, f) = read(&mut &b"GET / HTTP/1.1\r\n"[..]).await.unwrap();
         assert_eq!((seen.as_slice(), f), (&b"GET /"[..], None));
     }
+
+    #[tokio::test]
+    async fn bytes_read_stay_bounded() {
+        // empty handshake records: the first one ends the read
+        let wire = [0x16, 3, 1, 0, 0].repeat(100_000);
+        let (seen, f) = read(&mut &wire[..]).await.unwrap();
+        assert!(f.is_none());
+        assert!(seen.len() <= MAX_HELLO + 64, "read {} bytes", seen.len());
+        // a hello sent one byte per record: the headers count too
+        let mut hello = vec![1, 0, 0x30, 0];
+        hello.resize(4 + 0x3000, 0);
+        let wire = records_of(&hello, 1);
+        let (seen, f) = read(&mut &wire[..]).await.unwrap();
+        assert!(f.is_none());
+        assert!(seen.len() <= MAX_HELLO + 64, "read {} bytes", seen.len());
+    }
+
+    fn records_of(h: &[u8], size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for part in h.chunks(size) {
+            out.extend_from_slice(&[0x16, 3, 1]);
+            out.extend_from_slice(&(part.len() as u16).to_be_bytes());
+            out.extend_from_slice(part);
+        }
+        out
+    }
 }
