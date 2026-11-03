@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from wsgiref.util import is_hop_by_hop
 
 from dvarapala import _lib
 from dvarapala import (
@@ -65,6 +66,23 @@ class MiddlewareTest(unittest.TestCase):
             mw(env, lambda s, h: got.append((s, dict(h))))
         self.assertEqual(got[0][0], "200 OK")
         self.assertEqual(got[1], ("429 Too Many Requests", {"Retry-After": "1"}))
+
+    # PEP 3333 forbids hop-by-hop headers: wsgiref answered these with 500
+    def test_wsgi_refusals_have_no_hop_by_hop_headers(self):
+        def app(environ, start_response):
+            start_response("200 OK", [])
+            return [b"ok"]
+
+        mw = WSGIMiddleware(app, Guard({"routes": [{"name": "wp", "path": "/wp-admin", "deny": True}]}))
+        got = []
+        for env in [
+            {"REMOTE_ADDR": "192.0.2.1", "REQUEST_METHOD": "GET", "PATH_INFO": "/wp-admin/"},
+            {"REQUEST_METHOD": "GET", "PATH_INFO": "/"},  # no peer address
+        ]:
+            mw(env, lambda s, h: got.append((s, h)))
+        self.assertEqual([s for s, _ in got], ["403 Forbidden", "400 Bad Request"])
+        for _, h in got:
+            self.assertFalse([k for k, _ in h if is_hop_by_hop(k)], h)
 
     def test_asgi(self):
         async def app(scope, receive, send):

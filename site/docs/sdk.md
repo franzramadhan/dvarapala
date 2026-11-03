@@ -162,7 +162,9 @@ app = ASGIMiddleware(FastAPI(), guard)
 ```
 
 `WSGIMiddleware(app, guard)` does the same for Flask or Django WSGI. Both
-answer `429` with `Retry-After`, or `403` with `Connection: close`. They
+answer `429` with `Retry-After`, or `403` with `Connection: close`.
+WSGI does not allow an app to set `Connection` (PEP 3333), so the WSGI
+`403` and `400` leave that header to the server. They
 pass every other request to the app. If the guard cannot read a request
 (no peer address, as on a Unix socket, or bad input), it answers `400`.
 Thus the guard fails closed.
