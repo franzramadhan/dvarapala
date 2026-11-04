@@ -975,7 +975,7 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_tunnels_total{protocol,end}` | Closed tunnels by `end`: `client` or `upstream` (that side closed first), `idle`, `lifetime`, `shutdown` |
 | `dvarapala_tunnel_bytes_total{direction}` | Bytes copied: `in` from clients, `out` from the upstream |
 | `dvarapala_tunnels_rejected_total` | Upgrades refused over `upgrade.max_tunnels`; logged as `tunnel limit reached` at most once a second |
-| `dvarapala_egress_requests_total{destination,result}` | Forward mode ([RFC 0007](rfc/0007-forward-proxy.md)): `sent`, `delayed` (sent after a wait), `refused` (local `429`, logged as `egress refused` at most once a second), `denied` (`403`; `destination="none"` when no destination is listed for the target) |
+| `dvarapala_egress_requests_total{destination,result}` | Forward mode ([RFC 0007](rfc/0007-forward-proxy.md)): `sent`, `delayed` (sent after a wait), `refused` (local `429`, logged as `egress refused` at most once a second), `denied` (`403`; `destination="none"` when no destination is listed for the target); a destination's four series appear at 0 from startup |
 | `dvarapala_egress_wait_seconds{destination}` | Histogram of the wait before a delayed send |
 | `dvarapala_egress_queue{destination}` | Requests waiting now; compare with `max_queue` |
 | `dvarapala_egress_in_flight{destination}` | Requests or `CONNECT` tunnels in flight; compare with `max_concurrent` |
@@ -996,7 +996,7 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_proxy_protocol_total{result}` | PROXY protocol headers read ([RFC 0030](rfc/0030-proxy-protocol.md)): `ok`, `local` (the balancer speaks for itself), `invalid`, `timeout`; refusals logged as `proxy protocol header refused` at most once a second, with the `count` since the last line |
 | `dvarapala_challenges_total{result}` | Challenges ([RFC 0012](rfc/0012-challenges.md)): `issued` (pages), `passed`, `failed` (stale or foreign seed, too little work), `invalid_pass` (a cookie that does not verify); `verdict="challenge"` in `dvarapala_requests_total` counts pages and `429`s for clients without a pass |
 | `dvarapala_fingerprint_matches_total{rule}` | Requests matching `fingerprint.deny` or `fingerprint.challenge` |
-| `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny` |
+| `dvarapala_route_requests_total{route,verdict}` | Requests per route ([RFC 0013](rfc/0013-routes.md)): `allow` (sent upstream), `throttle` (the route's bucket), `deny`; the three series of a route appear at 0 from startup |
 | `dvarapala_route_keys{route}` | Keys in the route's table |
 | `dvarapala_waf_requests_total{verdict}` | Requests seen by the WAF ([RFC 0017](rfc/0017-waf.md)): `pass`, `block`, `would_block` (`observe`), `skipped` (a route with `waf = false`; besides the verdict, a gRPC stream over HTTP/2 or HTTP/3 sent without its body), `error` (no answer from the agent), `body_over_limit` (a body over `max_body` or over the agent's frame size; counted besides the verdict with `body_limit_action = "pass"`), `head_over_limit` (the request line and headers do not fit the agent's frame: `431` in `enforce`, forwarded in `observe`) |
 | `dvarapala_waf_errors_total{reason}` | Agent failures: `connect`, `timeout`, `protocol` (a bad or oversized frame from the agent), `disconnect`. A request too large for the agent's frame is not an agent failure: see `body_over_limit` and `head_over_limit` |

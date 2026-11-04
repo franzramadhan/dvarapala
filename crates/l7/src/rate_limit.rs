@@ -23,6 +23,7 @@ use crate::intel::{Effect, Intel};
 use crate::limit_future::{ResponseFuture, StatusRecorder};
 use crate::llm::{Llm, Probe, Seen};
 use crate::reply::{Scope, count, reject};
+use crate::routes::Outcome;
 use crate::{
     ChallengeConfig, Detection, Fingerprints, Ja4, PageBody, PeerAddr, RouteConfig, Routes,
     Scoring, is_grpc,
@@ -225,7 +226,7 @@ where
         // RFC 0013: a denied route costs one match, no token
         let route = policy.routes.find(&req, key, &origin);
         if let Some(r) = route.filter(|r| r.deny) {
-            r.count("deny");
+            r.count(Outcome::Deny);
             let res = reject(Verdict::Drop, grpc, protocol, Scope::Local);
             return ResponseFuture::Rejected { res: Some(res) };
         }
@@ -247,7 +248,7 @@ where
         if let (Some(r), Verdict::Allow) = (route, verdict) {
             verdict = r.take(&req, key, fp, (self.shared.now)());
             if verdict != Verdict::Allow {
-                r.count("throttle");
+                r.count(Outcome::Throttle);
             }
         }
         // RFC 0023: off the path, never waits
@@ -281,7 +282,7 @@ where
             }
             Verdict::Allow => {
                 if let Some(r) = route {
-                    r.count("allow");
+                    r.count(Outcome::Allow);
                     if !r.waf {
                         req.extensions_mut().insert(crate::NoWaf);
                     }

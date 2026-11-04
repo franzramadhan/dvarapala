@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dvarapala_engine::{Cluster, Schedule, ScheduleConfig, Slot, split};
-use metrics::Gauge;
+use metrics::{Counter, Gauge, Histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// One destination's budget: the schedule, the requests waiting on it, the
@@ -16,6 +16,13 @@ pub(crate) struct Shaper {
     places: Option<Arc<Semaphore>>,
     queue: Gauge,
     in_flight: Gauge,
+    // handles made once: a lookup per request allocates the label
+    sent: Counter,
+    delayed: Counter,
+    refused: Counter,
+    denied: Counter,
+    wait: Histogram,
+    pauses: Counter,
     /// unix second of the last "egress refused" log
     logged: AtomicU64,
     shared: Option<Shared>,
@@ -74,7 +81,13 @@ impl Shaper {
             waiting: AtomicUsize::new(0),
             places: (max_concurrent > 0).then(|| Arc::new(Semaphore::new(max_concurrent))),
             queue: metrics::gauge!("dvarapala_egress_queue", "destination" => label.clone()),
-            in_flight: metrics::gauge!("dvarapala_egress_in_flight", "destination" => label),
+            in_flight: metrics::gauge!("dvarapala_egress_in_flight", "destination" => label.clone()),
+            sent: requests(&label, "sent"),
+            delayed: requests(&label, "delayed"),
+            refused: requests(&label, "refused"),
+            denied: requests(&label, "denied"),
+            wait: metrics::histogram!("dvarapala_egress_wait_seconds", "destination" => label.clone()),
+            pauses: metrics::counter!("dvarapala_egress_provider_pauses_total", "destination" => label.clone()),
             logged: AtomicU64::new(0),
             shared,
         }
@@ -153,11 +166,14 @@ impl Shaper {
                 }
             },
         };
-        let result = if delayed { "delayed" } else { "sent" };
+        let result = if delayed {
+            Egress::Delayed
+        } else {
+            Egress::Sent
+        };
         self.count(result);
         if delayed {
-            metrics::histogram!("dvarapala_egress_wait_seconds", "destination" => self.name.clone())
-                .record(start.elapsed().as_secs_f64());
+            self.wait.record(start.elapsed().as_secs_f64());
         }
         self.in_flight.increment(1.0);
         Ok(Pass {
@@ -173,17 +189,22 @@ impl Shaper {
             c.publish_pause(&self.name, retry_after.min(self.lock().config().max_pause));
         }
         if self.lock().pause(Instant::now(), retry_after) {
-            metrics::counter!("dvarapala_egress_provider_pauses_total", "destination" => self.name.clone())
-                .increment(1);
+            self.pauses.increment(1);
         }
     }
 
-    pub(crate) fn count(&self, result: &'static str) {
-        count(&self.name, result);
+    pub(crate) fn count(&self, result: Egress) {
+        match result {
+            Egress::Sent => &self.sent,
+            Egress::Delayed => &self.delayed,
+            Egress::Refused => &self.refused,
+            Egress::Denied => &self.denied,
+        }
+        .increment(1);
     }
 
     fn refuse(&self, reason: &'static str, retry: Duration) -> Duration {
-        self.count("refused");
+        self.count(Egress::Refused);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
@@ -199,18 +220,41 @@ impl Shaper {
     }
 }
 
-pub(crate) fn count(destination: &str, result: &'static str) {
+/// The `result` label of `dvarapala_egress_requests_total`.
+#[derive(Clone, Copy)]
+pub(crate) enum Egress {
+    Sent,
+    Delayed,
+    Refused,
+    Denied,
+}
+
+fn requests(destination: &str, result: &'static str) -> Counter {
     metrics::counter!(
         "dvarapala_egress_requests_total",
         "destination" => destination.to_owned(),
         "result" => result
+    )
+}
+
+/// A request no destination matched.
+pub(crate) fn denied_unmatched() {
+    metrics::counter!(
+        "dvarapala_egress_requests_total",
+        "destination" => "none",
+        "result" => "denied"
     )
     .increment(1);
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use dvarapala_engine::{ClusterConfig, Reply};
+    use metrics::{
+        Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
+    };
 
     use super::*;
 
@@ -288,5 +332,108 @@ mod tests {
             c.lock().unwrap().drain(0).pauses,
             vec![("api".into(), Duration::from_secs(3))]
         );
+    }
+
+    /// Keeps every series it registers with its value, and counts how often
+    /// a handle is looked up in the registry.
+    #[derive(Default)]
+    struct Lookups {
+        count: AtomicUsize,
+        series: Mutex<BTreeMap<String, Arc<AtomicU64>>>,
+    }
+
+    impl Lookups {
+        fn register(&self, key: &Key) -> Arc<AtomicU64> {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let labels: Vec<_> = key
+                .labels()
+                .map(|l| format!("{}={}", l.key(), l.value()))
+                .collect();
+            let id = format!("{}{{{}}}", key.name(), labels.join(","));
+            self.series.lock().unwrap().entry(id).or_default().clone()
+        }
+    }
+
+    impl Recorder for Lookups {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn register_counter(&self, k: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(self.register(k))
+        }
+        fn register_gauge(&self, k: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(self.register(k))
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            Histogram::noop()
+        }
+    }
+
+    // issue 329: the exported series and values did not change
+    #[test]
+    fn egress_series_and_values_are_unchanged() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let s = Shaper::new(
+                "api".into(),
+                Schedule::new(ScheduleConfig::default()).unwrap(),
+                0,
+                None,
+            );
+            s.count(Egress::Sent);
+            s.count(Egress::Sent);
+            s.count(Egress::Delayed);
+            s.count(Egress::Refused);
+            s.count(Egress::Denied);
+        });
+        let req = |r| format!("dvarapala_egress_requests_total{{destination=api,result={r}}}");
+        let want = [
+            ("dvarapala_egress_in_flight{destination=api}".to_string(), 0),
+            (
+                "dvarapala_egress_provider_pauses_total{destination=api}".into(),
+                0,
+            ),
+            ("dvarapala_egress_queue{destination=api}".into(), 0),
+            (req("delayed"), 1),
+            (req("denied"), 1),
+            (req("refused"), 1),
+            (req("sent"), 2),
+        ];
+        let got: Vec<_> = rec
+            .series
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed)))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    // issue 329: the per-request path reuses handles made at construction
+    #[test]
+    fn egress_metrics_are_not_looked_up_per_request() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let s = Shaper::new(
+                "api".into(),
+                Schedule::new(ScheduleConfig::default()).unwrap(),
+                0,
+                None,
+            );
+            let built = rec.count.load(Ordering::Relaxed);
+            for _ in 0..5 {
+                for r in [
+                    Egress::Sent,
+                    Egress::Delayed,
+                    Egress::Refused,
+                    Egress::Denied,
+                ] {
+                    s.count(r);
+                }
+                s.pause(Duration::from_secs(1));
+            }
+            assert_eq!(rec.count.load(Ordering::Relaxed), built);
+        });
     }
 }

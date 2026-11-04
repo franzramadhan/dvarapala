@@ -50,6 +50,10 @@ name = "routes"
 harness = false
 
 [[bench]]
+name = "route_layer"
+harness = false
+
+[[bench]]
 name = "waf"
 harness = false
 required-features = ["waf"]
