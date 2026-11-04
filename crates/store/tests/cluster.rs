@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 
 use common::{INTERVAL, Replica, TIMEOUT, replica, unique, unix_ms, until};
 use dvarapala_engine::{
-    ChallengeMode, Cidr, ClientKey, Cluster, ClusterConfig, Guard, GuardConfig, Limit, Schedule,
-    ScheduleConfig, Slot, Verdict, overshoot, split,
+    Batch, ChallengeMode, Cidr, ClientKey, Cluster, ClusterConfig, Guard, GuardConfig, Limit,
+    Schedule, ScheduleConfig, Slot, Verdict, overshoot, split,
 };
-use dvarapala_store::{Memory, Store};
+use dvarapala_store::{Memory, Round, Store};
 
 struct Backend<S> {
     make: Box<dyn Fn() -> S + Send + Sync>,
@@ -241,6 +241,36 @@ async fn max_keys_bounds_a_round<S: Store>(b: Backend<S>) {
     assert_eq!(reply.totals.len(), 10_000);
 }
 
+// issue 335: more marks than max_list keep the longest-lived on every backend
+async fn max_list_keeps_the_longest_lived<S: Store>(b: Backend<S>) {
+    let mut batch = Batch::default();
+    for i in 1..=5u64 {
+        let ttl = Duration::from_secs(60 * i);
+        batch
+            .heavy
+            .push((format!("192.0.2.{i}/32").parse().unwrap(), ttl));
+        batch.pauses.push((format!("p{i}"), ttl));
+    }
+    let name = unique("c");
+    let reply = (b.make)()
+        .round(&Round {
+            cluster: &name,
+            replica: "r",
+            heartbeat: Duration::from_secs(1),
+            window: Duration::from_secs(1),
+            max_list: 3,
+            batch: &batch,
+        })
+        .await
+        .unwrap();
+    let mut heavy: Vec<String> = reply.heavy.iter().map(|(n, _)| n.to_string()).collect();
+    heavy.sort();
+    assert_eq!(heavy, ["192.0.2.3/32", "192.0.2.4/32", "192.0.2.5/32"]);
+    let mut pauses: Vec<String> = reply.pauses.iter().map(|(n, _)| n.clone()).collect();
+    pauses.sort();
+    assert_eq!(pauses, ["p3", "p4", "p5"]);
+}
+
 macro_rules! cases {
     ($backend:ident, $make:expr, $($case:ident),*) => {
         mod $backend {
@@ -272,7 +302,8 @@ macro_rules! all_cases {
             provider_pause_reaches_the_other_replica,
             heavy_hitter_is_dropped_everywhere,
             lost_store_fails_open_and_recovers,
-            max_keys_bounds_a_round
+            max_keys_bounds_a_round,
+            max_list_keeps_the_longest_lived
         );
     };
 }
