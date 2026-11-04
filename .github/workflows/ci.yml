@@ -173,7 +173,7 @@ jobs:
       - run: cargo test --locked -p dvarapala --no-default-features
       # RFC 0008 case 8: the committed C header matches the ABI. Keep the
       # version in step with mise.toml.
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cbindgen@0.29.4
       - name: header
@@ -466,7 +466,7 @@ jobs:
       - if: steps.pick.outputs.targets != ''
         run: rustup toolchain install nightly --profile minimal
       - if: steps.pick.outputs.targets != ''
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-fuzz
       - if: steps.pick.outputs.targets != ''
