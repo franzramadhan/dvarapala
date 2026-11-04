@@ -110,6 +110,11 @@ fn main() -> ExitCode {
 async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let cfg = config::load(config.as_deref())?;
     let admin = cfg.admin.addr()?;
+    // before any layer is built: a handle registered without a recorder
+    // stays a no-op
+    if !cfg.metrics.listen.is_empty() || !cfg.admin.listen.is_empty() {
+        metrics::install()?;
+    }
     // first: a fast path that was asked for and cannot attach stops here
     let block = xdp::start(&cfg)?;
     let h2 = cfg.http2.limits()?;
@@ -265,16 +270,14 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Starts the metrics endpoint when set, then binds the proxy listener
+/// Starts the metrics endpoint when set (the recorder is installed in
+/// `run`; RFC 0021: the console also reads it), then binds the proxy listener
 /// with the `[l4]` limits, reporting accept-rate refusals to `block`.
 async fn bind(cfg: &config::Config, block: Option<BlockSink>) -> Result<Listener, Box<dyn Error>> {
     let l4 = cfg.l4.config()?;
     if !cfg.metrics.listen.is_empty() {
         let addr = cfg.metrics.listen.parse()?;
         metrics::serve(addr, metrics::install()?).await?;
-    } else if !cfg.admin.listen.is_empty() {
-        // RFC 0021: the console reads the metrics on the admin listener
-        metrics::install()?;
     }
     let listener = Listener::new(TcpListener::bind(cfg.listen).await?, l4)?;
     Ok(match block {
