@@ -6,6 +6,7 @@ use dvarapala_engine::{
 };
 use http::Request;
 use http::header::HOST;
+use metrics::{Counter, Gauge};
 
 use crate::Ja4;
 
@@ -47,6 +48,11 @@ pub(crate) struct Route {
     pub(crate) concurrency: u32,
     key: RouteKey,
     limits: Option<RouteLimits>,
+    // handles made once: a lookup per request allocates the label
+    keys: Gauge,
+    allow: Counter,
+    deny_count: Counter,
+    throttle: Counter,
 }
 
 impl Routes {
@@ -55,6 +61,15 @@ impl Routes {
             routes
                 .into_iter()
                 .map(|r| Route {
+                    // only a limited route exports the gauge
+                    keys: if r.limit.is_some() {
+                        metrics::gauge!("dvarapala_route_keys", "route" => r.name.clone())
+                    } else {
+                        Gauge::noop()
+                    },
+                    allow: requests(&r.name, "allow"),
+                    deny_count: requests(&r.name, "deny"),
+                    throttle: requests(&r.name, "throttle"),
                     limits: r.limit.map(|l| RouteLimits::new(l, r.max_keys)),
                     key: r.key,
                     name: r.name,
@@ -116,7 +131,7 @@ impl Route {
             RouteKey::Ja4 => ja4.as_ref().map(|j| j.as_str().as_bytes()),
         };
         let (v, keys) = l.take(value, client, now);
-        metrics::gauge!("dvarapala_route_keys", "route" => self.name.clone()).set(keys as f64);
+        self.keys.set(keys as f64);
         v
     }
 
@@ -126,13 +141,21 @@ impl Route {
     }
 
     pub(crate) fn count(&self, verdict: &'static str) {
-        metrics::counter!(
-            "dvarapala_route_requests_total",
-            "route" => self.name.clone(),
-            "verdict" => verdict
-        )
+        match verdict {
+            "allow" => &self.allow,
+            "deny" => &self.deny_count,
+            _ => &self.throttle,
+        }
         .increment(1);
     }
+}
+
+fn requests(route: &str, verdict: &'static str) -> Counter {
+    metrics::counter!(
+        "dvarapala_route_requests_total",
+        "route" => route.to_owned(),
+        "verdict" => verdict
+    )
 }
 
 #[doc(hidden)]

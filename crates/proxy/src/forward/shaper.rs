@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dvarapala_engine::{Cluster, Schedule, ScheduleConfig, Slot, split};
-use metrics::Gauge;
+use metrics::{Counter, Gauge, Histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// One destination's budget: the schedule, the requests waiting on it, the
@@ -16,6 +16,13 @@ pub(crate) struct Shaper {
     places: Option<Arc<Semaphore>>,
     queue: Gauge,
     in_flight: Gauge,
+    // handles made once: a lookup per request allocates the label
+    sent: Counter,
+    delayed: Counter,
+    refused: Counter,
+    denied: Counter,
+    wait: Histogram,
+    pauses: Counter,
     /// unix second of the last "egress refused" log
     logged: AtomicU64,
     shared: Option<Shared>,
@@ -74,7 +81,13 @@ impl Shaper {
             waiting: AtomicUsize::new(0),
             places: (max_concurrent > 0).then(|| Arc::new(Semaphore::new(max_concurrent))),
             queue: metrics::gauge!("dvarapala_egress_queue", "destination" => label.clone()),
-            in_flight: metrics::gauge!("dvarapala_egress_in_flight", "destination" => label),
+            in_flight: metrics::gauge!("dvarapala_egress_in_flight", "destination" => label.clone()),
+            sent: requests(&label, "sent"),
+            delayed: requests(&label, "delayed"),
+            refused: requests(&label, "refused"),
+            denied: requests(&label, "denied"),
+            wait: metrics::histogram!("dvarapala_egress_wait_seconds", "destination" => label.clone()),
+            pauses: metrics::counter!("dvarapala_egress_provider_pauses_total", "destination" => label.clone()),
             logged: AtomicU64::new(0),
             shared,
         }
@@ -156,8 +169,7 @@ impl Shaper {
         let result = if delayed { "delayed" } else { "sent" };
         self.count(result);
         if delayed {
-            metrics::histogram!("dvarapala_egress_wait_seconds", "destination" => self.name.clone())
-                .record(start.elapsed().as_secs_f64());
+            self.wait.record(start.elapsed().as_secs_f64());
         }
         self.in_flight.increment(1.0);
         Ok(Pass {
@@ -173,13 +185,18 @@ impl Shaper {
             c.publish_pause(&self.name, retry_after.min(self.lock().config().max_pause));
         }
         if self.lock().pause(Instant::now(), retry_after) {
-            metrics::counter!("dvarapala_egress_provider_pauses_total", "destination" => self.name.clone())
-                .increment(1);
+            self.pauses.increment(1);
         }
     }
 
     pub(crate) fn count(&self, result: &'static str) {
-        count(&self.name, result);
+        match result {
+            "sent" => &self.sent,
+            "delayed" => &self.delayed,
+            "refused" => &self.refused,
+            _ => &self.denied,
+        }
+        .increment(1);
     }
 
     fn refuse(&self, reason: &'static str, retry: Duration) -> Duration {
@@ -199,11 +216,20 @@ impl Shaper {
     }
 }
 
-pub(crate) fn count(destination: &str, result: &'static str) {
+fn requests(destination: &str, result: &'static str) -> Counter {
     metrics::counter!(
         "dvarapala_egress_requests_total",
         "destination" => destination.to_owned(),
         "result" => result
+    )
+}
+
+/// A request no destination matched.
+pub(crate) fn denied_unmatched() {
+    metrics::counter!(
+        "dvarapala_egress_requests_total",
+        "destination" => "none",
+        "result" => "denied"
     )
     .increment(1);
 }

@@ -139,8 +139,10 @@ where
         .is_some_and(|PeerAddr(p)| inner.clients.iter().any(|c| c.contains(p.ip())));
     let connect = req.method() == Method::CONNECT;
     let Some(i) = found.filter(|_| allowed && (inner.connect || !connect)) else {
-        let name = found.map_or("none", |i| inner.shapers[i].name.as_str());
-        shaper::count(name, "denied");
+        match found {
+            Some(i) => inner.shapers[i].count("denied"),
+            None => shaper::denied_unmatched(),
+        }
         return status(StatusCode::FORBIDDEN);
     };
     let shaper = &inner.shapers[i];
