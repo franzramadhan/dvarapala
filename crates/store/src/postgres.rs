@@ -238,8 +238,12 @@ async fn round(tx: &Transaction<'_>, r: &Round<'_>) -> Result<Reply, Error> {
     // and a mark written meanwhile would look longer than its ttl
     let rows = tx
         .query(
-            "SELECT kind, key, (extract(epoch FROM expires_at - clock_timestamp()) * 1000)::bigint \
-             FROM dvarapala.marks WHERE cluster = $1 AND expires_at > clock_timestamp() LIMIT $2",
+            "SELECT kind, key, left_ms FROM ( \
+               SELECT kind, key, \
+                 (extract(epoch FROM expires_at - clock_timestamp()) * 1000)::bigint AS left_ms, \
+                 row_number() OVER (PARTITION BY kind ORDER BY expires_at DESC, key) AS rn \
+               FROM dvarapala.marks WHERE cluster = $1 AND expires_at > clock_timestamp()) m \
+             WHERE rn <= $2",
             &[&c, &(r.max_list as i64)],
         )
         .await
