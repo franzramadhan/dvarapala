@@ -142,3 +142,76 @@ fn a_fixed_concurrency_limit_sheds() {
     assert!(body.contains("dvarapala_concurrency_limit 1"), "{body}");
     p.logged(&["WARN", "concurrency shedding"]);
 }
+
+/// The value of the `name` series whose labels include all of `labels`.
+fn series(body: &str, name: &str, labels: &[&str]) -> Option<String> {
+    body.lines()
+        .filter(|l| l.starts_with(&format!("{name}{{")))
+        .find(|l| labels.iter().all(|x| l.contains(x)))
+        .and_then(|l| l.rsplit(' ').next())
+        .map(str::to_owned)
+}
+
+// handles registered while the layers are built bind to the recorder that
+// exists then: it must be installed first
+#[test]
+fn route_metrics_reach_the_exporter() {
+    let (listen, metrics) = (port(), port());
+    let toml = format!(
+        "listen = \"127.0.0.1:{listen}\"\nupstream = \"http://127.0.0.1:1\"\n\
+         [metrics]\nlisten = \"127.0.0.1:{metrics}\"\n\
+         [[routes]]\nname = \"login\"\npath = \"/login\"\nrate = 100\n"
+    );
+    let p = serve("route-metrics", Some(&toml), &[]);
+    wait_port(listen);
+    assert_eq!(get(listen, "GET", "/login", &[]).0, 502);
+    let (_, body) = get(metrics, "GET", "/metrics", &[]);
+    let allow = ["route=\"login\"", "verdict=\"allow\""];
+    assert_eq!(
+        series(&body, "dvarapala_route_requests_total", &allow).as_deref(),
+        Some("1"),
+        "{body}"
+    );
+    assert_eq!(
+        series(&body, "dvarapala_route_keys", &["route=\"login\""]).as_deref(),
+        Some("1"),
+        "{body}"
+    );
+    let (code, log) = p.stop();
+    assert_eq!(code, Some(0), "{log}");
+}
+
+// the shapers are built once, before the listener, and never on reload
+#[test]
+fn egress_metrics_reach_the_exporter() {
+    let (listen, metrics) = (port(), port());
+    let toml = format!(
+        "mode = \"forward\"\nlisten = \"127.0.0.1:{listen}\"\n\
+         [metrics]\nlisten = \"127.0.0.1:{metrics}\"\n\
+         [[forward.destinations]]\nname = \"local\"\norigin = \"http://127.0.0.1:1\"\nrate = 100\n"
+    );
+    let p = serve("egress-metrics", Some(&toml), &[]);
+    wait_port(listen);
+    assert_eq!(get(listen, "GET", "http://127.0.0.1:1/", &[]).0, 502);
+    let (_, body) = get(metrics, "GET", "/metrics", &[]);
+    let local = "destination=\"local\"";
+    assert_eq!(
+        series(
+            &body,
+            "dvarapala_egress_requests_total",
+            &[local, "result=\"sent\""]
+        )
+        .as_deref(),
+        Some("1"),
+        "{body}"
+    );
+    for gauge in ["dvarapala_egress_queue", "dvarapala_egress_in_flight"] {
+        assert_eq!(
+            series(&body, gauge, &[local]).as_deref(),
+            Some("0"),
+            "{body}"
+        );
+    }
+    let (code, log) = p.stop();
+    assert_eq!(code, Some(0), "{log}");
+}
