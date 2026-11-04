@@ -19,7 +19,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
-use crate::forward::shaper::{self, Pass, Shaper};
+use crate::forward::shaper::{self, Egress, Pass, Shaper};
 use crate::forward::{ForwardConfig, ForwardError, Routes};
 use crate::hop::strip_hop_by_hop;
 use crate::tunnels::Tunnels;
@@ -140,7 +140,7 @@ where
     let connect = req.method() == Method::CONNECT;
     let Some(i) = found.filter(|_| allowed && (inner.connect || !connect)) else {
         match found {
-            Some(i) => inner.shapers[i].count("denied"),
+            Some(i) => inner.shapers[i].count(Egress::Denied),
             None => shaper::denied_unmatched(),
         }
         return status(StatusCode::FORBIDDEN);

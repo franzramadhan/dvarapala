@@ -166,7 +166,11 @@ impl Shaper {
                 }
             },
         };
-        let result = if delayed { "delayed" } else { "sent" };
+        let result = if delayed {
+            Egress::Delayed
+        } else {
+            Egress::Sent
+        };
         self.count(result);
         if delayed {
             self.wait.record(start.elapsed().as_secs_f64());
@@ -189,18 +193,18 @@ impl Shaper {
         }
     }
 
-    pub(crate) fn count(&self, result: &'static str) {
+    pub(crate) fn count(&self, result: Egress) {
         match result {
-            "sent" => &self.sent,
-            "delayed" => &self.delayed,
-            "refused" => &self.refused,
-            _ => &self.denied,
+            Egress::Sent => &self.sent,
+            Egress::Delayed => &self.delayed,
+            Egress::Refused => &self.refused,
+            Egress::Denied => &self.denied,
         }
         .increment(1);
     }
 
     fn refuse(&self, reason: &'static str, retry: Duration) -> Duration {
-        self.count("refused");
+        self.count(Egress::Refused);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
@@ -214,6 +218,15 @@ impl Shaper {
         // the schedule has no invariant a panic can break mid-update
         self.schedule.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// The `result` label of `dvarapala_egress_requests_total`.
+#[derive(Clone, Copy)]
+pub(crate) enum Egress {
+    Sent,
+    Delayed,
+    Refused,
+    Denied,
 }
 
 fn requests(destination: &str, result: &'static str) -> Counter {
@@ -236,6 +249,8 @@ pub(crate) fn denied_unmatched() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use dvarapala_engine::{ClusterConfig, Reply};
     use metrics::{
         Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
@@ -319,26 +334,80 @@ mod tests {
         );
     }
 
-    /// Counts how often a metric handle is looked up in the registry.
+    /// Keeps every series it registers with its value, and counts how often
+    /// a handle is looked up in the registry.
     #[derive(Default)]
-    struct Lookups(AtomicUsize);
+    struct Lookups {
+        count: AtomicUsize,
+        series: Mutex<BTreeMap<String, Arc<AtomicU64>>>,
+    }
+
+    impl Lookups {
+        fn register(&self, key: &Key) -> Arc<AtomicU64> {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let labels: Vec<_> = key
+                .labels()
+                .map(|l| format!("{}={}", l.key(), l.value()))
+                .collect();
+            let id = format!("{}{{{}}}", key.name(), labels.join(","));
+            self.series.lock().unwrap().entry(id).or_default().clone()
+        }
+    }
 
     impl Recorder for Lookups {
         fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
         fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
         fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
-        fn register_counter(&self, _: &Key, _: &Metadata<'_>) -> Counter {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Counter::noop()
+        fn register_counter(&self, k: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(self.register(k))
         }
-        fn register_gauge(&self, _: &Key, _: &Metadata<'_>) -> Gauge {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Gauge::noop()
+        fn register_gauge(&self, k: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(self.register(k))
         }
         fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
-            self.0.fetch_add(1, Ordering::Relaxed);
+            self.count.fetch_add(1, Ordering::Relaxed);
             Histogram::noop()
         }
+    }
+
+    // issue 329: the exported series and values did not change
+    #[test]
+    fn egress_series_and_values_are_unchanged() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let s = Shaper::new(
+                "api".into(),
+                Schedule::new(ScheduleConfig::default()).unwrap(),
+                0,
+                None,
+            );
+            s.count(Egress::Sent);
+            s.count(Egress::Sent);
+            s.count(Egress::Delayed);
+            s.count(Egress::Refused);
+            s.count(Egress::Denied);
+        });
+        let req = |r| format!("dvarapala_egress_requests_total{{destination=api,result={r}}}");
+        let want = [
+            ("dvarapala_egress_in_flight{destination=api}".to_string(), 0),
+            (
+                "dvarapala_egress_provider_pauses_total{destination=api}".into(),
+                0,
+            ),
+            ("dvarapala_egress_queue{destination=api}".into(), 0),
+            (req("delayed"), 1),
+            (req("denied"), 1),
+            (req("refused"), 1),
+            (req("sent"), 2),
+        ];
+        let got: Vec<_> = rec
+            .series
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed)))
+            .collect();
+        assert_eq!(got, want);
     }
 
     // issue 329: the per-request path reuses handles made at construction
@@ -352,14 +421,19 @@ mod tests {
                 0,
                 None,
             );
-            let built = rec.0.load(Ordering::Relaxed);
+            let built = rec.count.load(Ordering::Relaxed);
             for _ in 0..5 {
-                for r in ["sent", "delayed", "refused", "denied"] {
+                for r in [
+                    Egress::Sent,
+                    Egress::Delayed,
+                    Egress::Refused,
+                    Egress::Denied,
+                ] {
                     s.count(r);
                 }
                 s.pause(Duration::from_secs(1));
             }
-            assert_eq!(rec.0.load(Ordering::Relaxed), built);
+            assert_eq!(rec.count.load(Ordering::Relaxed), built);
         });
     }
 }

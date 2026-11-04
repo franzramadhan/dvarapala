@@ -140,14 +140,22 @@ impl Route {
         &self.name
     }
 
-    pub(crate) fn count(&self, verdict: &'static str) {
-        match verdict {
-            "allow" => &self.allow,
-            "deny" => &self.deny_count,
-            _ => &self.throttle,
+    pub(crate) fn count(&self, outcome: Outcome) {
+        match outcome {
+            Outcome::Allow => &self.allow,
+            Outcome::Deny => &self.deny_count,
+            Outcome::Throttle => &self.throttle,
         }
         .increment(1);
     }
+}
+
+/// The `verdict` label of `dvarapala_route_requests_total`.
+#[derive(Clone, Copy)]
+pub(crate) enum Outcome {
+    Allow,
+    Deny,
+    Throttle,
 }
 
 fn requests(route: &str, verdict: &'static str) -> Counter {
@@ -202,7 +210,9 @@ pub fn fuzz_route_match(data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use metrics::{
         Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
@@ -211,26 +221,78 @@ mod tests {
     use super::*;
     use crate::PathMatch;
 
-    /// Counts how often a metric handle is looked up in the registry.
+    /// Keeps every series it registers with its value, and counts how often
+    /// a handle is looked up in the registry.
     #[derive(Default)]
-    struct Lookups(AtomicUsize);
+    struct Lookups {
+        count: AtomicUsize,
+        series: Mutex<BTreeMap<String, Arc<AtomicU64>>>,
+    }
+
+    impl Lookups {
+        fn register(&self, key: &Key) -> Arc<AtomicU64> {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let labels: Vec<_> = key
+                .labels()
+                .map(|l| format!("{}={}", l.key(), l.value()))
+                .collect();
+            let id = format!("{}{{{}}}", key.name(), labels.join(","));
+            self.series.lock().unwrap().entry(id).or_default().clone()
+        }
+
+        /// Series name to value (a gauge's value is its `f64` bits).
+        fn values(&self) -> Vec<(String, u64)> {
+            let s = self.series.lock().unwrap();
+            s.iter()
+                .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed)))
+                .collect()
+        }
+    }
 
     impl Recorder for Lookups {
         fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
         fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
         fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
-        fn register_counter(&self, _: &Key, _: &Metadata<'_>) -> Counter {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Counter::noop()
+        fn register_counter(&self, k: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(self.register(k))
         }
-        fn register_gauge(&self, _: &Key, _: &Metadata<'_>) -> Gauge {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Gauge::noop()
+        fn register_gauge(&self, k: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(self.register(k))
         }
         fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
-            self.0.fetch_add(1, Ordering::Relaxed);
+            self.count.fetch_add(1, Ordering::Relaxed);
             Histogram::noop()
         }
+    }
+
+    // issue 329: the exported series and values did not change
+    #[test]
+    fn route_series_and_values_are_unchanged() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let routes = Routes::new(vec![RouteConfig {
+                limit: Some(Limit::new(1, 1).unwrap()),
+                ..route("login", "/")
+            }]);
+            let c = ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1]));
+            let req = Request::get("/").body(()).unwrap();
+            let r = routes.find(&req, c, &Origin::default()).unwrap();
+            r.take(&req, c, None, Instant::now());
+            r.count(Outcome::Allow);
+            r.count(Outcome::Deny);
+            r.count(Outcome::Deny);
+            r.count(Outcome::Throttle);
+        });
+        let req = |v| format!("dvarapala_route_requests_total{{route=login,verdict={v}}}");
+        assert_eq!(
+            rec.values(),
+            vec![
+                ("dvarapala_route_keys{route=login}".into(), 1f64.to_bits()),
+                (req("allow"), 1),
+                (req("deny"), 2),
+                (req("throttle"), 1),
+            ]
+        );
     }
 
     // issue 329: the per-request path reuses handles made at construction
@@ -245,14 +307,14 @@ mod tests {
             let c = ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1]));
             let req = Request::get("/").body(()).unwrap();
             let r = routes.find(&req, c, &Origin::default()).unwrap();
-            let built = rec.0.load(Ordering::Relaxed);
+            let built = rec.count.load(Ordering::Relaxed);
             for _ in 0..5 {
                 r.take(&req, c, None, Instant::now());
-                for v in ["allow", "deny", "throttle"] {
+                for v in [Outcome::Allow, Outcome::Deny, Outcome::Throttle] {
                     r.count(v);
                 }
             }
-            assert_eq!(rec.0.load(Ordering::Relaxed), built);
+            assert_eq!(rec.count.load(Ordering::Relaxed), built);
         });
     }
 

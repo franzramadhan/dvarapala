@@ -5,6 +5,7 @@
 mod policy;
 
 pub use dvarapala_engine::{Host, Matcher, PathMatch, RouteKey};
+pub(crate) use policy::Outcome;
 #[doc(hidden)]
 pub use policy::fuzz_route_match;
 pub use policy::{NoWaf, RouteConfig, Routes};
