@@ -68,20 +68,8 @@ impl Store for Memory {
             let t = s.pauses.entry((c.clone(), name.clone())).or_insert(now);
             *t = (*t).max(now + *ttl);
         }
-        let heavy = s
-            .heavy
-            .iter()
-            .filter(|((k, _), _)| *k == c)
-            .take(r.max_list)
-            .map(|((_, net), t)| (*net, *t - now))
-            .collect();
-        let pauses = s
-            .pauses
-            .iter()
-            .filter(|((k, _), _)| *k == c)
-            .take(r.max_list)
-            .map(|((_, name), t)| (name.clone(), *t - now))
-            .collect();
+        let heavy = longest_lived(&s.heavy, &c, r.max_list, now);
+        let pauses = longest_lived(&s.pauses, &c, r.max_list, now);
         Ok(Reply {
             replicas,
             totals,
@@ -89,4 +77,21 @@ impl Store for Memory {
             pauses,
         })
     }
+}
+
+/// The cluster's `max` marks with the most time left, the key breaking ties,
+/// as the other backends keep them.
+fn longest_lived<K: Ord + Clone>(
+    marks: &HashMap<(String, K), Instant>,
+    cluster: &str,
+    max: usize,
+    now: Instant,
+) -> Vec<(K, std::time::Duration)> {
+    let mut v: Vec<_> = marks
+        .iter()
+        .filter(|((k, _), _)| k == cluster)
+        .map(|((_, key), t)| (key.clone(), *t))
+        .collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    v.into_iter().take(max).map(|(k, t)| (k, t - now)).collect()
 }

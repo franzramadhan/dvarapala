@@ -102,10 +102,11 @@ fn pipeline(r: &Round<'_>, now: u64) -> redis::Pipeline {
     }
     for set in [&heavy, &pauses] {
         p.zrembyscore(set, "-inf", now).ignore();
-        p.cmd("ZRANGEBYSCORE")
+        // longest-lived first, as the other backends keep them
+        p.cmd("ZREVRANGEBYSCORE")
             .arg(set)
-            .arg(now)
             .arg("+inf")
+            .arg(now)
             .arg("WITHSCORES")
             .arg("LIMIT")
             .arg(0)
