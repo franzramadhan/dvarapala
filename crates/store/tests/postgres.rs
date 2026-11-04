@@ -368,3 +368,36 @@ async fn version_1_migrates_to_the_history_table() {
     assert!(render(1).starts_with("-- dvarapala schema version 2\n"));
     assert!(render(1).contains("dvarapala.traffic_history"));
 }
+
+// issue 331
+#[tokio::test(flavor = "multi_thread")]
+async fn max_list_caps_heavy_hitters_and_pauses_apart() {
+    let Some(url) = fresh().await else { return };
+    let mut s = store(&url, true);
+    let mut batch = Batch::default();
+    for i in 1..=5u8 {
+        batch.heavy.push((
+            format!("192.0.2.{i}/32").parse().unwrap(),
+            Duration::from_secs(60 * u64::from(i)),
+        ));
+    }
+    batch
+        .pauses
+        .push(("provider".into(), Duration::from_secs(1)));
+    let reply = s
+        .round(&Round {
+            cluster: "c",
+            replica: "r",
+            heartbeat: Duration::from_secs(1),
+            window: Duration::from_secs(1),
+            max_list: 3,
+            batch: &batch,
+        })
+        .await
+        .unwrap();
+    assert_eq!(reply.pauses.len(), 1);
+    // the longest-lived three, whatever the row order
+    let mut heavy: Vec<String> = reply.heavy.iter().map(|(n, _)| n.to_string()).collect();
+    heavy.sort();
+    assert_eq!(heavy, ["192.0.2.3/32", "192.0.2.4/32", "192.0.2.5/32"]);
+}
