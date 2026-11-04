@@ -211,6 +211,9 @@ pub(crate) fn count(destination: &str, result: &'static str) {
 #[cfg(test)]
 mod tests {
     use dvarapala_engine::{ClusterConfig, Reply};
+    use metrics::{
+        Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
+    };
 
     use super::*;
 
@@ -288,5 +291,49 @@ mod tests {
             c.lock().unwrap().drain(0).pauses,
             vec![("api".into(), Duration::from_secs(3))]
         );
+    }
+
+    /// Counts how often a metric handle is looked up in the registry.
+    #[derive(Default)]
+    struct Lookups(AtomicUsize);
+
+    impl Recorder for Lookups {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn register_counter(&self, _: &Key, _: &Metadata<'_>) -> Counter {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Counter::noop()
+        }
+        fn register_gauge(&self, _: &Key, _: &Metadata<'_>) -> Gauge {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Gauge::noop()
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Histogram::noop()
+        }
+    }
+
+    // issue 329: the per-request path reuses handles made at construction
+    #[test]
+    fn egress_metrics_are_not_looked_up_per_request() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let s = Shaper::new(
+                "api".into(),
+                Schedule::new(ScheduleConfig::default()).unwrap(),
+                0,
+                None,
+            );
+            let built = rec.0.load(Ordering::Relaxed);
+            for _ in 0..5 {
+                for r in ["sent", "delayed", "refused", "denied"] {
+                    s.count(r);
+                }
+                s.pause(Duration::from_secs(1));
+            }
+            assert_eq!(rec.0.load(Ordering::Relaxed), built);
+        });
     }
 }

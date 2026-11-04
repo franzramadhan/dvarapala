@@ -179,8 +179,59 @@ pub fn fuzz_route_match(data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use metrics::{
+        Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
+    };
+
     use super::*;
     use crate::PathMatch;
+
+    /// Counts how often a metric handle is looked up in the registry.
+    #[derive(Default)]
+    struct Lookups(AtomicUsize);
+
+    impl Recorder for Lookups {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn register_counter(&self, _: &Key, _: &Metadata<'_>) -> Counter {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Counter::noop()
+        }
+        fn register_gauge(&self, _: &Key, _: &Metadata<'_>) -> Gauge {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Gauge::noop()
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Histogram::noop()
+        }
+    }
+
+    // issue 329: the per-request path reuses handles made at construction
+    #[test]
+    fn route_metrics_are_not_looked_up_per_request() {
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let routes = Routes::new(vec![RouteConfig {
+                limit: Some(Limit::new(1, 1).unwrap()),
+                ..route("login", "/")
+            }]);
+            let c = ClientKey::from(std::net::IpAddr::from([192, 0, 2, 1]));
+            let req = Request::get("/").body(()).unwrap();
+            let r = routes.find(&req, c, &Origin::default()).unwrap();
+            let built = rec.0.load(Ordering::Relaxed);
+            for _ in 0..5 {
+                r.take(&req, c, None, Instant::now());
+                for v in ["allow", "deny", "throttle"] {
+                    r.count(v);
+                }
+            }
+            assert_eq!(rec.0.load(Ordering::Relaxed), built);
+        });
+    }
 
     fn route(name: &str, path: &str) -> RouteConfig {
         RouteConfig {
