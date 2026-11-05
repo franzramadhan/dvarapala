@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 /// An address block such as `192.0.2.0/24` or `2001:db8::/32`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Cidr {
     addr: IpAddr,
     prefix: u8,
