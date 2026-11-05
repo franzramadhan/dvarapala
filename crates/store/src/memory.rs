@@ -89,7 +89,7 @@ fn longest_lived<K: Ord + Clone>(
 ) -> Vec<(K, std::time::Duration)> {
     let mut v: Vec<_> = marks
         .iter()
-        .filter(|((k, _), _)| k == cluster)
+        .filter(|((k, _), _)| k.as_str() == cluster)
         .map(|((_, key), t)| (key.clone(), *t))
         .collect();
     v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
