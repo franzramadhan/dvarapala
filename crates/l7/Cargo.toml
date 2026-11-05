@@ -57,3 +57,7 @@ harness = false
 name = "waf"
 harness = false
 required-features = ["waf"]
+
+[[bench]]
+name = "rate_limit"
+harness = false
