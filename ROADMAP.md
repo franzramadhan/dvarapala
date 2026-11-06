@@ -38,6 +38,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0031](rfc/0031-network-intel.md) | Network intelligence: reputation feeds from files or URLs (`[[intel.feed]]`, deny, challenge or tag, `observe` first, last good list kept), route `country`, `asn` and `feeds` matchers from an operator-supplied MaxMind DB | implemented | v0.22.0 |
 | [0032](rfc/0032-adaptive-concurrency.md) | Adaptive concurrency limit for the upstream (`[concurrency]`): `fixed` or latency `gradient`, sheds with `503` and `Retry-After`, challenge-passed and low-score clients admitted first, attack heavy hitters last | implemented | v0.22.0 |
 | [0033](rfc/0033-operator-large-mounts.md) | Operator gateway mounts from an existing PVC or an OCI image volume (`--mount-images` allowlist), read-only, for files over the 1 MiB ConfigMap limit such as GeoIP databases | implemented | v0.23.0 |
+| [0034](rfc/0034-decoys.md) | Decoys and honeytokens: trap paths answered by dvarapala and never proxied, sealed fake credentials that mark and link the client that reuses them, an optional lure that separates agents from scanners; marks shared through the store, deny, challenge or tag, `observe` first, off until enabled | draft | |
 
 ## Shipped without an RFC
 
