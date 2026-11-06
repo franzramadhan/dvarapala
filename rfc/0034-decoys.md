@@ -48,7 +48,7 @@ free to collect at the gateway and today it is thrown away.
 - **Honeytokens.** A body template can hold `{token}`. Each answer puts
   a fresh token there: the trap's index, the client key and the issue
   time, sealed with ChaCha20-Poly1305 under a key derived from
-  `decoy.secret`. No server state, as the challenge pass (RFC 0012). A
+  `challenge.secret`. No server state, as the challenge pass (RFC 0012). A
   later request that carries a valid token in a configured header (or,
   opt-in, the query string) marks its client at the highest class
   (`token`), and the log links it to the original hit: the client key
@@ -96,23 +96,15 @@ free to collect at the gateway and today it is thrown away.
   `kind = 'decoy'`, so there is no migration. The per kind cap of
   `store.max_list` applies. A lost store falls back to local marks, as
   for heavy hitters.
-- **XDP, opt-in.** `decoy.xdp = true`, with `action = "deny"` and
-  `mode = "enforce"`, pushes marked clients into the XDP block list for
-  `xdp.block_ttl`, through the same sink heavy hitters use. Only the peer
-  address of a completed TCP handshake or QUIC validation goes there.
-  An address carried by the PROXY protocol (RFC 0030) never does.
 - **LLM labels and replay.** `decoy` becomes an RFC 0023 trigger
   (`[[ml.llm.triggers]] on = "decoy"`), sampled with the class.
   `dvarapala replay` answers traps, verifies tokens in the recorded
-  `headers` (with the same `decoy.secret`, a production token verifies)
+  `headers` (with the same `challenge.secret`, a production token verifies)
   and reports the decoy series.
-- **SDKs (RFC 0028).** Trap matching, token scanning and verification,
-  template rendering and the mark table live in `engine`, so
-  `dv_check_request` gets them: a trap returns a new verdict, `decoy`,
-  and `dv_decoy_response` writes the status, headers and body for the
-  application to send. Marked clients get the existing `drop` and
-  `challenge` verdicts. The Go, Python and JavaScript middleware serve
-  the decoy response.
+- **SDKs.** Trap matching, token scanning and verification, template
+  rendering and the mark table live in `engine`, with no I/O, so the C
+  ABI can reach them. RFC 0035 exposes them to the SDKs. Until it
+  ships, the C ABI has no `decoy.*` keys and refuses them as unknown.
 
 ### Not fingerprintable from the repo
 
@@ -123,10 +115,12 @@ identify a dvarapala decoy:
   the section is absent by default. A starter list is in
   `examples/decoy.toml`, with paths that scanners already probe on any
   site, so the list itself tells a reader nothing.
-- Every per-deployment value comes from `decoy.secret` (at least 32
-  bytes, required, redacted in `GET /config` and the console as
-  `challenge.secret` is, RFC 0021) through HKDF-SHA256 with a label per
-  use:
+- Every per-deployment value comes from `challenge.secret` through
+  HKDF-SHA256 with the label `decoy` and a label per use. There is no
+  second secret to manage, and the key is already redacted in
+  `GET /config` and the console (RFC 0021). With `[decoy]` set, an empty
+  `challenge.secret` (a random key per process) is a config error, so
+  tokens verify after a restart and on every replica. The derived values:
   - the token sealing key.
   - the token prefix when `decoy.token.prefix` is empty: six lowercase
     letters and `_`, in the style of `ghp_`.
@@ -174,9 +168,7 @@ body and marks them. Four guards, in the order an operator meets them:
 | `crates/store/src/{redis,postgres,memory}.rs` | the `decoy` mark kind |
 | `crates/l7/src/decoy.rs` | in the rate limiter: mark and token checks, the trap answer, the shadow check on upstream responses in `observe`, `decoy.header`, metrics |
 | `crates/l7/src/llm/` | the `decoy` trigger |
-| `crates/ffi/src/decoy.rs` | the `decoy` verdict of `dv_check_request`, `dv_decoy_response` |
-| `sdk/go`, `sdk/python`, `sdk/js` | the middleware serves decoy responses |
-| `crates/dvarapala/src/config/decoy.rs` | `[decoy]`, the secret through `view::redact` |
+| `crates/dvarapala/src/config/decoy.rs` | `[decoy]`, and the check that `challenge.secret` is set |
 | `fuzz/fuzz_targets/decoy_token.rs`, `fuzz/fuzz_targets/decoy_template.rs` | token scan and open over arbitrary headers and queries. The template parser over arbitrary bytes. Rows in `fuzz/select.sh` (`engine`) |
 | `examples/decoy.toml`, `examples/decoy/` | a starter config and templates. `CONFIG.md` and `site/docs/protection.md` in the implementation |
 
@@ -190,14 +182,12 @@ pass stays where it is.
 |---|---|---|
 | `decoy` | absent | The section turns the layer on. Absent, nothing is matched |
 | `decoy.mode` | `"observe"` | `"enforce"` answers traps and applies the action |
-| `decoy.secret` | required | At least 32 bytes. Redacted in `GET /config`. Changing it voids every issued token and moves derived paths |
 | `decoy.action` | `"challenge"` | `"deny"`, `"challenge"` or `"tag"`, for marked clients |
 | `decoy.mark_ttl` | `"1h"` | How long a mark lasts after its last hit, `1m` to `7d` |
 | `decoy.max_marks` | `65536` | Marks held at most. When full, the lowest class expiring first is evicted |
 | `decoy.exempt` | `[]` | CIDRs never marked or trapped |
 | `decoy.headers` | `{}` | Extra response headers on trap answers, name to value |
 | `decoy.header` | `""` | Upstream header with the class for `tag`. Empty sends none |
-| `decoy.xdp` | `false` | Push `deny` marks to the XDP block list |
 | `decoy.trap[].name` | required | Label in metrics and logs, unique |
 | `decoy.trap[].path` | required | Prefix, or exact with a leading `=` |
 | `decoy.trap[].methods` | `["GET", "HEAD"]` | Methods that hit the trap |
@@ -213,8 +203,12 @@ pass stays where it is.
 | `decoy.lure.body` | required with `enabled` | Template of the lure answer |
 
 Every key reloads (`SIGHUP`, `POST /reload`, `config_watch`). Marks
-survive a reload. A reload that changes `decoy.secret` keeps the marks
-but voids the tokens.
+survive a reload. A reload that changes `challenge.secret` keeps the
+marks but voids the tokens and the challenge passes, and moves the
+derived prefix and lure path. `CONFIG.md` says so next to the key.
+
+`challenge.secret` (RFC 0012) is required with `[decoy]`: at least 32
+bytes, as today. No new secret key.
 
 ### Logs and metrics
 
@@ -261,16 +255,14 @@ but voids the tokens.
 | 22 | lure on, a trap answered with `{lure}` | the client requests the lure path | mark class `agent`, `hits{class="agent"}` 1 | integration (`l7/tests`) |
 | 23 | a client over its bucket | `GET /.env` in `enforce` | `429`, marked, no token issued | integration (`l7/tests`) |
 | 24 | a trap overlapping a `[[routes]]` path | start | warn log naming both, starts | unit (`config`) |
-| 25 | `[decoy]` without traps, a secret under 32 bytes, or `challenge` with `challenge.mode = "off"` | start or reload | refused naming the key | unit (`config`) |
-| 26 | `decoy.secret` set | `GET /config` | `"<redacted>"`, the value absent from the body. The redaction list test names the field | integration (`dvarapala/tests`) |
+| 25 | `[decoy]` without traps, with an empty `challenge.secret`, or `action = "challenge"` with `challenge.mode = "off"` | start or reload | refused naming the key | unit (`config`) |
+| 26 | one `challenge.secret` | derive the decoy subkeys and a challenge pass | a token does not verify as a pass and a pass does not open as a token (domain separation) | unit (`engine::decoy::keys`) |
 | 27 | two replicas on one store, Redis then PostgreSQL | a trap hit on the first | the second applies the action within two sync rounds | integration (`store/tests`) |
 | 28 | the store goes away | a trap hit | the local mark applies, the rest as RFC 0010 | integration (`store/tests`) |
-| 29 | `xdp = true`, `deny`, `enforce`, a hit from a PROXY protocol address | hit | the block sink gets nothing. A direct peer is pushed | unit (`l7`) |
-| 30 | a trigger `on = "decoy"` with rate 1 | a trap hit | one LLM sample with the class | integration (`l7/tests`) |
-| 31 | a replay log with a trap hit and a later line carrying the token | `dvarapala replay` with the issuing secret | `decoy_hits_total` and `tokens{result="valid"}` in the report | integration (`dvarapala/tests`) |
-| 32 | `dv_check_request` on a trap path, then `dv_decoy_response` | the C ABI, and each SDK's middleware | the `decoy` verdict, the rendered answer served | integration (`ffi`, SDK jobs) |
-| 33 | `examples/decoy.toml` | `example_configs_load` | loads | integration |
-| 34 | a request with no trap, no mark and two scanned headers | criterion | the decoy checks add under 1 µs. A trap answer with a token under 5 µs | bench (`engine/benches/decoy.rs`) |
+| 29 | a trigger `on = "decoy"` with rate 1 | a trap hit | one LLM sample with the class | integration (`l7/tests`) |
+| 30 | a replay log with a trap hit and a later line carrying the token | `dvarapala replay` with the issuing secret | `decoy_hits_total` and `tokens{result="valid"}` in the report | integration (`dvarapala/tests`) |
+| 31 | `examples/decoy.toml` | `example_configs_load` | loads | integration |
+| 32 | a request with no trap, no mark and two scanned headers | criterion | the decoy checks add under 1 µs. A trap answer with a token under 5 µs | bench (`engine/benches/decoy.rs`) |
 
 ## Alternatives
 
@@ -284,7 +276,9 @@ but voids the tokens.
 | Tokens with server-side state (a random id per hit) | a table an attacker fills by hitting traps. Sealed tokens need none |
 | HMAC-signed token with a readable payload | decoding it shows the agent its own address and the issue time, which identifies the decoy |
 | Built-in default trap paths | defaults are a fingerprint, and a default can shadow a real route on someone's site |
-| A random secret per process, as `challenge.secret` allows | tokens will not verify after a restart or on another replica, and derived paths will move on each restart. A required secret avoids a silent half-working mode |
+| A separate `decoy.secret` | one more secret to generate, store and rotate, for no gain: HKDF with a `decoy` label keeps the keys independent |
+| A random secret per process, as an empty `challenge.secret` allows | tokens will not verify after a restart or on another replica, and derived paths will move on each restart. A set secret avoids a silent half-working mode |
+| Push `deny` marks to the XDP block list | marked clients send a few requests per second. The rate limiter refuses them at the cost of one lookup, so dropping at the driver saves nothing, and it adds a key and a second path to test |
 | One action per class | more keys for a signal that is near-certain in every class. Can come later if `scanner` marks prove noisy |
 
 ## Security and resource limits
@@ -303,7 +297,7 @@ but voids the tokens.
 - **Spoofed addresses.** A trap hit is an HTTP request, so the address
   completed a TCP handshake or a QUIC validation, or was carried by a
   trusted proxy (`trusted_proxies`, RFC 0030). A spoofed source cannot
-  mark a victim. XDP gets only direct peers, as heavy hitters.
+  mark a victim.
 - **Shared addresses.** A mark is per client key: an IPv4 address or an
   IPv6 /64. Behind a CGNAT or a corporate proxy, one infected device
   marks everyone behind it. That is why `challenge` is the default
@@ -353,6 +347,7 @@ For later RFCs:
   headers, or a JA4 that disagrees with the `User-Agent`.
 - `DvarapalaPolicy` CRD fields for the operator (RFC 0019).
 - A console page for traps, marks and token links (RFC 0018).
+- The C ABI and the SDKs: RFC 0035.
 - Per-class actions, and a route matcher on the mark class.
 - Lures in HTML responses of the real upstream (injecting into proxied
   bodies).
