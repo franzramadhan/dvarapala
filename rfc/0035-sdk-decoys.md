@@ -44,9 +44,10 @@ Three parts of the ABI do not fit RFC 0034 as it stands:
   - `challenge.secret` becomes a key of the ABI. It is used only for the
     decoy keys (HKDF label `decoy`, as RFC 0034), so an app that shares
     the gateway's secret gets tokens that verify on both.
-  - `decoy.action` has no default: `"deny"` or `"tag"`. `"challenge"` is
-    refused with a hint, since no challenge runs in process, and a
-    silent fallback to another action is not what the operator chose.
+  - `decoy.action` defaults to `"tag"` in process, not `"challenge"`:
+    no challenge runs in the app, and `tag` changes no answer, so the
+    app sees its marks before it chooses `"deny"`. An explicit
+    `"challenge"` is refused with a hint, never mapped to another action.
   - `decoy.token.query` is refused: `DvRequest` has no query.
   - `decoy.header` is refused: there is no upstream. `dv_decoy_mark`
     gives the class to the app instead.
@@ -139,7 +140,7 @@ No new keys beyond RFC 0034. In process:
 |---|---|---|
 | `challenge.secret` | `""` | Required with any `decoy.*` key, at least 32 bytes. Used for decoys only |
 | `decoy.mode` | `"observe"` | as RFC 0034 |
-| `decoy.action` | required | `"deny"` or `"tag"`. `"challenge"` refused |
+| `decoy.action` | `"tag"` | `"deny"` or `"tag"`. `"challenge"` refused |
 | `decoy.traps` | `[]` | JSON array of `[[decoy.trap]]` tables. `body` is the template text |
 | `decoy.headers` | `{}` | JSON object |
 | `decoy.lure.body` | required with `enabled` | the template text |
@@ -172,7 +173,7 @@ gateway's dashboards:
 | 5 | the same, a client over its bucket | `dv_check_request` | `DV_THROTTLE`, marked, no token | unit (`ffi`) |
 | 6 | a request that is not a trap, or a trap removed by `dv_guard_reload` in between | `dv_decoy_response` | `DV_E_NOT_FOUND` | unit (`ffi`) |
 | 7 | `deny`, a marked client | `dv_check` and `dv_check_request` | `DV_DROP` from both | unit (`ffi`) |
-| 8 | `tag`, a marked client | `dv_check_request`, `dv_decoy_mark` | `DV_ALLOW`, the JSON with its class | unit (`ffi`) |
+| 8 | no `decoy.action` (default `tag`), a marked client | `dv_check_request`, `dv_decoy_mark` | `DV_ALLOW`, the JSON with its class | unit (`ffi`) |
 | 9 | a token issued to `192.0.2.7` | `dv_check_request` from `198.51.100.9` with it in `authorization` | marked `token`, `dv_decoy_mark` has `origin` `192.0.2.7`, `tokens.linked` 1 | unit (`ffi`) |
 | 10 | a token issued by the gateway with the same `challenge.secret` | `dv_check_request` with it | `tokens.valid` 1 | integration (`ffi`, engine helper) |
 | 11 | `observe`, trap `=/.env` | `dv_check_request`, then `dv_decoy_observed` with `200`, then with `404` | `DV_ALLOW`, marked, `shadowed` 1 after the first, unchanged after the second | unit (`ffi`) |
