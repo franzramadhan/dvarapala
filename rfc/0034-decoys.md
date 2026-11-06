@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-06 | #N | |
+| draft | 2026-11-06 | #339 | |
 
 > Trap paths that dvarapala answers itself and never proxies, fake
 > credentials in those answers that identify the client when they come
