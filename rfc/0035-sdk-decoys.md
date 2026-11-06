@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-06 | #N | |
+| draft | 2026-11-06 | #340 | |
 
 > Bring the RFC 0034 decoys into the C ABI and the Go, Python and
 > JavaScript SDKs: trap paths answered by the middleware, honeytokens
