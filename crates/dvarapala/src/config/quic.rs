@@ -105,6 +105,7 @@ impl Quic {
 mod tests {
     use std::path::PathBuf;
 
+    #[cfg(feature = "http3")]
     use dvarapala_engine::Limit;
 
     use super::*;
