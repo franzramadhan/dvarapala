@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use dvarapala_engine::ConnsConfig;
+
 /// When a new connection must prove its address with a Retry first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Retry {
@@ -25,6 +27,9 @@ pub struct QuicConfig {
     pub handshake_timeout: Duration,
     /// How long a Retry token is valid; QUIC keeps it in whole seconds.
     pub retry_token_lifetime: Duration,
+    /// Per-client open connections and new-connection rate (RFC 0036),
+    /// counted on the validated address; a table apart from TCP's.
+    pub conns: ConnsConfig,
 }
 
 impl QuicConfig {
@@ -39,6 +44,7 @@ impl QuicConfig {
             idle_timeout: Duration::from_secs(30),
             handshake_timeout: Duration::from_secs(10),
             retry_token_lifetime: Duration::from_secs(10),
+            conns: ConnsConfig::default(),
         }
     }
 }
