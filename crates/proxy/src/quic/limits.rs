@@ -32,6 +32,10 @@ pub struct ClientLimits(());
 /// One connection's place; dropping it frees the place.
 pub struct ClientGuard(());
 
+impl Drop for ClientGuard {
+    fn drop(&mut self) {}
+}
+
 impl ClientLimits {
     pub fn new(config: &ConnsConfig) -> Result<Arc<Self>, ConnsError> {
         let _ = config;
