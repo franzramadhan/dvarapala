@@ -145,13 +145,23 @@ pub fn client(ca: &Ca, early: bool) -> quinn::Endpoint {
 
 /// Like [`client`], offering `alpn` instead of `h3`.
 pub fn client_alpn(ca: &Ca, early: bool, alpn: &[u8]) -> quinn::Endpoint {
+    client_from(ca, early, alpn, "127.0.0.1")
+}
+
+/// A client endpoint sending from `ip`, an address of 127.0.0.0/8 (RFC 0036
+/// tests: one host, several client addresses).
+pub fn client_at(ca: &Ca, ip: &str) -> quinn::Endpoint {
+    client_from(ca, false, b"h3", ip)
+}
+
+fn client_from(ca: &Ca, early: bool, alpn: &[u8], ip: &str) -> quinn::Endpoint {
     let mut tls = (*client_config(&ca.pem, &[alpn])).clone();
     tls.enable_early_data = early;
     let mut c = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls).unwrap()));
     let mut t = quinn::TransportConfig::default();
     t.max_idle_timeout(Some(Duration::from_secs(5).try_into().unwrap()));
     c.transport_config(Arc::new(t));
-    let mut e = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+    let mut e = quinn::Endpoint::client(format!("{ip}:0").parse().unwrap()).unwrap();
     e.set_default_client_config(c);
     e
 }

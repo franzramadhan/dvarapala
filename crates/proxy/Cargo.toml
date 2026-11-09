@@ -76,3 +76,9 @@ harness = false
 [[bench]]
 name = "pool"
 harness = false
+
+# RFC 0036 case 13
+[[bench]]
+name = "quic_conns"
+harness = false
+required-features = ["http3"]

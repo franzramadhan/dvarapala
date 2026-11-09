@@ -3,9 +3,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use dvarapala_engine::ConnsConfig;
 use serde::{Deserialize, Serialize};
 
-use super::{Tls, duration};
+use super::{L4, Tls, duration};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +26,11 @@ pub struct Quic {
     pub retry_threshold: usize,
     pub max_connections: usize,
     pub max_streams: u32,
+    /// RFC 0036: open connections per client; 0 off.
+    pub max_per_client: u32,
+    /// RFC 0036: new connections per second per client; 0 off.
+    pub accept_rate: u32,
+    pub accept_burst: u32,
     #[serde(
         deserialize_with = "duration",
         serialize_with = "crate::config::view::ser_duration"
@@ -41,6 +47,9 @@ impl Default for Quic {
             retry_threshold: 256,
             max_connections: 10_000,
             max_streams: 100,
+            max_per_client: 256,
+            accept_rate: 0,
+            accept_burst: 64,
             idle_timeout: Duration::from_secs(30),
         }
     }
@@ -55,12 +64,14 @@ pub struct QuicPlan {
     pub handshake_timeout: Duration,
     /// The port for `Alt-Svc` on TCP responses, `None` with `advertise = false`.
     pub alt_svc: Option<u16>,
+    /// RFC 0036: the per-client limits, grouped as `[l4]` says.
+    pub conns: ConnsConfig,
 }
 
 impl Quic {
     /// `None` when `quic.listen` is unset; an error without `[tls]`, without
     /// the `http3` feature, or on a bad value.
-    pub fn plan(&self, tls: &Tls) -> Result<Option<QuicPlan>, String> {
+    pub fn plan(&self, tls: &Tls, l4: &L4) -> Result<Option<QuicPlan>, String> {
         let Some(listen) = self.listen else {
             return Ok(None);
         };
@@ -79,7 +90,9 @@ impl Quic {
                 return Err(format!("{key} must be above 0"));
             }
         }
+        let _ = l4;
         Ok(Some(QuicPlan {
+            conns: ConnsConfig::default(),
             quic: self.clone(),
             listen,
             handshake_timeout: tls.handshake_timeout,
@@ -91,6 +104,8 @@ impl Quic {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    use dvarapala_engine::Limit;
 
     use super::*;
 
@@ -112,27 +127,34 @@ mod tests {
     // case 5
     #[test]
     fn unset_listen_binds_nothing() {
-        assert_eq!(Quic::default().plan(&tls()), Ok(None));
+        assert_eq!(Quic::default().plan(&tls(), &L4::default()), Ok(None));
     }
 
     // case 14
     #[test]
     fn needs_tls() {
-        assert!(on().plan(&Tls::default()).unwrap_err().contains("tls.cert"));
+        assert!(
+            on().plan(&Tls::default(), &L4::default())
+                .unwrap_err()
+                .contains("tls.cert")
+        );
     }
 
     // cases 3 and 4
     #[cfg(feature = "http3")]
     #[test]
     fn advertise_sets_alt_svc() {
-        let p = on().plan(&tls()).unwrap().unwrap();
+        let p = on().plan(&tls(), &L4::default()).unwrap().unwrap();
         assert_eq!(p.alt_svc, Some(8443));
         assert_eq!(p.handshake_timeout, tls().handshake_timeout);
         let off = Quic {
             advertise: false,
             ..on()
         };
-        assert_eq!(off.plan(&tls()).unwrap().unwrap().alt_svc, None);
+        assert_eq!(
+            off.plan(&tls(), &L4::default()).unwrap().unwrap().alt_svc,
+            None
+        );
     }
 
     #[cfg(feature = "http3")]
@@ -161,14 +183,62 @@ mod tests {
                 "quic.idle_timeout",
             ),
         ] {
-            assert!(q.plan(&tls()).unwrap_err().contains(key), "{key}");
+            assert!(
+                q.plan(&tls(), &L4::default()).unwrap_err().contains(key),
+                "{key}"
+            );
         }
+    }
+
+    // case 11
+    #[cfg(feature = "http3")]
+    #[test]
+    #[ignore = "rfc 0036"]
+    fn zero_burst_names_the_key() {
+        let q = Quic {
+            accept_burst: 0,
+            ..on()
+        };
+        assert!(
+            q.plan(&tls(), &L4::default())
+                .unwrap_err()
+                .contains("quic.accept_burst")
+        );
+    }
+
+    // RFC 0036: grouping and capacity come from `[l4]`
+    #[cfg(feature = "http3")]
+    #[test]
+    #[ignore = "rfc 0036"]
+    fn limits_follow_the_keys_and_l4_grouping() {
+        let q = Quic {
+            max_per_client: 3,
+            accept_rate: 5,
+            accept_burst: 7,
+            ..on()
+        };
+        let l4 = L4 {
+            prefix_v6: 56,
+            max_clients: 9,
+            ..L4::default()
+        };
+        let c = q.plan(&tls(), &l4).unwrap().unwrap().conns;
+        assert_eq!(c.max_per_client, 3);
+        assert_eq!(c.accept, Some(Limit::new(5, 7).unwrap()));
+        assert_eq!((c.prefix_v4, c.prefix_v6), (32, 56));
+        assert_eq!(c.max_clients.get(), 9);
+        let off = Quic::default().plan(&tls(), &l4);
+        assert_eq!(off, Ok(None));
     }
 
     // case 15
     #[cfg(not(feature = "http3"))]
     #[test]
     fn needs_the_feature() {
-        assert!(on().plan(&tls()).unwrap_err().contains("http3 feature"));
+        assert!(
+            on().plan(&tls(), &L4::default())
+                .unwrap_err()
+                .contains("http3 feature")
+        );
     }
 }

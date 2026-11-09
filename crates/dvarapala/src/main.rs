@@ -177,7 +177,7 @@ async fn run(config: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         .iter()
         .chain(&cfg.pool.upstreams)
         .collect::<Vec<_>>();
-    let quic = cfg.quic.plan(&cfg.tls)?;
+    let quic = cfg.quic.plan(&cfg.tls, &cfg.l4)?;
     #[cfg(not(feature = "tls"))]
     for t in &targets {
         no_tls(&cfg.tls, t)?;
