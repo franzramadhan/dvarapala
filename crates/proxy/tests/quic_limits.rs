@@ -41,7 +41,6 @@ async fn connects_soon(p: &Proxy, e: &quinn::Endpoint) -> bool {
 
 // case 1
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn validated_client_over_the_cap_is_refused_before_the_handshake() {
     record();
     let _s = serial().await;
@@ -56,7 +55,6 @@ async fn validated_client_over_the_cap_is_refused_before_the_handshake() {
 
 // case 2
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn another_address_is_accepted() {
     record();
     let _s = serial().await;
@@ -74,7 +72,6 @@ async fn another_address_is_accepted() {
 
 // case 3
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn without_retry_the_third_is_closed_after_its_handshake() {
     record();
     let _s = serial().await;
@@ -99,7 +96,6 @@ async fn without_retry_the_third_is_closed_after_its_handshake() {
 
 // case 4
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn a_closed_connection_frees_its_place() {
     record();
     let _s = serial().await;
@@ -114,7 +110,6 @@ async fn a_closed_connection_frees_its_place() {
 
 // case 5
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn accept_rate_refuses_the_third_in_a_second() {
     record();
     let _s = serial().await;
@@ -136,7 +131,6 @@ async fn accept_rate_refuses_the_third_in_a_second() {
 
 // case 7
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn both_off_only_the_total_applies() {
     record();
     let _s = serial().await;
@@ -152,7 +146,6 @@ async fn both_off_only_the_total_applies() {
 
 // case 10
 #[tokio::test]
-#[ignore = "rfc 0036"]
 async fn a_migrated_connection_keeps_the_place_of_its_first_address() {
     record();
     let _s = serial().await;

@@ -9,7 +9,8 @@ use http::{Request, Response};
 use quinn::crypto::rustls::QuicServerConfig;
 use tower_service::Service;
 
-use super::{H3Body, QuicConfig, Retry};
+use super::limits::When;
+use super::{ClientGuard, ClientLimits, H3Body, QuicConfig, Retry};
 use crate::ProxyBody;
 use crate::tls::Tls;
 
@@ -20,6 +21,8 @@ const DRAIN: Duration = Duration::from_secs(30);
 pub enum QuicError {
     Bind(std::io::Error),
     Tls(String),
+    /// The per-client limits (RFC 0036): bad grouping.
+    Limits(String),
 }
 
 impl std::fmt::Display for QuicError {
@@ -27,6 +30,7 @@ impl std::fmt::Display for QuicError {
         match self {
             Self::Bind(e) => write!(f, "quic.listen: {e}"),
             Self::Tls(e) => write!(f, "quic tls: {e}"),
+            Self::Limits(e) => write!(f, "quic limits: {e}"),
         }
     }
 }
@@ -38,10 +42,15 @@ impl std::error::Error for QuicError {}
 pub struct QuicListener {
     endpoint: quinn::Endpoint,
     config: QuicConfig,
+    limits: Arc<ClientLimits>,
 }
+
+/// QUIC application error for a connection over a per-client limit.
+const H3_EXCESSIVE_LOAD: u32 = 0x0107;
 
 impl QuicListener {
     pub fn bind(config: QuicConfig, tls: &Tls) -> Result<Self, QuicError> {
+        let limits = ClientLimits::new(&config.conns).map_err(|e| QuicError::Limits(e.0))?;
         let tls_err = |e: &dyn std::fmt::Display| QuicError::Tls(e.to_string());
         let crypto = tls.quic().map_err(|e| tls_err(&e))?;
         let crypto = QuicServerConfig::try_from(crypto).map_err(|e| tls_err(&e))?;
@@ -54,7 +63,11 @@ impl QuicListener {
         sc.transport_config(Arc::new(t))
             .retry_token_lifetime(config.retry_token_lifetime);
         let endpoint = quinn::Endpoint::server(sc, config.listen).map_err(QuicError::Bind)?;
-        Ok(Self { endpoint, config })
+        Ok(Self {
+            endpoint,
+            config,
+            limits,
+        })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -112,12 +125,25 @@ impl QuicListener {
                 }
                 continue;
             }
+            // a validated address is counted now and refused before any
+            // crypto; any other one only after its handshake
+            let mut place = None;
+            if When::of(incoming.remote_address_validated()) == When::Accept {
+                match self.limits.admit(incoming.remote_address().ip()) {
+                    Ok(g) => place = Some(g),
+                    Err(_) => {
+                        incoming.refuse();
+                        continue;
+                    }
+                }
+            }
             let Ok(connecting) = incoming.accept() else {
                 count("failed");
                 continue;
             };
             let (service, handshaking, timeout) =
                 (service.clone(), handshaking.clone(), c.handshake_timeout);
+            let limits = self.limits.clone();
             tokio::spawn(async move {
                 handshaking.fetch_add(1, Ordering::Relaxed);
                 let res = tokio::time::timeout(timeout, connecting).await;
@@ -127,6 +153,9 @@ impl QuicListener {
                     Ok(Err(_)) => return count("failed"),
                     // dropping `connecting` closes it
                     Err(_) => return count("timeout"),
+                };
+                let Some(_place) = place.or_else(|| late_place(&limits, &conn)) else {
+                    return;
                 };
                 count("ok");
                 let open = metrics::gauge!("dvarapala_quic_connections_open");
@@ -142,4 +171,17 @@ impl QuicListener {
 
 fn count(result: &'static str) {
     metrics::counter!("dvarapala_quic_handshakes_total", "result" => result).increment(1);
+}
+
+/// Counts a connection whose address was proven by its handshake only; over
+/// a limit it is closed before any request is read.
+fn late_place(limits: &Arc<ClientLimits>, conn: &quinn::Connection) -> Option<ClientGuard> {
+    let ip = conn.remote_address().ip();
+    match limits.admit(ip) {
+        Ok(g) => Some(g),
+        Err(_) => {
+            conn.close(H3_EXCESSIVE_LOAD.into(), b"too many connections");
+            None
+        }
+    }
 }
