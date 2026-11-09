@@ -32,4 +32,7 @@ max_connections = 10000
 # Browsers open a few streams per page; 100 leaves room, a flood of
 # streams on one connection waits for credit.
 max_streams = 100
+# One client address cannot take every slot (RFC 0036); a browser uses one
+# connection.
+max_per_client = 256
 idle_timeout = "30s"

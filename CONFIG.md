@@ -224,7 +224,21 @@ through the same rate limiter, detection and upstream as TCP ones.
 | `retry_threshold` | integer | `256` | Handshakes in progress before `under_load` starts sending Retry |
 | `max_connections` | integer | `10000` | Open connections, handshakes included; over it, new ones are refused before any crypto. At least 1 |
 | `max_streams` | integer | `100` | Concurrent requests per connection; more wait for credit. At least 1 |
+| `max_per_client` | integer | `256` | Open QUIC connections per client ([RFC 0036](rfc/0036-quic-client-limits.md)); a new one over it is refused. `0` off |
+| `accept_rate` | integer | `0` (off) | New QUIC connections per second per client, a token bucket |
+| `accept_burst` | integer | `64` | Bucket size for `accept_rate`. At least 1 |
 | `idle_timeout` | duration | `"30s"` | Idle connections are closed. Above 0 |
+
+The per-client limits count on the validated address, so a spoofed source
+never takes a place: with a valid Retry token the connection is counted at
+accept and refused with `CONNECTION_REFUSED` before any crypto; otherwise it
+is counted when the handshake completes and, over a limit, closed with
+`H3_EXCESSIVE_LOAD` before any request is read. `max_connections` and Retry
+are checked first. Clients are grouped by `l4.prefix_v4` and
+`l4.prefix_v6`, in a table of at most `l4.max_clients` entries (least
+recently seen evicted) that is separate from the TCP one. A place is held
+until the connection closes and stays with the address it was counted on
+after a migration. The keys are read at start; a reload does not change them.
 
 ## `[upstream_tls]`
 
@@ -1025,6 +1039,8 @@ Served on `metrics.listen` at `/metrics`.
 | `dvarapala_quic_handshakes_total{result}` | QUIC handshakes ([RFC 0006](rfc/0006-http3.md)) by `ok`, `failed`, `timeout`, `refused` (over `quic.max_connections`, before any crypto) |
 | `dvarapala_quic_retries_total` | Retry packets sent; `quic retry on` and `quic retry off` are logged when `under_load` starts and stops |
 | `dvarapala_quic_connections_open` | Established QUIC connections |
+| `dvarapala_quic_rejected_total{reason}` | QUIC connections refused or closed by the per-client limits ([RFC 0036](rfc/0036-quic-client-limits.md)), `per_client` or `rate`; `quic connection limit` is logged at most once a second |
+| `dvarapala_quic_clients` | Entries in the QUIC per-client table |
 | `dvarapala_store_up` | 1 while the last sync round succeeded, 0 otherwise ([RFC 0010](rfc/0010-shared-state.md)) |
 | `dvarapala_store_replicas` | Live replicas seen in the last round |
 | `dvarapala_store_sync_seconds` | Histogram of one sync round |
