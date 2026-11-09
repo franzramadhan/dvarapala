@@ -46,10 +46,6 @@ impl Drop for ClientGuard {
     }
 }
 
-impl Drop for ClientGuard {
-    fn drop(&mut self) {}
-}
-
 impl ClientLimits {
     pub fn new(config: &ConnsConfig) -> Result<Arc<Self>, ConnsError> {
         Ok(Arc::new(Self {
@@ -62,9 +58,8 @@ impl ClientLimits {
     /// refusal, counted and logged at most once a second.
     pub fn admit(self: &Arc<Self>, ip: IpAddr) -> Result<ClientGuard, Refused> {
         let mut conns = self.lock();
-        let key = conns.open(ip, Instant::now()).map_err(|r| {
+        let key = conns.open(ip, Instant::now()).inspect_err(|&r| {
             self.refused(r, ip);
-            r
         })?;
         metrics::gauge!("dvarapala_quic_clients").set(conns.clients() as f64);
         Ok(ClientGuard {
