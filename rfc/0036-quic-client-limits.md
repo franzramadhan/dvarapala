@@ -2,7 +2,7 @@
 
 | Status | Date | PR | Release |
 |---|---|---|---|
-| draft | 2026-11-09 | | |
+| accepted | 2026-11-09 | #342 | |
 
 > The QUIC listener gets the per-client open-connection cap and new-connection rate that the TCP listener has had since RFC 0009. Both are counted on the validated client address, so one client cannot take every HTTP/3 connection slot.
 

@@ -40,7 +40,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0033](rfc/0033-operator-large-mounts.md) | Operator gateway mounts from an existing PVC or an OCI image volume (`--mount-images` allowlist), read-only, for files over the 1 MiB ConfigMap limit such as GeoIP databases | implemented | v0.23.0 |
 | [0034](rfc/0034-decoys.md) | Decoys and honeytokens: trap paths answered by dvarapala and never proxied, sealed fake credentials that mark and link the client that reuses them, an optional lure that separates agents from scanners; marks shared through the store, deny, challenge or tag, `observe` first, off until enabled | accepted | |
 | [0035](rfc/0035-sdk-decoys.md) | SDK parity for decoys: trap answers (`DV_DECOY`, `dv_decoy_response`), honeytokens in request headers, marks per process, `dv_decoy_mark` and counters, in the C ABI and the Go, Python and JavaScript middleware | accepted | |
-| [0036](rfc/0036-quic-client-limits.md) | Per-client QUIC connection limits: open connections and new-connection rate per client (`quic.max_per_client`, `quic.accept_rate`), counted on the validated address, refused before the handshake or closed before any request | draft | v0.24.0 |
+| [0036](rfc/0036-quic-client-limits.md) | Per-client QUIC connection limits: open connections and new-connection rate per client (`quic.max_per_client`, `quic.accept_rate`), counted on the validated address, refused before the handshake or closed before any request | accepted | v0.24.0 |
 
 ## Shipped without an RFC
 
