@@ -344,7 +344,9 @@ a Retry token. This costs one extra round trip and keeps no state on the
 server. `retry = "always"` asks every new client.
 
 Over `max_connections`, dvarapala refuses new connections before any
-crypto. Each connection gets `max_streams` concurrent requests. 0-RTT is
+crypto. One client address holds at most `max_per_client` connections, and
+`accept_rate` can limit its new connections, counted on the validated
+address only. Each connection gets `max_streams` concurrent requests. 0-RTT is
 off, so dvarapala processes no request before the handshake ends. TCP
 responses advertise the listener with `Alt-Svc`.
 

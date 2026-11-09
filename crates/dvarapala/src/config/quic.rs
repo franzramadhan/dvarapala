@@ -1,9 +1,10 @@
 //! The `[quic]` section (RFC 0006).
 
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use dvarapala_engine::ConnsConfig;
+use dvarapala_engine::{ConnsConfig, Limit};
 use serde::{Deserialize, Serialize};
 
 use super::{L4, Tls, duration};
@@ -90,9 +91,26 @@ impl Quic {
                 return Err(format!("{key} must be above 0"));
             }
         }
-        let _ = l4;
+        if self.accept_burst == 0 {
+            return Err("quic.accept_burst must be at least 1".into());
+        }
+        let accept = match self.accept_rate {
+            0 => None,
+            r => Some(
+                Limit::new(r, self.accept_burst).map_err(|e| format!("quic.accept_rate: {e}"))?,
+            ),
+        };
+        let conns = ConnsConfig {
+            max_per_client: self.max_per_client,
+            accept,
+            prefix_v4: l4.prefix_v4,
+            prefix_v6: l4.prefix_v6,
+            max_clients: NonZeroUsize::new(l4.max_clients)
+                .ok_or("l4.max_clients must be at least 1")?,
+            exempt: Vec::new(),
+        };
         Ok(Some(QuicPlan {
-            conns: ConnsConfig::default(),
+            conns,
             quic: self.clone(),
             listen,
             handshake_timeout: tls.handshake_timeout,
@@ -104,9 +122,6 @@ impl Quic {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-
-    #[cfg(feature = "http3")]
-    use dvarapala_engine::Limit;
 
     use super::*;
 
@@ -178,6 +193,13 @@ mod tests {
             ),
             (
                 Quic {
+                    accept_burst: 0,
+                    ..on()
+                },
+                "quic.accept_burst",
+            ),
+            (
+                Quic {
                     idle_timeout: Duration::ZERO,
                     ..on()
                 },
@@ -191,26 +213,9 @@ mod tests {
         }
     }
 
-    // case 11
-    #[cfg(feature = "http3")]
-    #[test]
-    #[ignore = "rfc 0036"]
-    fn zero_burst_names_the_key() {
-        let q = Quic {
-            accept_burst: 0,
-            ..on()
-        };
-        assert!(
-            q.plan(&tls(), &L4::default())
-                .unwrap_err()
-                .contains("quic.accept_burst")
-        );
-    }
-
     // RFC 0036: grouping and capacity come from `[l4]`
     #[cfg(feature = "http3")]
     #[test]
-    #[ignore = "rfc 0036"]
     fn limits_follow_the_keys_and_l4_grouping() {
         let q = Quic {
             max_per_client: 3,

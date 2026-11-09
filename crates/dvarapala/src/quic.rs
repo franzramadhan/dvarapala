@@ -35,6 +35,7 @@ pub fn start(
     c.retry_threshold = q.retry_threshold;
     c.max_connections = q.max_connections;
     c.max_streams = q.max_streams;
+    c.conns = plan.conns.clone();
     c.idle_timeout = q.idle_timeout;
     c.handshake_timeout = plan.handshake_timeout;
     // ponytail: retry_token_lifetime stays at the 10 s default, no key

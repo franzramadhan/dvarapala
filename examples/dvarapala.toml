@@ -55,6 +55,11 @@ prefix_v6 = 64
 # retry_threshold = 256
 # max_connections = 10000
 # max_streams = 100
+# Per client (RFC 0036), counted on the validated address; grouping and
+# table size come from [l4]. 0 turns a limit off.
+# max_per_client = 256
+# accept_rate = 0
+# accept_burst = 64
 # idle_timeout = "30s"
 
 # Verification of https:// upstreams. Default: the system roots and the

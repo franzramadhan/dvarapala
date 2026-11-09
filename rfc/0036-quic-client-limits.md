@@ -94,3 +94,14 @@ Grouping and table capacity come from `l4.prefix_v4`, `l4.prefix_v6` and `l4.max
 
 - **Rollout:** v0.24.0. `quic.max_per_client = 256` changes behavior only for a client holding more than 256 HTTP/3 connections. `quic.accept_rate` stays off. `CONFIG.md` and `examples/dvarapala.toml` are updated in the implementation.
 - **Off switch:** `quic.max_per_client = 0` and `quic.accept_rate = 0`.
+
+## Implementation notes
+
+- `QuicConfig` carries the three keys and the grouping as one `conns:
+  ConnsConfig` (the engine's type), not as separate fields.
+- `l4.exempt` does not apply to QUIC: the RFC takes only the grouping and
+  the table capacity from `[l4]`.
+- A bad grouping (for example `l4.prefix_v4 = 0`) is reported by
+  `QuicListener::bind` as `quic limits: ...`.
+- The bench `quic_conns` measures the table through `ClientLimits`, which is
+  public for it.

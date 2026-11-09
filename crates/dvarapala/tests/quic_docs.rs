@@ -13,7 +13,6 @@ fn read(name: &str) -> String {
 }
 
 #[test]
-#[ignore = "rfc 0036"]
 fn config_reference_and_example_list_every_key_and_metric() {
     let (config, example) = (read("CONFIG.md"), read("examples/dvarapala.toml"));
     for k in KEYS {
