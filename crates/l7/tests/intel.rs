@@ -45,6 +45,8 @@ fn hits(feed: &str, action: &str, mode: &str) -> u64 {
 }
 
 fn feed(name: &str, action: Action, enforce: bool) -> Feed {
+    // `Intel::new` makes its counters, so the recorder must exist first
+    metrics();
     Feed {
         name: name.into(),
         action,
