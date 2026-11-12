@@ -41,6 +41,14 @@ impl FeedList {
         *self.0.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(set);
     }
 
+    /// Membership under the read guard, without cloning the shared set.
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(ip)
+    }
+
     pub fn get(&self) -> Arc<PrefixSet> {
         self.0
             .read()
@@ -71,6 +79,8 @@ pub(crate) enum Effect {
 #[derive(Debug, Default)]
 pub struct Intel {
     feeds: Vec<Feed>,
+    /// `dvarapala_intel_hits_total` per feed, made once: the labels are fixed.
+    hits: Vec<metrics::Counter>,
     #[cfg(feature = "geoip")]
     geo: Vec<Arc<crate::GeoIp>>,
 }
@@ -79,8 +89,21 @@ impl Intel {
     /// Feeds past [`MAX_FEEDS`] are ignored; the config refuses them.
     pub fn new(mut feeds: Vec<Feed>) -> Self {
         feeds.truncate(MAX_FEEDS);
+        let hits = feeds
+            .iter()
+            .map(|f| {
+                let mode = if f.enforce { "enforce" } else { "observe" };
+                metrics::counter!(
+                    "dvarapala_intel_hits_total",
+                    "feed" => f.name.clone(),
+                    "action" => f.action.name(),
+                    "mode" => mode
+                )
+            })
+            .collect();
         Self {
             feeds,
+            hits,
             #[cfg(feature = "geoip")]
             geo: Vec::new(),
         }
@@ -100,17 +123,10 @@ impl Intel {
         let mut origin = Origin::default();
         let mut effect = Effect::None;
         for (i, f) in self.feeds.iter().enumerate() {
-            if !f.list.get().contains(ip) {
+            if !f.list.contains(ip) {
                 continue;
             }
-            let mode = if f.enforce { "enforce" } else { "observe" };
-            metrics::counter!(
-                "dvarapala_intel_hits_total",
-                "feed" => f.name.clone(),
-                "action" => f.action.name(),
-                "mode" => mode
-            )
-            .increment(1);
+            self.hits[i].increment(1);
             if f.enforce {
                 origin.feeds |= 1 << i;
                 effect = effect.max(match f.action {
