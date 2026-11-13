@@ -100,7 +100,6 @@ fn flat(cfg: &Config) -> BTreeMap<String, Value> {
 // figment::Jail closures return figment::Error by value; not ours to box
 #[allow(clippy::result_large_err)]
 mod tests {
-    use figment::Jail;
 
     use super::*;
 
@@ -122,7 +121,7 @@ mod tests {
 
     fn load(toml: &str) -> Config {
         let mut out = None;
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file("d.toml", toml)?;
             out = Some(super::super::load(Some("d.toml".as_ref())).map_err(|e| e.to_string())?);
             Ok(())

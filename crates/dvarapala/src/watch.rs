@@ -95,14 +95,12 @@ fn model_file(r: &Reloader) -> (Option<PathBuf>, Option<Vec<u8>>) {
 mod tests {
     use std::path::Path;
 
-    use figment::Jail;
-
     use super::*;
     use crate::config;
 
     #[test]
     fn empty_is_off_and_durations_parse() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file("d.toml", "upstream = \"http://127.0.0.1:1\"\n")?;
             assert_eq!(
                 config::load(Some(Path::new("d.toml")))

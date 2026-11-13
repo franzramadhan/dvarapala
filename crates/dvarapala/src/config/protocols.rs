@@ -129,14 +129,12 @@ impl Upgrade {
 mod tests {
     use std::path::Path;
 
-    use figment::Jail;
-
     use super::*;
     use crate::config::load;
 
     #[test]
     fn http2_defaults_match_the_rfc() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             let c = load(None).map_err(|e| e.to_string())?;
             assert_eq!(c.upstream_protocol, UpstreamProtocol::Http1);
@@ -157,7 +155,7 @@ mod tests {
 
     #[test]
     fn http2_from_file_and_env() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\nupstream_protocol = \"http2\"\n[http2]\nkeepalive_interval = \"0s\"\n",
@@ -169,7 +167,7 @@ mod tests {
             assert_eq!(c.http2.max_concurrent_streams, 8);
             Ok(())
         });
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\nupstream_protocol = \"h2\"\n",
@@ -182,7 +180,7 @@ mod tests {
 
     #[test]
     fn upgrade_defaults_match_the_rfc() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             let u = load(None).map_err(|e| e.to_string())?.upgrade;
             assert_eq!(u.protocols, ["websocket"]);
@@ -195,7 +193,7 @@ mod tests {
 
     #[test]
     fn upgrade_from_file_and_env() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[upgrade]\nprotocols = []\nmax_lifetime = \"0s\"\n",

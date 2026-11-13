@@ -151,8 +151,6 @@ impl L4 {
 mod tests {
     use std::path::Path;
 
-    use figment::Jail;
-
     use super::*;
 
     /// RFC 0009 configuration table.
@@ -160,7 +158,7 @@ mod tests {
     fn defaults_and_section() {
         let d = L4::default().config().unwrap();
         assert_eq!(d, L4Config::default());
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[l4]\nmax_connections = 10000\nmax_per_client = 0\naccept_rate = 10\naccept_burst = 20\nprefix_v6 = 56\nexempt = [\"192.0.2.0/24\"]\nheader_timeout = \"5s\"\nidle_timeout = \"0s\"\nmin_body_rate = 100\n",
@@ -238,7 +236,7 @@ mod tests {
                 .unwrap_err()
                 .contains("proxy_protocol_timeout")
         );
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[l4]\nproxy_protocol = \"any\"\nproxy_protocol_from = [\"192.0.2.0/24\"]\nproxy_protocol_timeout = \"2s\"\n",

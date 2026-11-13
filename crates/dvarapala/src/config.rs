@@ -13,6 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 mod admin;
 mod challenge;
 mod concurrency;
+mod exclusive;
 mod forward;
 mod history;
 mod intel;
@@ -30,6 +31,8 @@ mod xdp;
 pub use admin::Admin;
 pub use challenge::{Challenge, Fingerprint};
 pub use concurrency::Concurrency;
+#[cfg(test)]
+pub(crate) use exclusive::jail;
 pub use forward::{Forward, ProxyMode};
 pub use history::History;
 pub use intel::{Feed, Intel};
@@ -238,16 +241,18 @@ impl Default for RateLimit {
     }
 }
 
-/// Reads `path` (when given) and the environment.
+/// Reads `path` (when given) and the environment, all of it under the test lock: merge reads the environment as it is called.
 pub fn load(path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
-    let mut f = Figment::new();
-    if let Some(path) = path {
-        // file_exact: a missing --config file is an error, not an empty config
-        f = f.merge(Toml::file_exact(path));
-    }
-    f.merge(Env::prefixed("DVARAPALA__").split("__"))
-        .extract()
-        .map_err(Box::new)
+    exclusive::exclusive(|| {
+        let mut f = Figment::new();
+        if let Some(path) = path {
+            // file_exact: a missing --config file is an error, not an empty config
+            f = f.merge(Toml::file_exact(path));
+        }
+        f.merge(Env::prefixed("DVARAPALA__").split("__"))
+            .extract()
+            .map_err(Box::new)
+    })
 }
 
 #[cfg(test)]
@@ -255,11 +260,10 @@ pub fn load(path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
 #[allow(clippy::result_large_err)]
 mod tests {
     use super::*;
-    use figment::Jail;
 
     #[test]
     fn env_overrides_file() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[rate_limit]\nrate = 50\n",
@@ -274,7 +278,7 @@ mod tests {
 
     #[test]
     fn missing_upstream_names_the_key() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file("d.toml", "listen = \"127.0.0.1:8080\"\n")?;
             let c = load(Some(Path::new("d.toml"))).map_err(|e| e.to_string())?;
             let e = c.pool.config(c.upstream.as_deref()).unwrap_err();
@@ -286,7 +290,7 @@ mod tests {
     /// RFC 0007 configuration table.
     #[test]
     fn forward_section() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "mode = \"forward\"\n[[forward.destinations]]\norigin = \"https://api.provider-a.example\"\nrate = 50\n[[forward.destinations]]\nname = \"b\"\norigin = \"http://192.0.2.1:8080\"\nrate = 0.5\nburst = 3\nmax_concurrent = 2\nmax_queue = 0\nmax_wait = \"500ms\"\nmax_pause = \"0s\"\n",
@@ -327,7 +331,7 @@ mod tests {
 
     #[test]
     fn defaults_match_the_rfc() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             let c = load(None).map_err(|e| e.to_string())?;
             assert_eq!(c.listen, "0.0.0.0:8080".parse().unwrap());
@@ -348,7 +352,7 @@ mod tests {
 
     #[test]
     fn unknown_key_is_an_error() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\nrate_limt = {}\n",
@@ -361,7 +365,7 @@ mod tests {
 
     #[test]
     fn detection_defaults_match_the_rfc() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             let c = load(None).map_err(|e| e.to_string())?;
             let d = &c.detection;
@@ -391,7 +395,7 @@ mod tests {
 
     #[test]
     fn detection_from_file_and_env() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[detection]\nmode = \"enforce\"\nwindow = \"500ms\"\n",
@@ -407,7 +411,7 @@ mod tests {
 
     #[test]
     fn bad_mode_is_an_error() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"http://127.0.0.1:8081\"\n[detection]\nmode = \"block\"\n",
@@ -420,7 +424,7 @@ mod tests {
 
     #[test]
     fn tls_defaults_match_the_rfc() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             let c = load(None).map_err(|e| e.to_string())?;
             assert_eq!((c.tls.cert.as_deref(), c.tls.key.as_deref()), (None, None));
@@ -434,7 +438,7 @@ mod tests {
 
     #[test]
     fn tls_from_file() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.create_file(
                 "d.toml",
                 "upstream = \"https://127.0.0.1:8443\"\n[tls]\ncert = \"c.pem\"\nkey = \"k.pem\"\nhandshake_timeout = \"2s\"\n[upstream_tls]\nserver_name = \"app.test\"\n",
@@ -480,7 +484,7 @@ mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
         // in a jail: other tests set `DVARAPALA__*` inside theirs, and the
         // jail lock keeps them from leaking into this one
-        figment::Jail::expect_with(|_| {
+        crate::config::jail(|_| {
             let mut n = 0;
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
