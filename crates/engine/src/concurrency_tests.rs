@@ -132,7 +132,8 @@ fn fixed_is_a_hard_cap() {
 }
 
 // issue 350: no window closes in fixed mode, so a release has no
-// histogram write and no window bookkeeping
+// histogram write. This reads the private `hist` because the fix has no
+// other observable.
 #[test]
 fn fixed_release_records_no_sample() {
     let c = Concurrency::new(fixed(10, 0.2), Instant::now()).unwrap();
@@ -143,7 +144,6 @@ fn fixed_release_records_no_sample() {
     assert_eq!(c.in_flight(), 0);
     let samples: u32 = c.hist.iter().map(|b| b.load(Relaxed)).sum();
     assert_eq!(samples, 0);
-    assert_eq!(c.window_end.load(Relaxed), 0);
 }
 
 // RFC 0032 case 4

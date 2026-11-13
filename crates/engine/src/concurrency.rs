@@ -278,15 +278,15 @@ impl Concurrency {
 
     /// Closes the window when it has ended, unless another thread is.
     pub fn tick(&self, now: Instant) -> Option<Update> {
+        if self.fixed {
+            return None;
+        }
         let at = now.saturating_duration_since(self.epoch).as_nanos() as u64;
         let end = self.window_end.load(Relaxed);
         if end != 0 && at < end {
             return None;
         }
         let mut w = self.state.try_lock().ok()?;
-        if w.config.mode == LimitMode::Fixed {
-            return None;
-        }
         let next = at + w.config.window.as_nanos() as u64;
         if self
             .window_end
