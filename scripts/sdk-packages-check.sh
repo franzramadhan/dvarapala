@@ -61,7 +61,12 @@ mkdir "$work/app"
 echo "== RFC 0027 cases 1, 3, 4: the Go module tree"
 mkdir -p "$work/libs/$go"
 cp target/release/libdvarapala.a "$work/libs/$go/"
-if [ "$(uname -s)" = Linux ]; then strip --strip-debug "$work/libs/$go/libdvarapala.a"; else strip -S "$work/libs/$go/libdvarapala.a"; fi
+# the system strip keeps std's LLVM bitcode, which Go's cgo rejects; same as release.yml
+objcopy="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-objcopy"
+if [ "$(uname -s)" = Linux ]; then bitcode="--remove-section=.llvmbc --remove-section=.llvmcmd"
+else bitcode="--remove-section=__LLVM,__bitcode --remove-section=__LLVM,__cmdline"; fi
+# shellcheck disable=SC2086
+"$objcopy" --strip-debug $bitcode "$work/libs/$go/libdvarapala.a"
 scripts/go-module.sh "$work/mod" "$work/libs"
 (cd "$work/mod" && go vet ./... && go test -count=1 ./...)
 mkdir "$work/use"
