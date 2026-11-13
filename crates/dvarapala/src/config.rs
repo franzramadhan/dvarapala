@@ -13,6 +13,8 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 mod admin;
 mod challenge;
 mod concurrency;
+#[cfg(test)]
+mod exclusive_tests;
 mod forward;
 mod history;
 mod intel;
