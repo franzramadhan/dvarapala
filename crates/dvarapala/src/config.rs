@@ -14,8 +14,6 @@ mod admin;
 mod challenge;
 mod concurrency;
 mod exclusive;
-#[cfg(test)]
-mod exclusive_tests;
 mod forward;
 mod history;
 mod intel;
@@ -243,9 +241,8 @@ impl Default for RateLimit {
     }
 }
 
-/// Reads `path` (when given) and the environment.
+/// Reads `path` (when given) and the environment, all of it under the test lock: merge reads the environment as it is called.
 pub fn load(path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
-    // merge reads the environment eagerly, so the lock covers all of it
     exclusive::exclusive(|| {
         let mut f = Figment::new();
         if let Some(path) = path {

@@ -35,3 +35,7 @@ pub(crate) fn jail(f: impl FnOnce(&mut Jail) -> figment::error::Result<()>) {
         r
     });
 }
+
+#[cfg(test)]
+#[path = "exclusive_tests.rs"]
+mod tests;
