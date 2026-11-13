@@ -131,6 +131,21 @@ fn fixed_is_a_hard_cap() {
     assert_eq!(c.tick(Instant::now() + Duration::from_secs(5)), None);
 }
 
+// issue 350: no window closes in fixed mode, so a release has no
+// histogram write and no window bookkeeping
+#[test]
+fn fixed_release_records_no_sample() {
+    let c = Concurrency::new(fixed(10, 0.2), Instant::now()).unwrap();
+    for outcome in [Outcome::Answered(MS), Outcome::Failed(MS)] {
+        let w = c.admit(p(Class::Trusted)).unwrap();
+        assert_eq!(c.release(w, outcome, Instant::now()), None);
+    }
+    assert_eq!(c.in_flight(), 0);
+    let samples: u32 = c.hist.iter().map(|b| b.load(Relaxed)).sum();
+    assert_eq!(samples, 0);
+    assert_eq!(c.window_end.load(Relaxed), 0);
+}
+
 // RFC 0032 case 4
 #[test]
 fn the_reserve_is_for_trusted_requests() {
