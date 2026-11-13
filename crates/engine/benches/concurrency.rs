@@ -9,9 +9,19 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use dvarapala_engine::{Class, Concurrency, ConcurrencyConfig, LimitMode, Outcome, Priority};
 
 fn admit_release(c: &mut Criterion) {
+    for (name, mode, limit) in [
+        ("", LimitMode::Gradient, 0),
+        ("fixed_", LimitMode::Fixed, 1000),
+    ] {
+        pair(c, name, mode, limit);
+    }
+    floor(c);
+}
+
+fn pair(c: &mut Criterion, name: &str, mode: LimitMode, limit: u32) {
     let config = ConcurrencyConfig {
-        mode: LimitMode::Gradient,
-        limit: 0,
+        mode,
+        limit,
         min: 1000,
         max: 1000,
         window: Duration::from_secs(1),
@@ -24,32 +34,38 @@ fn admit_release(c: &mut Criterion) {
     };
     let latency = Outcome::Answered(Duration::from_millis(5));
     for n in [1, 8] {
-        c.bench_function(&format!("concurrency_admit_release_{n}_threads"), |b| {
-            b.iter_custom(|iters| {
-                // each thread times its own loop, after a barrier, so thread
-                // spawns stay out of the measurement
-                let start = Arc::new(Barrier::new(n));
-                let threads: Vec<_> = (0..n)
-                    .map(|_| {
-                        let (l, start) = (limiter.clone(), start.clone());
-                        std::thread::spawn(move || {
-                            start.wait();
-                            let t = Instant::now();
-                            for _ in 0..iters {
-                                if let Some(w) = l.admit(black_box(p)) {
-                                    l.release(w, latency, Instant::now());
+        c.bench_function(
+            &format!("concurrency_{name}admit_release_{n}_threads"),
+            |b| {
+                b.iter_custom(|iters| {
+                    // each thread times its own loop, after a barrier, so thread
+                    // spawns stay out of the measurement
+                    let start = Arc::new(Barrier::new(n));
+                    let threads: Vec<_> = (0..n)
+                        .map(|_| {
+                            let (l, start) = (limiter.clone(), start.clone());
+                            std::thread::spawn(move || {
+                                start.wait();
+                                let t = Instant::now();
+                                for _ in 0..iters {
+                                    if let Some(w) = l.admit(black_box(p)) {
+                                        l.release(w, latency, Instant::now());
+                                    }
                                 }
-                            }
-                            t.elapsed()
+                                t.elapsed()
+                            })
                         })
-                    })
-                    .collect();
-                // time per pair, as the average thread sees it
-                let total: Duration = threads.into_iter().map(|t| t.join().unwrap()).sum();
-                total / n as u32
-            })
-        });
+                        .collect();
+                    // time per pair, as the average thread sees it
+                    let total: Duration = threads.into_iter().map(|t| t.join().unwrap()).sum();
+                    total / n as u32
+                })
+            },
+        );
     }
+}
+
+fn floor(c: &mut Criterion) {
     // the floor: one shared counter taken and given back, no limit
     let counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
     c.bench_function("shared_counter_8_threads", |b| {
