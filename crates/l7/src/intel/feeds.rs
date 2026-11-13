@@ -38,7 +38,11 @@ impl FeedList {
     }
 
     pub fn set(&self, set: PrefixSet) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(set);
+        let mut guard = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        let old = std::mem::replace(&mut *guard, Arc::new(set));
+        // Free the old set after the lock: readers wait on it otherwise.
+        drop(guard);
+        drop(old);
     }
 
     /// Membership under the read guard, without cloning the shared set.

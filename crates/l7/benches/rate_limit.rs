@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use criterion::{Criterion, criterion_group, criterion_main};
 use dvarapala_engine::{
-    Cluster, ClusterConfig, DetectConfig, Features, Limit, Scorer, TrustedProxies,
+    Cluster, ClusterConfig, DetectConfig, Features, Limit, PrefixSet, Scorer, TrustedProxies,
 };
 use dvarapala_l7::{
-    Detection, Matcher, PathMatch, PeerAddr, RateLimitConfig, RateLimitLayer, RouteConfig,
-    RouteKey, Scoring,
+    Action, Detection, Feed, FeedList, Intel, Matcher, PathMatch, PeerAddr, RateLimitConfig,
+    RateLimitLayer, RouteConfig, RouteKey, Scoring,
 };
 use http::{Request, Response, StatusCode};
 use http_body_util::Full;
@@ -212,6 +212,40 @@ fn bench(c: &mut Criterion) {
         for n in [1, 8] {
             c.bench_function(&format!("rate_limit_call_{name}_{n}_threads"), |b| {
                 b.iter_custom(|iters| run(&layer, path, n, iters))
+            });
+        }
+    }
+    bench_feeds(c);
+}
+
+fn feed(name: &str, nets: &[&str], enforce: bool) -> Feed {
+    Feed {
+        name: name.into(),
+        action: Action::Deny,
+        enforce,
+        list: FeedList::new(PrefixSet::new(nets.iter().map(|n| n.parse().unwrap()))),
+    }
+}
+
+/// Issue 349: feeds configured. A hit is a `deny` feed (observe mode, so the
+/// request still passes) holding the clients' range; a miss walks several
+/// feeds that hold none of them.
+fn bench_feeds(c: &mut Criterion) {
+    let miss = ["192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"];
+    let cases = [
+        ("feeds_hit", vec![feed("hit", &["198.18.0.0/15"], false)]),
+        (
+            "feeds_miss",
+            miss.iter().map(|n| feed(n, &[n], true)).collect(),
+        ),
+    ];
+    for (name, feeds) in cases {
+        let layer = RateLimitLayer::new(config()).unwrap();
+        layer.set_intel(Arc::new(Intel::new(feeds)));
+        assert_eq!(once(&layer, "/"), StatusCode::OK, "{name}: rejected");
+        for n in [1, 8] {
+            c.bench_function(&format!("rate_limit_call_{name}_{n}_threads"), |b| {
+                b.iter_custom(|iters| run(&layer, "/", n, iters))
             });
         }
     }
