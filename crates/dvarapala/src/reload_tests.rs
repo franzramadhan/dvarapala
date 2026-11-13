@@ -6,7 +6,6 @@ use std::path::Path;
 use std::time::Instant;
 
 use dvarapala_l7::RateLimitConfig;
-use figment::Jail;
 
 use super::*;
 
@@ -43,7 +42,7 @@ fn reloader(path: &str) -> Reloader {
 // RFC 0014 case 7
 #[test]
 fn rate_applied_listen_needs_a_restart() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("d.toml", &format!("{BASE}[rate_limit]\nrate = 10\n"))?;
         let r = reloader("d.toml");
         j.create_file(
@@ -60,7 +59,7 @@ fn rate_applied_listen_needs_a_restart() {
 // RFC 0014 case 8
 #[test]
 fn invalid_route_refused_whole() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("d.toml", BASE)?;
         let r = reloader("d.toml");
         j.create_file(
@@ -79,7 +78,7 @@ fn invalid_route_refused_whole() {
 
 #[test]
 fn ja4_needs_a_restart_bad_keys_refuse_the_file() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("d.toml", BASE)?;
         let r = reloader("d.toml");
         j.create_file(
@@ -107,7 +106,7 @@ fn ja4_needs_a_restart_bad_keys_refuse_the_file() {
 fn detection_mode_and_factor_reload_in_place() {
     // in a jail, so no `DVARAPALA__*` another test sets leaks in
     let mut defaults = None;
-    Jail::expect_with(|_| {
+    crate::config::jail(|_| {
         defaults = Some(config::load(None).map_err(|e| e.to_string())?);
         Ok(())
     });
@@ -128,7 +127,7 @@ fn detection_mode_and_factor_reload_in_place() {
 // RFC 0032: the bounds reload in place, the mode needs a restart
 #[test]
 fn concurrency_bounds_reload_mode_restarts() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         let fixed =
             |limit: u32| format!("{BASE}[concurrency]\nmode = \"fixed\"\nlimit = {limit}\n");
         j.create_file("d.toml", &fixed(10))?;
@@ -193,7 +192,7 @@ fn status(layer: &RateLimitLayer, peer: &str) -> u16 {
 // RFC 0031 case 9: what config_watch runs when a feed file changes
 #[test]
 fn a_changed_path_feed_applies_on_reload() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("drop.txt", "192.0.2.0/24\n")?;
         let feed = "[[intel.feed]]\nname = \"drop\"\npath = \"drop.txt\"\naction = \"deny\"\nmode = \"enforce\"\n";
         j.create_file("d.toml", &format!("{BASE}{feed}"))?;

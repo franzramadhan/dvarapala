@@ -1,13 +1,11 @@
-use figment::Jail;
-
-use crate::config::load;
+use crate::config::{jail, load};
 
 /// Issue 358: `load` outside a jail must not see a jail's environment.
 #[test]
 fn unjailed_load_ignores_a_jails_environment() {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut reader = None;
-    Jail::expect_with(|j| {
+    jail(|j| {
         j.set_env("DVARAPALA__CONFIG_WATCH", "soon");
         reader = Some(std::thread::spawn(move || {
             tx.send(()).unwrap();

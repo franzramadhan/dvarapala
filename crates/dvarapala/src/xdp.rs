@@ -53,12 +53,11 @@ fn load(_: config::XdpPlan) -> Result<Option<BlockSink>, Box<dyn Error>> {
 // figment::Jail closures return figment::Error by value; not ours to box
 #[allow(clippy::result_large_err)]
 mod tests {
-    use figment::Jail;
 
     // RFC 0011 case 11
     #[test]
     fn interface_needs_the_feature() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             j.set_env("DVARAPALA__XDP__INTERFACE", "eth0");
             let c = crate::config::load(None).map_err(|e| e.to_string())?;

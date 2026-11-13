@@ -7,7 +7,6 @@ use std::path::Path;
 use std::time::Instant;
 
 use dvarapala_l7::RateLimitLayer;
-use figment::Jail;
 
 use super::*;
 use crate::reload::Reloader;
@@ -52,7 +51,7 @@ fn fixture() -> String {
 /// In a jail, so no `DVARAPALA__*` another test sets leaks in.
 fn defaults() -> Config {
     let mut cfg = None;
-    Jail::expect_with(|_| {
+    crate::config::jail(|_| {
         cfg = Some(config::load(None).map_err(|e| e.to_string())?);
         Ok(())
     });
@@ -68,7 +67,7 @@ fn sha(r: &Reloader) -> Option<String> {
 #[cfg(feature = "ml")]
 #[test]
 fn threshold_and_model_reload_in_place() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("m.json", &fixture())?;
         j.create_file("d.toml", &toml(true, 0.9))?;
         let r = reloader();
@@ -86,7 +85,7 @@ fn threshold_and_model_reload_in_place() {
 #[cfg(feature = "ml")]
 #[test]
 fn new_bytes_swap_the_same_bytes_keep_the_model() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("m.json", &fixture())?;
         j.create_file("d.toml", &toml(true, 0.9))?;
         let r = reloader();
@@ -108,7 +107,7 @@ fn new_bytes_swap_the_same_bytes_keep_the_model() {
 #[cfg(feature = "ml")]
 #[test]
 fn a_bad_model_refuses_the_reload_and_keeps_the_running_one() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("m.json", &fixture())?;
         j.create_file("d.toml", &toml(true, 0.9))?;
         let r = reloader();
@@ -130,7 +129,7 @@ fn a_bad_model_refuses_the_reload_and_keeps_the_running_one() {
 #[cfg(feature = "ml")]
 #[test]
 fn a_model_set_then_removed_by_reloads() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("d.toml", &toml(false, 0.9))?;
         let r = reloader();
         assert!(r.model().is_none());
@@ -149,7 +148,7 @@ fn a_model_set_then_removed_by_reloads() {
 #[cfg(not(feature = "ml"))]
 #[test]
 fn a_model_needs_the_ml_feature_on_reload() {
-    Jail::expect_with(|j| {
+    crate::config::jail(|j| {
         j.create_file("d.toml", &toml(false, 0.9))?;
         let r = reloader();
         j.create_file("d.toml", &toml(true, 0.9))?;

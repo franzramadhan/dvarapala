@@ -89,13 +89,12 @@ impl<S> tower_layer::Layer<S> for Layer {
 // figment::Jail closures return figment::Error by value; not ours to box
 #[allow(clippy::result_large_err)]
 mod tests {
-    use figment::Jail;
 
     // RFC 0017: a remote agent is allowed (with a warning); the trusted
     // proxies are checked as for the limiter
     #[test]
     fn remote_endpoint_and_trusted_proxies() {
-        Jail::expect_with(|j| {
+        crate::config::jail(|j| {
             j.set_env("DVARAPALA__UPSTREAM", "http://127.0.0.1:8081");
             j.set_env("DVARAPALA__WAF__ENABLED", "true");
             j.set_env("DVARAPALA__WAF__ENDPOINT", "192.0.2.10:9000");
