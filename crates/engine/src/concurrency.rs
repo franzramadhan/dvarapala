@@ -149,6 +149,9 @@ pub struct Concurrency {
     noload: AtomicU64,
     hist: [AtomicU32; BUCKETS],
     epoch: Instant,
+    /// the mode never changes (`reconfigure` refuses it); fixed has no
+    /// windows, so release skips the histogram and the lock
+    fixed: bool,
     /// ns since `epoch` when the window closes; 0 before the first sample
     window_end: AtomicU64,
     state: Mutex<Window>,
@@ -174,6 +177,7 @@ impl Concurrency {
             noload: AtomicU64::new(0),
             hist: std::array::from_fn(|_| AtomicU32::new(0)),
             epoch: now,
+            fixed: config.mode == LimitMode::Fixed,
             window_end: AtomicU64::new(0),
             state: Mutex::new(Window {
                 config,
@@ -257,6 +261,9 @@ impl Concurrency {
             return None;
         }
         self.in_flight.fetch_sub(weight, Relaxed);
+        if self.fixed {
+            return None;
+        }
         let latency = match outcome {
             Outcome::Answered(d) => d.as_secs_f64() * 1e6,
             Outcome::Failed(d) => {
@@ -271,15 +278,15 @@ impl Concurrency {
 
     /// Closes the window when it has ended, unless another thread is.
     pub fn tick(&self, now: Instant) -> Option<Update> {
+        if self.fixed {
+            return None;
+        }
         let at = now.saturating_duration_since(self.epoch).as_nanos() as u64;
         let end = self.window_end.load(Relaxed);
         if end != 0 && at < end {
             return None;
         }
         let mut w = self.state.try_lock().ok()?;
-        if w.config.mode == LimitMode::Fixed {
-            return None;
-        }
         let next = at + w.config.window.as_nanos() as u64;
         if self
             .window_end
