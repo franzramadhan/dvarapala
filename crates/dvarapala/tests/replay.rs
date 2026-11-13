@@ -229,6 +229,27 @@ fn network_keys_warn_and_bad_lines_skip() {
     );
 }
 
+// RFC 0016: every section replay skips is named in the warning
+#[test]
+fn intel_and_concurrency_are_named_as_ignored() {
+    let d = Dir::new("intel");
+    let cfg = d.file(
+        "c.toml",
+        &format!(
+            "{}[[intel.feed]]\nname = \"drop\"\nurl = \"https://<host>/drop.txt\"\naction = \"deny\"\n[concurrency]\nmode = \"fixed\"\nlimit = 10\n",
+            base(1, 1)
+        ),
+    );
+    let log = d.file("log", "{\"ts\":1,\"client\":\"192.0.2.7\"}\n");
+    let o = replay(&cfg, &[log.to_str().unwrap()]);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(err.matches("replay ignores").count(), 1, "{err}");
+    assert!(
+        err.contains("[intel]") && err.contains("[concurrency]"),
+        "{err}"
+    );
+}
+
 // RFC 0016 case 9
 #[test]
 fn bad_inputs_exit_2() {

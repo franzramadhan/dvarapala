@@ -121,6 +121,8 @@ fn run(a: Args) -> Result<(), Box<dyn Error>> {
         ("[store]", cfg.store != Default::default()),
         ("[xdp]", cfg.xdp != Default::default()),
         ("[admin]", cfg.admin != Default::default()),
+        ("[intel]", cfg.intel != Default::default()),
+        ("[concurrency]", cfg.concurrency != Default::default()),
     ]
     .into_iter()
     .filter_map(|(k, set)| set.then_some(k))
