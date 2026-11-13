@@ -954,8 +954,8 @@ the virtual time span, then the `dvarapala_requests_total`,
 `dvarapala_waf_*` series as `/metrics` shows them. With `[waf]` enabled,
 each line is sent to the agent too, without a body: a rule set can be
 tried on a past log before `mode = "enforce"`. `--out` writes `{"line":N,"status":S}` per replayed
-line. `upstream`, `[pool]`, `[tls]`, `[quic]`, `[l4]`, `[store]`, `[xdp]` and
-`[admin]` are ignored, named in one `replay ignores` warning. A config that
+line. `upstream`, `[pool]`, `[tls]`, `[quic]`, `[l4]`, `[store]`, `[xdp]`,
+`[admin]`, `[intel]` and `[concurrency]` are ignored, named in one `replay ignores` warning. A config that
 does not load or a log that cannot be opened exits with status 2.
 
 ## Metrics
