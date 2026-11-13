@@ -38,7 +38,19 @@ impl FeedList {
     }
 
     pub fn set(&self, set: PrefixSet) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(set);
+        let mut guard = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        let old = std::mem::replace(&mut *guard, Arc::new(set));
+        // Free the old set after the lock: readers wait on it otherwise.
+        drop(guard);
+        drop(old);
+    }
+
+    /// Membership under the read guard, without cloning the shared set.
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(ip)
     }
 
     pub fn get(&self) -> Arc<PrefixSet> {
@@ -71,6 +83,8 @@ pub(crate) enum Effect {
 #[derive(Debug, Default)]
 pub struct Intel {
     feeds: Vec<Feed>,
+    /// `dvarapala_intel_hits_total` per feed, made once: the labels are fixed.
+    hits: Vec<metrics::Counter>,
     #[cfg(feature = "geoip")]
     geo: Vec<Arc<crate::GeoIp>>,
 }
@@ -79,8 +93,21 @@ impl Intel {
     /// Feeds past [`MAX_FEEDS`] are ignored; the config refuses them.
     pub fn new(mut feeds: Vec<Feed>) -> Self {
         feeds.truncate(MAX_FEEDS);
+        let hits = feeds
+            .iter()
+            .map(|f| {
+                let mode = if f.enforce { "enforce" } else { "observe" };
+                metrics::counter!(
+                    "dvarapala_intel_hits_total",
+                    "feed" => f.name.clone(),
+                    "action" => f.action.name(),
+                    "mode" => mode
+                )
+            })
+            .collect();
         Self {
             feeds,
+            hits,
             #[cfg(feature = "geoip")]
             geo: Vec::new(),
         }
@@ -100,17 +127,10 @@ impl Intel {
         let mut origin = Origin::default();
         let mut effect = Effect::None;
         for (i, f) in self.feeds.iter().enumerate() {
-            if !f.list.get().contains(ip) {
+            if !f.list.contains(ip) {
                 continue;
             }
-            let mode = if f.enforce { "enforce" } else { "observe" };
-            metrics::counter!(
-                "dvarapala_intel_hits_total",
-                "feed" => f.name.clone(),
-                "action" => f.action.name(),
-                "mode" => mode
-            )
-            .increment(1);
+            self.hits[i].increment(1);
             if f.enforce {
                 origin.feeds |= 1 << i;
                 effect = effect.max(match f.action {
@@ -179,5 +199,95 @@ mod tests {
         list.set(PrefixSet::new(["198.51.100.0/24".parse().unwrap()]));
         assert_eq!(intel.check(ip("192.0.2.1")).1, Effect::None);
         assert_eq!(list.get().len(), 1);
+    }
+
+    /// Counts registry lookups and keeps each counter's value by series.
+    #[derive(Default)]
+    struct Lookups {
+        count: std::sync::atomic::AtomicUsize,
+        series:
+            std::sync::Mutex<std::collections::BTreeMap<String, Arc<std::sync::atomic::AtomicU64>>>,
+    }
+
+    impl metrics::Recorder for Lookups {
+        fn describe_counter(
+            &self,
+            _: metrics::KeyName,
+            _: Option<metrics::Unit>,
+            _: metrics::SharedString,
+        ) {
+        }
+        fn describe_gauge(
+            &self,
+            _: metrics::KeyName,
+            _: Option<metrics::Unit>,
+            _: metrics::SharedString,
+        ) {
+        }
+        fn describe_histogram(
+            &self,
+            _: metrics::KeyName,
+            _: Option<metrics::Unit>,
+            _: metrics::SharedString,
+        ) {
+        }
+        fn register_counter(
+            &self,
+            k: &metrics::Key,
+            _: &metrics::Metadata<'_>,
+        ) -> metrics::Counter {
+            self.count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let labels: Vec<_> = k
+                .labels()
+                .map(|l| format!("{}={}", l.key(), l.value()))
+                .collect();
+            let id = format!("{}{{{}}}", k.name(), labels.join(","));
+            let c = self.series.lock().unwrap().entry(id).or_default().clone();
+            metrics::Counter::from_arc(c)
+        }
+        fn register_gauge(&self, _: &metrics::Key, _: &metrics::Metadata<'_>) -> metrics::Gauge {
+            metrics::Gauge::noop()
+        }
+        fn register_histogram(
+            &self,
+            _: &metrics::Key,
+            _: &metrics::Metadata<'_>,
+        ) -> metrics::Histogram {
+            metrics::Histogram::noop()
+        }
+    }
+
+    // issue 349: hits reuse handles made in `Intel::new`; series and values stay
+    #[test]
+    fn hit_metrics_are_not_looked_up_per_request() {
+        use std::sync::atomic::Ordering;
+        let rec = Lookups::default();
+        metrics::with_local_recorder(&rec, || {
+            let intel = Intel::new(vec![
+                feed("drop", Action::Deny, true, &["192.0.2.0/24"]),
+                feed("tor", Action::Tag, false, &["192.0.2.0/24"]),
+            ]);
+            let built = rec.count.load(Ordering::Relaxed);
+            for _ in 0..5 {
+                intel.check(ip("192.0.2.7"));
+            }
+            assert_eq!(rec.count.load(Ordering::Relaxed), built);
+        });
+        let values: Vec<_> = rec
+            .series
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed)))
+            .collect();
+        let id = |f, a, m| format!("dvarapala_intel_hits_total{{feed={f},action={a},mode={m}}}");
+        assert_eq!(
+            values,
+            vec![
+                (id("drop", "deny", "enforce"), 5),
+                (id("tor", "tag", "observe"), 5)
+            ]
+        );
     }
 }
