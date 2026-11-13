@@ -10,6 +10,7 @@ use figment::Jail;
 thread_local!(static IN_JAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
 
 /// Runs `f`; under test, holds the jail lock unless this thread already does.
+#[cfg_attr(test, allow(clippy::result_large_err))]
 pub(super) fn exclusive<T>(f: impl FnOnce() -> T) -> T {
     #[cfg(test)]
     if !IN_JAIL.get() {

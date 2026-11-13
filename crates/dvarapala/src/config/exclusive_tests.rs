@@ -2,6 +2,7 @@ use crate::config::{jail, load};
 
 /// Issue 358: `load` outside a jail must not see a jail's environment.
 #[test]
+#[allow(clippy::result_large_err)]
 fn unjailed_load_ignores_a_jails_environment() {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut reader = None;
