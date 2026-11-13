@@ -245,13 +245,17 @@ impl Default for RateLimit {
 
 /// Reads `path` (when given) and the environment.
 pub fn load(path: Option<&Path>) -> Result<Config, Box<figment::Error>> {
-    let mut f = Figment::new();
-    if let Some(path) = path {
-        // file_exact: a missing --config file is an error, not an empty config
-        f = f.merge(Toml::file_exact(path));
-    }
-    let f = f.merge(Env::prefixed("DVARAPALA__").split("__"));
-    exclusive::exclusive(|| f.extract().map_err(Box::new))
+    // merge reads the environment eagerly, so the lock covers all of it
+    exclusive::exclusive(|| {
+        let mut f = Figment::new();
+        if let Some(path) = path {
+            // file_exact: a missing --config file is an error, not an empty config
+            f = f.merge(Toml::file_exact(path));
+        }
+        f.merge(Env::prefixed("DVARAPALA__").split("__"))
+            .extract()
+            .map_err(Box::new)
+    })
 }
 
 #[cfg(test)]
