@@ -41,6 +41,7 @@ the RFCs it implements. Versions stay 0.x (alpha) until a 1.0 is decided.
 | [0034](rfc/0034-decoys.md) | Decoys and honeytokens: trap paths answered by dvarapala and never proxied, sealed fake credentials that mark and link the client that reuses them, an optional lure that separates agents from scanners; marks shared through the store, deny, challenge or tag, `observe` first, off until enabled | accepted | |
 | [0035](rfc/0035-sdk-decoys.md) | SDK parity for decoys: trap answers (`DV_DECOY`, `dv_decoy_response`), honeytokens in request headers, marks per process, `dv_decoy_mark` and counters, in the C ABI and the Go, Python and JavaScript middleware | accepted | |
 | [0036](rfc/0036-quic-client-limits.md) | Per-client QUIC connection limits: open connections and new-connection rate per client (`quic.max_per_client`, `quic.accept_rate`), counted on the validated address, refused before the handshake or closed before any request | accepted | v0.24.0 |
+| [0038](rfc/0038-intel-feeds-xdp.md) | Intel deny feeds in the XDP block list (`intel.feed[].xdp`): an enforced `deny` feed's networks dropped in the driver, updated as a diff on each refresh, sharing `xdp.max_blocks`, all or nothing per feed, off until enabled | draft | v0.25.0 |
 
 ## Shipped without an RFC
 
